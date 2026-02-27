@@ -28,6 +28,20 @@ pub struct ClientManager {
     vatsim_only_positions: RwLock<HashMap<PositionId, HashSet<ClientId>>>,
 }
 
+/// Intermediate results from syncing vacs client positions against the VATSIM datafeed.
+struct ClientPositionSync {
+    /// Clients whose VATSIM connection was lost or became ambiguous.
+    disconnected_clients: Vec<(ClientId, DisconnectReason)>,
+    /// Session info messages to send to clients whose position changed.
+    session_info_updates: Vec<(ClientSession, server::SessionInfo)>,
+    /// Client info updates to broadcast to all clients.
+    client_info_updates: Vec<ServerMessage>,
+    /// Clients that joined an already-online position and need self-handoff events.
+    self_handoff_clients: Vec<(ClientSession, PositionId)>,
+    /// Whether any position was added or removed from the online set.
+    positions_changed: bool,
+}
+
 impl ClientManager {
     pub fn new(broadcast_tx: broadcast::Sender<ServerMessage>, network: Network) -> Self {
         Self {
@@ -87,7 +101,8 @@ impl ClientManager {
     ) -> Result<(ClientSession, mpsc::Receiver<ServerMessage>)> {
         tracing::trace!("Adding client");
 
-        if self.clients.read().await.contains_key(&client_info.id) {
+        let mut clients = self.clients.write().await;
+        if clients.contains_key(&client_info.id) {
             tracing::trace!("Client already exists");
             return Err(ClientManagerError::DuplicateClient(
                 client_info.id.to_string(),
@@ -102,18 +117,15 @@ impl ClientManager {
             tx,
             client_connection_guard,
         );
-        self.clients
-            .write()
-            .await
-            .insert(client_info.id.clone(), client.clone());
+        clients.insert(client_info.id.clone(), client.clone());
+        drop(clients);
 
         let changes = if let Some(position_id) = client.position_id() {
             let mut online_positions = self.online_positions.write().await;
 
             let exists_and_not_empty = online_positions
                 .get(position_id)
-                .map(|c| !c.is_empty())
-                .unwrap_or(false);
+                .is_some_and(|c| !c.is_empty());
 
             if exists_and_not_empty {
                 tracing::trace!(
@@ -280,6 +292,7 @@ impl ClientManager {
             );
             self.vatsim_only_positions.write().await.clear();
             self.online_stations.write().await.clear();
+            return;
         }
 
         self.broadcast_station_changes(&changes).await;
@@ -636,11 +649,9 @@ impl ClientManager {
         pending_disconnect: &mut HashSet<ClientId>,
         require_active_connection: bool,
     ) -> Vec<(ClientId, DisconnectReason)> {
-        let mut updates: Vec<ServerMessage> = Vec::new();
-        let mut disconnected_clients: Vec<(ClientId, DisconnectReason)> = Vec::new();
         let mut coverage_changes: Vec<StationChange> = Vec::new();
 
-        {
+        let (sync, per_client_changes) = {
             let mut clients = self.clients.write().await;
             let mut online_positions = self.online_positions.write().await;
             let mut vatsim_only = self.vatsim_only_positions.write().await;
@@ -650,203 +661,18 @@ impl ClientManager {
                 .chain(vatsim_only.keys())
                 .cloned()
                 .collect();
-            let mut positions_changed = false;
 
-            fn disconnect_or_mark_pending(
-                cid: &ClientId,
-                pending_disconnect: &mut HashSet<ClientId>,
-                disconnected_clients: &mut Vec<(ClientId, DisconnectReason)>,
-            ) {
-                if pending_disconnect.remove(cid) {
-                    tracing::trace!(
-                        ?cid,
-                        "No active VATSIM connection found after grace period, disconnecting client and sending broadcast"
-                    );
-                    disconnected_clients
-                        .push((cid.clone(), DisconnectReason::NoActiveVatsimConnection));
-                } else {
-                    tracing::trace!(
-                        ?cid,
-                        "Client not found in data feed, but active VATSIM connection is required, marking for disconnect"
-                    );
-                    pending_disconnect.insert(cid.clone());
-                }
-            }
-
-            for (cid, session) in clients.iter_mut() {
-                tracing::trace!(?cid, ?session, "Checking session for client info update");
-
-                match controllers.get(cid) {
-                    Some(controller) if controller.facility_type == FacilityType::Unknown => {
-                        if require_active_connection {
-                            disconnect_or_mark_pending(
-                                cid,
-                                pending_disconnect,
-                                &mut disconnected_clients,
-                            );
-                        }
-                    }
-                    None => {
-                        if require_active_connection {
-                            disconnect_or_mark_pending(
-                                cid,
-                                pending_disconnect,
-                                &mut disconnected_clients,
-                            );
-                        }
-                    }
-                    Some(controller) => {
-                        if pending_disconnect.remove(cid) {
-                            tracing::trace!(
-                                ?cid,
-                                "Found active VATSIM connection for client again, removing pending disconnect"
-                            );
-                        }
-
-                        let updated = session.update_client_info(controller);
-                        if updated {
-                            tracing::trace!(
-                                ?cid,
-                                ?session,
-                                "Client info updated, updating position"
-                            );
-
-                            let old_position_id = session.position_id().cloned();
-                            let new_positions: Vec<Position> = self
-                                .network
-                                .read()
-                                .find_positions(
-                                    &controller.callsign,
-                                    &controller.frequency,
-                                    controller.facility_type,
-                                )
-                                .into_iter()
-                                .cloned()
-                                .collect();
-
-                            let new_position = if new_positions.len() > 1 {
-                                tracing::info!(
-                                    ?cid,
-                                    ?old_position_id,
-                                    ?new_positions,
-                                    "Multiple positions found for updated client info, disconnecting as ambiguous"
-                                );
-                                pending_disconnect.remove(cid);
-                                disconnected_clients.push((
-                                    cid.clone(),
-                                    DisconnectReason::AmbiguousVatsimPosition(
-                                        new_positions.into_iter().map(|p| p.id.clone()).collect(),
-                                    ),
-                                ));
-                                continue;
-                            } else if new_positions.len() == 1 {
-                                Some(&new_positions[0])
-                            } else {
-                                None
-                            };
-                            let new_position_id = new_position.map(|p| p.id.clone());
-
-                            if old_position_id != new_position_id {
-                                tracing::debug!(
-                                    ?cid,
-                                    ?new_position_id,
-                                    ?old_position_id,
-                                    "Client position changed"
-                                );
-
-                                session.set_position_id(new_position_id.clone());
-
-                                if let Some(old_position_id) = &old_position_id {
-                                    if online_positions
-                                        .get(old_position_id)
-                                        .map(|s| s.len() <= 1)
-                                        .unwrap_or(false)
-                                    {
-                                        tracing::trace!(
-                                            ?cid,
-                                            ?old_position_id,
-                                            "Removing position from online positions list"
-                                        );
-                                        online_positions.remove(old_position_id);
-                                        positions_changed = true;
-                                    } else if let Some(clients) =
-                                        online_positions.get_mut(old_position_id)
-                                    {
-                                        tracing::trace!(
-                                            ?cid,
-                                            ?old_position_id,
-                                            "Removing client from position in online positions list"
-                                        );
-                                        clients.remove(cid);
-                                    }
-                                }
-
-                                if let Some(new_position_id) = &new_position_id {
-                                    let clients = online_positions
-                                        .entry(new_position_id.clone())
-                                        .or_default();
-                                    if clients.insert(cid.clone()) && clients.len() == 1 {
-                                        positions_changed = true;
-                                    }
-                                }
-
-                                let session_profile = {
-                                    let network = self.network.read();
-                                    session.update_active_profile(
-                                        new_position.and_then(|p| p.profile_id.clone()),
-                                        &network,
-                                    )
-                                };
-
-                                if let Err(err) = session
-                                    .send_message(server::SessionInfo {
-                                        client: session.client_info().clone(),
-                                        profile: session_profile,
-                                    })
-                                    .await
-                                {
-                                    tracing::warn!(
-                                        ?err,
-                                        ?session,
-                                        "Failed to send updated session info to client"
-                                    );
-                                }
-                            }
-
-                            tracing::trace!(?cid, ?session, "Client info updated, broadcasting");
-                            updates.push(ServerMessage::from(session.client_info().clone()));
-                        }
-                    }
-                }
-            }
+            let mut sync = self.sync_client_positions(
+                controllers,
+                pending_disconnect,
+                require_active_connection,
+                &mut clients,
+                &mut online_positions,
+            );
 
             let vacs_client_ids: HashSet<&ClientId> = clients.keys().collect();
-            let mut new_vatsim_only: HashMap<PositionId, HashSet<ClientId>> = HashMap::new();
-
-            for (cid, controller) in controllers {
-                if controller.facility_type == FacilityType::Unknown
-                    || vacs_client_ids.contains(cid)
-                {
-                    continue;
-                }
-                let positions: Vec<Position> = self
-                    .network
-                    .read()
-                    .find_positions(
-                        &controller.callsign,
-                        &controller.frequency,
-                        controller.facility_type,
-                    )
-                    .into_iter()
-                    .cloned()
-                    .collect();
-                if positions.len() == 1 && !online_positions.contains_key(&positions[0].id) {
-                    new_vatsim_only
-                        .entry(positions[0].id.clone())
-                        .or_default()
-                        .insert(cid.clone());
-                }
-            }
+            let new_vatsim_only =
+                self.rebuild_vatsim_only(controllers, &vacs_client_ids, &online_positions);
 
             if *vatsim_only != new_vatsim_only {
                 tracing::debug!(
@@ -855,10 +681,10 @@ impl ClientManager {
                     "VATSIM-only positions changed"
                 );
                 *vatsim_only = new_vatsim_only;
-                positions_changed = true;
+                sync.positions_changed = true;
             }
 
-            if positions_changed {
+            if sync.positions_changed {
                 tracing::debug!("Online positions changed, calculating coverage changes");
                 let start_all = start_all_positions.iter().collect::<HashSet<_>>();
                 let end_all: HashSet<&PositionId> =
@@ -871,10 +697,43 @@ impl ClientManager {
                     &online_positions,
                 ));
             }
+
+            let per_client_changes = self.compute_self_handoffs(
+                std::mem::take(&mut sync.self_handoff_clients),
+                &coverage_changes,
+                &online_positions,
+                &vatsim_only,
+            );
+
+            (sync, per_client_changes)
+        };
+
+        // Phase 5: Send all collected messages (locks released)
+        for (session, session_info) in sync.session_info_updates {
+            if let Err(err) = session.send_message(session_info).await {
+                tracing::warn!(
+                    ?err,
+                    client_id = ?session.id(),
+                    "Failed to send updated session info to client"
+                );
+            }
+        }
+
+        for (session, changes) in per_client_changes {
+            if let Err(err) = session
+                .send_message(server::StationChanges { changes })
+                .await
+            {
+                tracing::warn!(
+                    ?err,
+                    client_id = ?session.id(),
+                    "Failed to send self-handoff station changes to client"
+                );
+            }
         }
 
         if self.broadcast_tx.receiver_count() > 0 {
-            for msg in updates {
+            for msg in sync.client_info_updates {
                 if let Err(err) = self.broadcast(msg) {
                     tracing::warn!(?err, "Failed to broadcast client info update");
                 }
@@ -884,7 +743,294 @@ impl ClientManager {
         self.broadcast_station_changes(&coverage_changes).await;
         self.emit_coverage_gauges().await;
 
-        disconnected_clients
+        sync.disconnected_clients
+    }
+
+    /// Iterates all connected vacs clients and checks each against the VATSIM
+    /// datafeed. Handles disconnect decisions, position changes (including
+    /// updating `online_positions`), and collects session info updates,
+    /// client info broadcasts, and self-handoff candidates.
+    fn sync_client_positions(
+        &self,
+        controllers: &HashMap<ClientId, ControllerInfo>,
+        pending_disconnect: &mut HashSet<ClientId>,
+        require_active_connection: bool,
+        clients: &mut HashMap<ClientId, ClientSession>,
+        online_positions: &mut HashMap<PositionId, HashSet<ClientId>>,
+    ) -> ClientPositionSync {
+        let mut result = ClientPositionSync {
+            disconnected_clients: Vec::new(),
+            session_info_updates: Vec::new(),
+            client_info_updates: Vec::new(),
+            self_handoff_clients: Vec::new(),
+            positions_changed: false,
+        };
+
+        fn disconnect_or_mark_pending(
+            cid: &ClientId,
+            pending_disconnect: &mut HashSet<ClientId>,
+            disconnected_clients: &mut Vec<(ClientId, DisconnectReason)>,
+        ) {
+            if pending_disconnect.remove(cid) {
+                tracing::trace!(
+                    ?cid,
+                    "No active VATSIM connection found after grace period, disconnecting client and sending broadcast"
+                );
+                disconnected_clients
+                    .push((cid.clone(), DisconnectReason::NoActiveVatsimConnection));
+            } else {
+                tracing::trace!(
+                    ?cid,
+                    "Client not found in data feed, but active VATSIM connection is required, marking for disconnect"
+                );
+                pending_disconnect.insert(cid.clone());
+            }
+        }
+
+        for (cid, session) in clients.iter_mut() {
+            tracing::trace!(?cid, ?session, "Checking session for client info update");
+
+            match controllers.get(cid) {
+                Some(controller) if controller.facility_type == FacilityType::Unknown => {
+                    if require_active_connection {
+                        disconnect_or_mark_pending(
+                            cid,
+                            pending_disconnect,
+                            &mut result.disconnected_clients,
+                        );
+                    }
+                }
+                None => {
+                    if require_active_connection {
+                        disconnect_or_mark_pending(
+                            cid,
+                            pending_disconnect,
+                            &mut result.disconnected_clients,
+                        );
+                    }
+                }
+                Some(controller) => {
+                    if pending_disconnect.remove(cid) {
+                        tracing::trace!(
+                            ?cid,
+                            "Found active VATSIM connection for client again, removing pending disconnect"
+                        );
+                    }
+
+                    let updated = session.update_client_info(controller);
+                    if updated {
+                        tracing::trace!(?cid, ?session, "Client info updated, updating position");
+
+                        let old_position_id = session.position_id().cloned();
+                        let new_positions: Vec<Position> = self
+                            .network
+                            .read()
+                            .find_positions(
+                                &controller.callsign,
+                                &controller.frequency,
+                                controller.facility_type,
+                            )
+                            .into_iter()
+                            .cloned()
+                            .collect();
+
+                        let new_position = if new_positions.len() > 1 {
+                            tracing::info!(
+                                ?cid,
+                                ?old_position_id,
+                                ?new_positions,
+                                "Multiple positions found for updated client info, disconnecting as ambiguous"
+                            );
+                            pending_disconnect.remove(cid);
+                            result.disconnected_clients.push((
+                                cid.clone(),
+                                DisconnectReason::AmbiguousVatsimPosition(
+                                    new_positions.into_iter().map(|p| p.id.clone()).collect(),
+                                ),
+                            ));
+                            continue;
+                        } else if new_positions.len() == 1 {
+                            Some(&new_positions[0])
+                        } else {
+                            None
+                        };
+                        let new_position_id = new_position.map(|p| p.id.clone());
+
+                        if old_position_id != new_position_id {
+                            tracing::debug!(
+                                ?cid,
+                                ?new_position_id,
+                                ?old_position_id,
+                                "Client position changed"
+                            );
+
+                            session.set_position_id(new_position_id.clone());
+
+                            if let Some(old_position_id) = &old_position_id {
+                                if online_positions
+                                    .get(old_position_id)
+                                    .map(|s| s.len() <= 1)
+                                    .unwrap_or(false)
+                                {
+                                    tracing::trace!(
+                                        ?cid,
+                                        ?old_position_id,
+                                        "Removing position from online positions list"
+                                    );
+                                    online_positions.remove(old_position_id);
+                                    result.positions_changed = true;
+                                } else if let Some(clients) =
+                                    online_positions.get_mut(old_position_id)
+                                {
+                                    tracing::trace!(
+                                        ?cid,
+                                        ?old_position_id,
+                                        "Removing client from position in online positions list"
+                                    );
+                                    clients.remove(cid);
+                                }
+                            }
+
+                            if let Some(new_position_id) = &new_position_id {
+                                let clients =
+                                    online_positions.entry(new_position_id.clone()).or_default();
+                                if clients.insert(cid.clone()) && clients.len() == 1 {
+                                    result.positions_changed = true;
+                                }
+
+                                // When the new position already had other
+                                // clients, the position-level coverage_diff
+                                // won't emit events for stations that stay
+                                // under the same controller. But this client
+                                // needs "self-handoff" events so it knows
+                                // those stations are now "own".
+                                if clients.len() > 1 {
+                                    result
+                                        .self_handoff_clients
+                                        .push((session.clone(), new_position_id.clone()));
+                                }
+                            }
+
+                            let session_profile = {
+                                let network = self.network.read();
+                                session.update_active_profile(
+                                    new_position.and_then(|p| p.profile_id.clone()),
+                                    &network,
+                                )
+                            };
+
+                            result.session_info_updates.push((
+                                session.clone(),
+                                server::SessionInfo {
+                                    client: session.client_info().clone(),
+                                    profile: session_profile,
+                                },
+                            ));
+                        }
+
+                        tracing::trace!(?cid, ?session, "Client info updated, broadcasting");
+                        result
+                            .client_info_updates
+                            .push(ServerMessage::from(session.client_info().clone()));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Builds a fresh VATSIM-only position map from non-vacs controllers in the
+    /// datafeed. Positions that are already covered by a vacs client are excluded.
+    fn rebuild_vatsim_only(
+        &self,
+        controllers: &HashMap<ClientId, ControllerInfo>,
+        vacs_client_ids: &HashSet<&ClientId>,
+        online_positions: &HashMap<PositionId, HashSet<ClientId>>,
+    ) -> HashMap<PositionId, HashSet<ClientId>> {
+        let mut new_vatsim_only: HashMap<PositionId, HashSet<ClientId>> = HashMap::new();
+
+        for (cid, controller) in controllers {
+            if controller.facility_type == FacilityType::Unknown || vacs_client_ids.contains(cid) {
+                continue;
+            }
+            let positions: Vec<Position> = self
+                .network
+                .read()
+                .find_positions(
+                    &controller.callsign,
+                    &controller.frequency,
+                    controller.facility_type,
+                )
+                .into_iter()
+                .cloned()
+                .collect();
+            if positions.len() == 1 && !online_positions.contains_key(&positions[0].id) {
+                new_vatsim_only
+                    .entry(positions[0].id.clone())
+                    .or_default()
+                    .insert(cid.clone());
+            }
+        }
+
+        new_vatsim_only
+    }
+
+    /// Computes per-client self-handoff events for clients that joined an
+    /// already-online position. Stations controlled by the position that
+    /// weren't affected by the global `coverage_diff` get a `Handoff(pos → pos)`
+    /// so the client knows they are now "own".
+    fn compute_self_handoffs(
+        &self,
+        self_handoff_clients: Vec<(ClientSession, PositionId)>,
+        coverage_changes: &[StationChange],
+        online_positions: &HashMap<PositionId, HashSet<ClientId>>,
+        vatsim_only: &HashMap<PositionId, HashSet<ClientId>>,
+    ) -> Vec<(ClientSession, Vec<StationChange>)> {
+        if self_handoff_clients.is_empty() {
+            return Vec::new();
+        }
+
+        let changed_station_ids: HashSet<&StationId> = coverage_changes
+            .iter()
+            .map(StationChange::station_id)
+            .collect();
+        let network = self.network.read();
+        let all_online: HashSet<&PositionId> =
+            online_positions.keys().chain(vatsim_only.keys()).collect();
+
+        self_handoff_clients
+            .into_iter()
+            .filter_map(|(session, new_pos_id)| {
+                let position = network.get_position(&new_pos_id)?;
+                let mut self_handoffs: Vec<StationChange> = position
+                    .controlled_stations
+                    .iter()
+                    .filter(|sid| !changed_station_ids.contains(sid))
+                    .filter_map(|station_id| {
+                        let controller = network.controlling_position(station_id, &all_online)?;
+                        (controller.id == new_pos_id).then(|| StationChange::Handoff {
+                            station_id: station_id.clone(),
+                            from_position_id: new_pos_id.clone(),
+                            to_position_id: new_pos_id.clone(),
+                        })
+                    })
+                    .collect();
+                self_handoffs.sort();
+
+                if self_handoffs.is_empty() {
+                    None
+                } else {
+                    tracing::debug!(
+                        client_id = ?session.id(),
+                        ?new_pos_id,
+                        count = self_handoffs.len(),
+                        "Prepared self-handoff station changes"
+                    );
+                    Some((session, self_handoffs))
+                }
+            })
+            .collect()
     }
 
     fn compute_station_diff(
@@ -1601,6 +1747,285 @@ mod tests {
         // But LOWW_TWR should still be in internal tracking
         let internal_stations = manager.online_stations.read().await;
         assert!(internal_stations.contains_key(&station("LOWW_TWR")));
+    }
+
+    /// Removal: vacs → none. The last vacs client on a position disconnects and
+    /// no other position covers the stations. Stations should go Offline.
+    #[tokio::test]
+    async fn remove_client_vacs_to_none() {
+        let (_dir, network) = create_lovv_network();
+        let manager = client_manager(network);
+
+        // LOWW_DEL is the only position online
+        let _client = manager
+            .add_client(
+                client_info("client0", "LOWW_DEL", "122.125"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        // Station is online
+        assert!(
+            manager
+                .online_stations
+                .read()
+                .await
+                .contains_key(&station("LOWW_DEL"))
+        );
+
+        manager
+            .remove_client(cid("client0"), Some(DisconnectReason::Terminated))
+            .await;
+
+        // Station should be gone — no vacs position to take over
+        assert!(
+            manager.online_stations.read().await.is_empty(),
+            "All stations should be offline after last position is removed"
+        );
+        assert!(
+            manager.online_positions.read().await.is_empty(),
+            "No online positions should remain"
+        );
+    }
+
+    /// Removal: vacs → vatsim. A vacs client disconnects and a subsequent
+    /// VATSIM sync establishes a vatsim-only controller on the same position.
+    /// The combined effect is that the station transitions from callable (vacs)
+    /// to invisible (vatsim-only).
+    #[tokio::test]
+    async fn remove_client_vacs_to_vatsim_only() {
+        let (_dir, network) = create_lovv_network();
+        let manager = client_manager(network);
+
+        // LOVV_CTR and LOWW_TWR are online
+        let (_client_ctr, mut rx_ctr) = manager
+            .add_client(
+                client_info("client0", "LOVV_CTR", "132.600"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        let _client_twr = manager
+            .add_client(
+                client_info("client1", "LOWW_TWR", "119.400"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        drain_messages(&mut rx_ctr);
+
+        // vacs LOWW_TWR client disconnects
+        manager
+            .remove_client(cid("client1"), Some(DisconnectReason::Terminated))
+            .await;
+
+        // Stations hand off from LOWW_TWR to LOVV_CTR (both were vacs positions)
+        let changes_after_disconnect = drain_messages(&mut rx_ctr).station_changes;
+        assert_eq!(
+            changes_after_disconnect,
+            vec![
+                StationChange::Handoff {
+                    station_id: station("LOWW_DEL"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
+                },
+                StationChange::Handoff {
+                    station_id: station("LOWW_GND"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
+                },
+                StationChange::Handoff {
+                    station_id: station("LOWW_TWR"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
+                },
+            ]
+        );
+
+        // Now VATSIM sync establishes a VATSIM-only TWR controller
+        let vatsim_controllers = HashMap::from([
+            (
+                cid("client0"),
+                controller("client0", "LOVV_CTR", "132.600", FacilityType::Enroute),
+            ),
+            (
+                cid("vatsim_twr"),
+                controller("vatsim_twr", "LOWW_TWR", "119.400", FacilityType::Tower),
+            ),
+        ]);
+        manager
+            .sync_vatsim_state(&vatsim_controllers, &mut HashSet::new(), false)
+            .await;
+
+        // Stations now go Offline for the CTR client (VATSIM-only is invisible)
+        let changes_after_sync = drain_messages(&mut rx_ctr).station_changes;
+        assert_eq!(
+            changes_after_sync,
+            vec![
+                StationChange::Offline {
+                    station_id: station("LOWW_DEL"),
+                },
+                StationChange::Offline {
+                    station_id: station("LOWW_GND"),
+                },
+                StationChange::Offline {
+                    station_id: station("LOWW_TWR"),
+                },
+            ]
+        );
+
+        // Stations tracked internally under VATSIM-only TWR position
+        let internal_stations = manager.online_stations.read().await;
+        assert_eq!(
+            internal_stations.get(&station("LOWW_TWR")),
+            Some(&pos("LOWW_TWR")),
+            "LOWW_TWR should be tracked internally under vatsim-only position"
+        );
+    }
+
+    /// Removal: vacs → vacs (multiple clients on same position). When multiple
+    /// vacs clients share a position, removing one should NOT produce any
+    /// station changes — the position stays online.
+    #[tokio::test]
+    async fn remove_client_vacs_to_vacs_multiple_on_same_position() {
+        let (_dir, network) = create_lovv_network();
+        let manager = client_manager(network);
+
+        // Two clients on LOVV_CTR
+        let (_client0, mut rx0) = manager
+            .add_client(
+                client_info("client0", "LOVV_CTR", "132.600"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        let _client1 = manager
+            .add_client(
+                client_info("client1", "LOVV_CTR", "132.600"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        drain_messages(&mut rx0);
+
+        // Position should have both clients
+        let pos_clients = manager
+            .online_positions
+            .read()
+            .await
+            .get(&pos("LOVV_CTR"))
+            .cloned()
+            .unwrap();
+        assert_eq!(pos_clients.len(), 2);
+
+        // Remove one client
+        manager
+            .remove_client(cid("client1"), Some(DisconnectReason::Terminated))
+            .await;
+
+        // No station changes — position is still online
+        let changes = drain_messages(&mut rx0).station_changes;
+        assert!(
+            changes.is_empty(),
+            "No station changes expected when a co-client leaves: {changes:?}"
+        );
+
+        // Position should still be online with the remaining client
+        let pos_clients = manager
+            .online_positions
+            .read()
+            .await
+            .get(&pos("LOVV_CTR"))
+            .cloned()
+            .unwrap();
+        assert_eq!(pos_clients, HashSet::from([cid("client0")]));
+
+        // All stations should still be tracked
+        assert!(
+            !manager.online_stations.read().await.is_empty(),
+            "Online stations should still be tracked"
+        );
+    }
+
+    /// Removal: vacs → vacs (coverage changes). A vacs client on one position
+    /// disconnects and stations fall back to a different vacs position. The
+    /// remaining client should see Handoff events.
+    #[tokio::test]
+    async fn remove_client_vacs_to_vacs_coverage_handoff() {
+        let (_dir, network) = create_lovv_network();
+        let manager = client_manager(network);
+
+        // LOVV_CTR and LOWW_TWR are online
+        let (_client_ctr, mut rx_ctr) = manager
+            .add_client(
+                client_info("client0", "LOVV_CTR", "132.600"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        let _client_twr = manager
+            .add_client(
+                client_info("client1", "LOWW_TWR", "119.400"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        drain_messages(&mut rx_ctr);
+
+        // LOWW_TWR, LOWW_GND, LOWW_DEL are controlled by LOWW_TWR position
+        let online = manager.online_stations.read().await;
+        assert_eq!(online.get(&station("LOWW_TWR")), Some(&pos("LOWW_TWR")));
+        assert_eq!(online.get(&station("LOWW_GND")), Some(&pos("LOWW_TWR")));
+        assert_eq!(online.get(&station("LOWW_DEL")), Some(&pos("LOWW_TWR")));
+        drop(online);
+
+        // LOWW_TWR client disconnects
+        manager
+            .remove_client(cid("client1"), Some(DisconnectReason::Terminated))
+            .await;
+
+        // CTR client sees Handoff: stations move from TWR position to CTR position
+        let changes = drain_messages(&mut rx_ctr).station_changes;
+        assert_eq!(
+            changes,
+            vec![
+                StationChange::Handoff {
+                    station_id: station("LOWW_DEL"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
+                },
+                StationChange::Handoff {
+                    station_id: station("LOWW_GND"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
+                },
+                StationChange::Handoff {
+                    station_id: station("LOWW_TWR"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
+                },
+            ]
+        );
+
+        // Stations should now be controlled by LOVV_CTR
+        let online = manager.online_stations.read().await;
+        assert_eq!(online.get(&station("LOWW_TWR")), Some(&pos("LOVV_CTR")));
+        assert_eq!(online.get(&station("LOWW_GND")), Some(&pos("LOVV_CTR")));
+        assert_eq!(online.get(&station("LOWW_DEL")), Some(&pos("LOVV_CTR")));
     }
 
     #[tokio::test]
