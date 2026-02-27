@@ -227,17 +227,22 @@ impl ClientManager {
                     let all_changes = self.network.read().coverage_diff(&before_all, &after_all);
                     drop(vatsim_only);
 
-                    online_positions.remove(position_id);
-
                     tracing::trace!(
                         ?position_id,
                         "Updating online stations list after position removal"
                     );
                     self.update_online_stations(&all_changes).await;
+                    // Compute client-visible changes BEFORE removing the
+                    // position so that `client_visible_changes` still sees the
+                    // departing position as a vacs position (not VATSIM-only).
+                    // Otherwise Handoff events are incorrectly downgraded to
+                    // Online events.
                     changes.extend(Self::client_visible_changes(
                         &all_changes,
                         &online_positions,
                     ));
+
+                    online_positions.remove(position_id);
                 } else {
                     tracing::trace!(
                         ?position_id,
@@ -1533,17 +1538,20 @@ mod tests {
         assert_eq!(
             changes_after_disconnect,
             vec![
-                StationChange::Online {
+                StationChange::Handoff {
                     station_id: station("LOWW_DEL"),
-                    position_id: pos("LOVV_CTR"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
                 },
-                StationChange::Online {
+                StationChange::Handoff {
                     station_id: station("LOWW_GND"),
-                    position_id: pos("LOVV_CTR"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
                 },
-                StationChange::Online {
+                StationChange::Handoff {
                     station_id: station("LOWW_TWR"),
-                    position_id: pos("LOVV_CTR"),
+                    from_position_id: pos("LOWW_TWR"),
+                    to_position_id: pos("LOVV_CTR"),
                 },
             ]
         );
