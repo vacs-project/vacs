@@ -1,0 +1,500 @@
+[[stations]]
+id = "LOVV_B1"
+controlled_by = [
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_W_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_NU_CTR",
+  "LOVV_U_CTR",
+]
+
+[[stations]]
+id = "LOVV_B2"
+parent_id = "LOVV_B3"
+
+[[stations]]
+id = "LOVV_B3"
+parent_id = "LOVV_B4"
+
+[[stations]]
+id = "LOVV_B4"
+parent_id = "LOVV_B5"
+
+[[stations]]
+id = "LOVV_B5"
+parent_id = "LOVV_B6"
+
+[[stations]]
+id = "LOVV_B6"
+parent_id = "LOVV_B7"
+
+[[stations]]
+id = "LOVV_B7"
+controlled_by = [
+  "LOVV_BU_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_NU_CTR",
+  "LOVV_U_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_W_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+]
+
+[[stations]]
+id = "LOVV_E1"
+controlled_by = [
+  "LOVV_E_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_NU_CTR",
+  "LOVV_U_CTR",
+]
+
+[[stations]]
+id = "LOVV_E2"
+parent_id = "LOVV_E3"
+
+[[stations]]
+id = "LOVV_E3"
+parent_id = "LOVV_E4"
+
+[[stations]]
+id = "LOVV_E4"
+parent_id = "LOVV_E5"
+
+[[stations]]
+id = "LOVV_E5"
+parent_id = "LOVV_E6"
+
+[[stations]]
+id = "LOVV_E6"
+parent_id = "LOVV_E7"
+
+[[stations]]
+id = "LOVV_E7"
+controlled_by = [
+  "LOVV_EU_CTR",
+  "LOVV_NU_CTR",
+  "LOVV_U_CTR",
+  "LOVV_E_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+]
+
+[[stations]]
+id = "LOVV_N1"
+controlled_by = [
+  "LOVV_F_CTR",
+  "LOVV_N_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_NU_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_U_CTR",
+]
+
+[[stations]]
+id = "LOVV_N2"
+parent_id = "LOVV_N3"
+
+[[stations]]
+id = "LOVV_N3"
+parent_id = "LOVV_N4"
+
+[[stations]]
+id = "LOVV_N4"
+parent_id = "LOVV_N5"
+
+[[stations]]
+id = "LOVV_N5"
+parent_id = "LOVV_N6"
+
+[[stations]]
+id = "LOVV_N6"
+parent_id = "LOVV_N7"
+
+[[stations]]
+id = "LOVV_N7"
+controlled_by = [
+  "LOVV_NU_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_U_CTR",
+  "LOVV_N_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+]
+
+[[stations]]
+id = "LOVV_S1"
+controlled_by = [
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_U_CTR",
+]
+
+[[stations]]
+id = "LOVV_S2"
+parent_id = "LOVV_S3"
+
+[[stations]]
+id = "LOVV_S3"
+parent_id = "LOVV_S4"
+
+[[stations]]
+id = "LOVV_S4"
+parent_id = "LOVV_S5"
+
+[[stations]]
+id = "LOVV_S5"
+parent_id = "LOVV_S6"
+
+[[stations]]
+id = "LOVV_S6"
+parent_id = "LOVV_S7"
+
+[[stations]]
+id = "LOVV_S7"
+controlled_by = [
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_U_CTR",
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+]
+
+[[stations]]
+id = "LOVV_W1"
+controlled_by = [
+  "LOVV_W_CTR",
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_U_CTR",
+]
+
+[[stations]]
+id = "LOVV_W2"
+parent_id = "LOVV_W3"
+
+[[stations]]
+id = "LOVV_W3"
+parent_id = "LOVV_W4"
+
+[[stations]]
+id = "LOVV_W4"
+parent_id = "LOVV_W5"
+
+[[stations]]
+id = "LOVV_W5"
+parent_id = "LOVV_W6"
+
+[[stations]]
+id = "LOVV_W6"
+parent_id = "LOVV_W7"
+
+[[stations]]
+id = "LOVV_W7"
+controlled_by = [
+  "LOVV_WU_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_U_CTR",
+  "LOVV_W_CTR",
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+]
+
+[[stations]]
+id = "LOVV_I_CTR"
+controlled_by = ["LOVV_I_CTR"]
+
+[[stations]]
+id = "LOVV_M_CTR"
+controlled_by = ["LOVV_M_CTR"]
+
+[[stations]]
+id = "LOWG_APP"
+controlled_by = [
+  "LOWG_APP",
+  "LOVV_S_APP",
+  "LOVV_L_CTR",
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_EU_CTR",
+]
+
+[[stations]]
+id = "LOWG_TWR"
+parent_id = "LOWG_APP"
+controlled_by = ["LOWG_TWR"]
+
+[[stations]]
+id = "LOWI_TWR"
+parent_id = "LOWI_APP"
+controlled_by = ["LOWI_TWR"]
+
+[[stations]]
+id = "LOWI_E_APP"
+parent_id = "LOWI_APP"
+controlled_by = ["LOWI_E_APP", "LOWI_APP", "LOWI_S_APP"]
+
+[[stations]]
+id = "LOWI_S_APP"
+parent_id = "LOWI_APP"
+controlled_by = ["LOWI_S_APP", "LOWI_APP", "LOWI_E_APP"]
+
+[[stations]]
+id = "LOWI_F_APP"
+parent_id = "LOWI_APP"
+controlled_by = ["LOWI_F_APP", "LOWI_E_APP", "LOWI_S_APP"]
+
+[[stations]]
+id = "LOWI_APP"
+controlled_by = [
+  "LOWI_APP",
+  "LOWI_E_APP",
+  "LOWI_S_APP",
+  "LOVV_L_CTR",
+  "LOVV_W_CTR",
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+]
+
+[[stations]]
+id = "LOWK_APP"
+controlled_by = [
+  "LOWK_APP",
+  "LOVV_S_APP",
+  "LOVV_L_CTR",
+  "LOVV_W_CTR",
+  "LOVV_S_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_BU_CTR",
+]
+
+[[stations]]
+id = "LOWK_TWR"
+parent_id = "LOWK_APP"
+controlled_by = ["LOWK_TWR"]
+
+[[stations]]
+id = "LOWL_APP"
+controlled_by = [
+  "LOWL_APP",
+  "LOVV_N_APP",
+  "LOVV_L_CTR",
+  "LOVV_N_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_NU_CTR",
+  "LOVV_EU_CTR",
+]
+
+[[stations]]
+id = "LOWL_TWR"
+parent_id = "LOWL_APP"
+controlled_by = ["LOWL_TWR"]
+
+[[stations]]
+id = "LOWS_APP"
+controlled_by = [
+  "LOWS_APP",
+  "LOVV_N_APP",
+  "LOVV_L_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_W_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_NU_CTR",
+]
+
+[[stations]]
+id = "LOWS_TWR"
+parent_id = "LOWS_APP"
+controlled_by = ["LOWS_TWR"]
+
+[[stations]]
+id = "LOWW_TWR"
+parent_id = "LOWW_APP"
+controlled_by = ["LOWW_TWR", "LOWW_E_TWR"]
+
+[[stations]]
+id = "LOWW_E_TWR"
+parent_id = "LOWW_APP"
+controlled_by = ["LOWW_E_TWR", "LOWW_TWR"]
+
+[[stations]]
+id = "LOWW_APP"
+controlled_by = [
+  "LOWW_APP",
+  "LOWW_P_APP",
+  "LOWW_N_APP",
+  "LOWW_M_APP",
+  "LOVV_L_CTR",
+  "LOVV_E_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_NU_CTR",
+]
+
+[[stations]]
+id = "LOWW_M_APP"
+parent_id = "LOWW_APP"
+controlled_by = ["LOWW_M_APP", "LOWW_P_APP", "LOWW_N_APP", "LOWW_APP"]
+
+[[stations]]
+id = "LOWW_N_APP"
+parent_id = "LOWW_APP"
+controlled_by = ["LOWW_N_APP", "LOWW_M_APP", "LOWW_APP", "LOWW_P_APP"]
+
+[[stations]]
+id = "LOWW_P_APP"
+parent_id = "LOWW_APP"
+controlled_by = ["LOWW_P_APP", "LOWW_M_APP", "LOWW_APP", "LOWW_N_APP"]
+
+[[stations]]
+id = "LOWW_F_APP"
+controlled_by = ["LOWW_F_APP", "LOWW_D_APP"]
+
+[[stations]]
+id = "LOWW_D_APP"
+controlled_by = ["LOWW_D_APP", "LOWW_F_APP"]
+
+[[stations]]
+id = "LOWW_I_APP"
+controlled_by = ["LOWW_I_APP", "LOVV_I_CTR"]
+
+[[stations]]
+id = "LOXT_APP"
+controlled_by = [
+  "LOXT_APP",
+  "LOVV_M_CTR",
+  "LOWW_N_APP",
+  "LOWW_M_APP",
+  "LOWW_APP",
+  "LOWW_P_APP",
+  "LOVV_L_CTR",
+  "LOVV_E_CTR",
+  "LOVV_N_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_EU_CTR",
+  "LOVV_NU_CTR",
+]
+
+[[stations]]
+id = "LOXT_TWR"
+parent_id = "LOXT_APP"
+controlled_by = ["LOXT_TWR"]
+
+[[stations]]
+id = "LOXZ_APP"
+controlled_by = [
+  "LOXZ_APP",
+  "LOVV_M_CTR",
+  "LOWG_APP",
+  "LOWK_APP",
+  "LOVV_S_APP",
+  "LOVV_L_CTR",
+  "LOVV_S_CTR",
+  "LOVV_W_CTR",
+  "LOVV_B_CTR",
+  "LOVV_BC_CTR",
+  "LOVV_E_CTR",
+  "LOVV_CTR",
+  "LOVV_C_CTR",
+  "LOVV_SU_CTR",
+  "LOVV_WU_CTR",
+  "LOVV_BU_CTR",
+  "LOVV_EU_CTR",
+]
+
+[[stations]]
+id = "LOXZ_TWR"
+parent_id = "LOXZ_APP"
+controlled_by = ["LOXZ_TWR"]
+
+[[stations]]
+id = "LOWW_I_GND"
+parent_id = "LOWW_GND"
+controlled_by = ["LOWW_I_GND"]
+
+[[stations]]
+id = "LOWW_W_GND"
+parent_id = "LOWW_GND"
+controlled_by = ["LOWW_W_GND", "LOWW_GND", "LOWW_TWR", "LOWW_E_TWR"]
+
+[[stations]]
+id = "LOWW_GND"
+parent_id = "LOWW_TWR"
+controlled_by = ["LOWW_GND", "LOWW_W_GND", "LOWW_E_TWR", "LOWW_TWR"]
+
+[[stations]]
+id = "LOWI_DEL"
+parent_id = "LOWI_TWR"
+controlled_by = ["LOWI_DEL"]
+
+[[stations]]
+id = "LOWS_DEL"
+parent_id = "LOWS_TWR"
+controlled_by = ["LOWS_DEL"]
+
+[[stations]]
+id = "LOWW_DEL"
+parent_id = "LOWW_GND"
+controlled_by = ["LOWW_DEL"]

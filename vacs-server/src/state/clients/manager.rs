@@ -3085,4 +3085,648 @@ controlled_by = ["LOWW_DEL"]
             )
             .build(dir)
     }
+
+    // ─── Scenario-based sync tests ──────────────────────────────────
+    //
+    // Place JSON scenario files in:
+    //   vacs-server/tests/fixtures/scenarios/
+    //
+    // Each file describes a sequence of steps (connect clients, apply
+    // VATSIM datafeed dumps, assert network state). The runner below
+    // discovers and executes every *.json file in that directory
+    // (recursively), excluding the `feeds/` and `datasets/`
+    // sub-directories.
+    //
+    // # Network sources
+    //
+    // Use `"network": "lovv"` for the built-in synthetic test network,
+    // or `"dataset": "tests/fixtures/scenarios/datasets/my_fir"`
+    // to load a committed dataset directory (relative to CARGO_MANIFEST_DIR).
+    //
+    // See existing files for the full format.
+
+    mod scenario {
+        use super::*;
+        use pretty_assertions::assert_eq;
+        use serde::Deserialize;
+        use std::collections::{HashMap, HashSet};
+        use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+        use std::path::{Path, PathBuf};
+
+        // ── JSON schema types ────────────────────────────────────
+
+        #[derive(Debug, Deserialize)]
+        #[allow(dead_code)]
+        pub struct Scenario {
+            pub description: String,
+            /// Named synthetic network (e.g. "lovv"). Mutually exclusive with `dataset`.
+            #[serde(default)]
+            pub network: Option<String>,
+            /// Path to a committed dataset directory, relative to CARGO_MANIFEST_DIR.
+            /// The directory must be loadable by `Network::load_from_dir`
+            /// (containing FIR sub-directories with positions/stations/profiles).
+            #[serde(default)]
+            pub dataset: Option<String>,
+            pub steps: Vec<Step>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum Step {
+            Connect(ConnectStep),
+            ConnectWithoutPosition(ConnectWithoutPositionStep),
+            Disconnect(DisconnectStep),
+            Datafeed(DatafeedStep),
+            DatafeedFile(String),
+            DrainMessages(DrainMessagesStep),
+            AssertCallableStations(AssertCallableStationsStep),
+            AssertStationChanges(AssertStationChangesStep),
+            AssertVatsimOnlyPositions(AssertVatsimOnlyPositionsStep),
+            AssertOnlineStations(AssertOnlineStationsStep),
+            AssertOnlinePositions(AssertOnlinePositionsStep),
+            AssertClientCount(usize),
+            /// Ignored by the runner — use for inline documentation.
+            #[serde(rename = "_comment")]
+            #[allow(dead_code)]
+            Comment(serde_json::Value),
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct ConnectStep {
+            pub client_id: String,
+            pub position_id: String,
+            pub frequency: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct ConnectWithoutPositionStep {
+            pub client_id: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct DisconnectStep {
+            pub client_id: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct DatafeedStep {
+            pub controllers: Vec<DatafeedController>,
+        }
+
+        /// Mirrors the VATSIM V3 datafeed format.
+        /// `facility` is optional — when absent the facility type is
+        /// inferred from the callsign suffix, just like production.
+        #[derive(Debug, Deserialize)]
+        pub struct DatafeedController {
+            pub cid: serde_json::Value,
+            pub callsign: String,
+            pub frequency: String,
+            #[serde(default)]
+            pub facility: Option<u8>,
+        }
+
+        impl DatafeedController {
+            pub fn to_controller_info(&self) -> (ClientId, ControllerInfo) {
+                let cid = match &self.cid {
+                    serde_json::Value::Number(n) => ClientId::from(n.to_string()),
+                    serde_json::Value::String(s) => ClientId::from(s.clone()),
+                    other => panic!("Unexpected cid type: {other:?}"),
+                };
+                let facility_type = match self.facility {
+                    Some(f) => FacilityType::from_vatsim_facility(f),
+                    None => FacilityType::from(self.callsign.as_str()),
+                };
+                let info = ControllerInfo {
+                    cid: cid.clone(),
+                    callsign: self.callsign.clone(),
+                    frequency: self.frequency.clone(),
+                    facility_type,
+                };
+                (cid, info)
+            }
+        }
+
+        /// When loading a full VATSIM datafeed JSON file, only the
+        /// `controllers` array is used. Other top-level keys are ignored.
+        #[derive(Debug, Deserialize)]
+        struct DatafeedFile {
+            controllers: Vec<DatafeedController>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct DrainMessagesStep {
+            pub client_id: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct AssertCallableStationsStep {
+            pub client_id: String,
+            /// Stations that must be callable AND owned by this client's position.
+            #[serde(default)]
+            pub own: Vec<String>,
+            /// Stations that must be callable but covered by another position.
+            #[serde(default)]
+            pub callable: Vec<String>,
+            /// Stations that must NOT appear in the callable list at all.
+            #[serde(default)]
+            pub not_callable: Vec<String>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct AssertStationChangesStep {
+            pub client_id: String,
+            pub changes: Vec<StationChangeJson>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum StationChangeJson {
+            Online {
+                station_id: String,
+                position_id: String,
+            },
+            Offline {
+                station_id: String,
+            },
+            Handoff {
+                station_id: String,
+                from_position_id: String,
+                to_position_id: String,
+            },
+        }
+
+        impl From<&StationChangeJson> for StationChange {
+            fn from(value: &StationChangeJson) -> Self {
+                match value {
+                    StationChangeJson::Online {
+                        station_id,
+                        position_id,
+                    } => StationChange::Online {
+                        station_id: StationId::from(station_id.clone()),
+                        position_id: PositionId::from(position_id.clone()),
+                    },
+                    StationChangeJson::Offline { station_id } => StationChange::Offline {
+                        station_id: StationId::from(station_id.clone()),
+                    },
+                    StationChangeJson::Handoff {
+                        station_id,
+                        from_position_id,
+                        to_position_id,
+                    } => StationChange::Handoff {
+                        station_id: StationId::from(station_id.clone()),
+                        from_position_id: PositionId::from(from_position_id.clone()),
+                        to_position_id: PositionId::from(to_position_id.clone()),
+                    },
+                }
+            }
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct AssertVatsimOnlyPositionsStep {
+            pub positions: Vec<String>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct AssertOnlineStationsStep {
+            /// Station IDs that must be present in online_stations.
+            #[serde(default)]
+            pub online: Vec<String>,
+            /// Station IDs that must NOT be present in online_stations.
+            #[serde(default)]
+            pub offline: Vec<String>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct AssertOnlinePositionsStep {
+            /// Position IDs that must have connected vacs clients.
+            #[serde(default)]
+            pub online: Vec<String>,
+            /// Position IDs that must NOT appear in online_positions.
+            #[serde(default)]
+            pub not_online: Vec<String>,
+        }
+
+        // ── Runner ───────────────────────────────────────────────
+
+        struct ScenarioContext {
+            manager: ClientManager,
+            receivers: HashMap<String, mpsc::Receiver<ServerMessage>>,
+            pending_disconnect: HashSet<ClientId>,
+            /// Present when using a synthetic network (tempdir-backed).
+            _dir: Option<tempfile::TempDir>,
+        }
+
+        fn build_synthetic_network(name: &str) -> (tempfile::TempDir, Network) {
+            match name {
+                "lovv" => create_lovv_network(),
+                other => panic!(
+                    "Unknown synthetic network: {other}. Add it to scenario::build_synthetic_network()."
+                ),
+            }
+        }
+
+        fn load_dataset_network(relative_path: &str) -> Network {
+            let dataset_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+            assert!(
+                dataset_dir.exists(),
+                "Dataset directory does not exist: {}",
+                dataset_dir.display()
+            );
+            Network::load_from_dir(&dataset_dir).unwrap_or_else(|errs| {
+                panic!(
+                    "Failed to load dataset from {}: {errs:?}",
+                    dataset_dir.display()
+                )
+            })
+        }
+
+        fn build_context(scenario: &Scenario) -> ScenarioContext {
+            let (dir, network) = match (&scenario.network, &scenario.dataset) {
+                (Some(name), None) => {
+                    let (dir, net) = build_synthetic_network(name);
+                    (Some(dir), net)
+                }
+                (None, Some(path)) => {
+                    let net = load_dataset_network(path);
+                    (None, net)
+                }
+                (Some(_), Some(_)) => {
+                    panic!("Scenario specifies both 'network' and 'dataset' — use exactly one.")
+                }
+                (None, None) => panic!("Scenario must specify either 'network' or 'dataset'."),
+            };
+            let manager = client_manager(network);
+            ScenarioContext {
+                manager,
+                receivers: HashMap::new(),
+                pending_disconnect: HashSet::new(),
+                _dir: dir,
+            }
+        }
+
+        fn controllers_from_vec(
+            datafeed_controllers: &[DatafeedController],
+        ) -> HashMap<ClientId, ControllerInfo> {
+            datafeed_controllers
+                .iter()
+                .filter(|c| !c.callsign.ends_with("_SUP"))
+                .map(|c| c.to_controller_info())
+                .collect()
+        }
+
+        fn load_datafeed_file(scenario_dir: &Path, relative_path: &str) -> Vec<DatafeedController> {
+            let path = scenario_dir.join(relative_path);
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("Failed to read datafeed file {}: {e}", path.display()));
+            let feed: DatafeedFile = serde_json::from_str(&content).unwrap_or_else(|e| {
+                panic!("Failed to parse datafeed file {}: {e}", path.display())
+            });
+            feed.controllers
+        }
+
+        /// Formats the full internal state of the `ClientManager` for debugging.
+        /// Called when an assertion step fails so the tester can see the actual
+        /// network state at the point of failure.
+        async fn format_debug_state(manager: &ClientManager) -> String {
+            let online_stations = manager.online_stations.read().await;
+            let online_positions = manager.online_positions.read().await;
+            let vatsim_only = manager.vatsim_only_positions.read().await;
+            let mut out = String::new();
+
+            out.push_str("Online stations:\n");
+            if online_stations.is_empty() {
+                out.push_str("  (none)\n");
+            }
+            let mut stations_sorted: Vec<_> = online_stations.iter().collect();
+            stations_sorted.sort_by_key(|(sid, _)| sid.as_str());
+            for (sid, pid) in stations_sorted {
+                let pos_clients = online_positions.get(pid).cloned().unwrap_or_default();
+                let vatsim_cids = vatsim_only.get(pid).cloned().unwrap_or_default();
+                let is_vatsim_only = !vatsim_cids.is_empty();
+                out.push_str(&format!(
+                    "  {sid} -> {pid} (vatsim_only={is_vatsim_only}, clients={pos_clients:?}, vatsim_cids={vatsim_cids:?})\n"
+                ));
+            }
+
+            out.push_str("\nOnline positions:\n");
+            if online_positions.is_empty() {
+                out.push_str("  (none)\n");
+            }
+            let mut pos_sorted: Vec<_> = online_positions.iter().collect();
+            pos_sorted.sort_by_key(|(k, _)| k.as_str());
+            for (pid, cids) in pos_sorted {
+                out.push_str(&format!("  {pid} -> {cids:?}\n"));
+            }
+
+            out.push_str("\nVatsim-only positions:\n");
+            if vatsim_only.is_empty() {
+                out.push_str("  (none)\n");
+            }
+            let mut vo_sorted: Vec<_> = vatsim_only.iter().collect();
+            vo_sorted.sort_by_key(|(k, _)| k.as_str());
+            for (pid, cids) in vo_sorted {
+                out.push_str(&format!("  {pid} -> {cids:?}\n"));
+            }
+
+            out
+        }
+
+        /// If `result` is a caught panic, prints the debug state of the
+        /// `ClientManager` to stderr and then resumes the panic.
+        async fn dump_state_on_panic<R>(
+            manager: &ClientManager,
+            step_label: &str,
+            result: std::thread::Result<R>,
+        ) -> R {
+            match result {
+                Ok(v) => v,
+                Err(e) => {
+                    let state = format_debug_state(manager).await;
+                    eprintln!(
+                        "\n=== Debug State ({step_label}) ===\n{state}=== End Debug State ===\n"
+                    );
+                    resume_unwind(e);
+                }
+            }
+        }
+
+        async fn run_scenario(path: &Path) {
+            let content = std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("Failed to read scenario {}: {e}", path.display()));
+            let scenario: Scenario = serde_json::from_str(&content)
+                .unwrap_or_else(|e| panic!("Failed to parse scenario {}: {e}", path.display()));
+
+            let scenario_dir = path.parent().unwrap();
+            let mut ctx = build_context(&scenario);
+
+            for (step_idx, step) in scenario.steps.iter().enumerate() {
+                let step_label = format!(
+                    "{}[step {}]",
+                    path.file_name().unwrap().to_string_lossy(),
+                    step_idx + 1
+                );
+                match step {
+                    Step::Connect(s) => {
+                        let info = client_info(&s.client_id, &s.position_id, &s.frequency);
+                        let (_session, rx) = ctx
+                            .manager
+                            .add_client(
+                                info,
+                                ActiveProfile::Custom,
+                                ClientConnectionGuard::default(),
+                            )
+                            .await
+                            .unwrap_or_else(|e| panic!("{step_label}: add_client failed: {e}"));
+                        ctx.receivers.insert(s.client_id.clone(), rx);
+                    }
+                    Step::ConnectWithoutPosition(s) => {
+                        let info = client_info_without_position(&s.client_id);
+                        let (_session, rx) = ctx
+                            .manager
+                            .add_client(
+                                info,
+                                ActiveProfile::Custom,
+                                ClientConnectionGuard::default(),
+                            )
+                            .await
+                            .unwrap_or_else(|e| {
+                                panic!("{step_label}: add_client (no position) failed: {e}")
+                            });
+                        ctx.receivers.insert(s.client_id.clone(), rx);
+                    }
+                    Step::Disconnect(s) => {
+                        ctx.manager
+                            .remove_client(cid(&s.client_id), Some(DisconnectReason::Terminated))
+                            .await;
+                        ctx.receivers.remove(&s.client_id);
+                    }
+                    Step::Datafeed(s) => {
+                        let controllers = controllers_from_vec(&s.controllers);
+                        ctx.manager
+                            .sync_vatsim_state(&controllers, &mut ctx.pending_disconnect, false)
+                            .await;
+                    }
+                    Step::DatafeedFile(relative_path) => {
+                        let feed = load_datafeed_file(scenario_dir, relative_path);
+                        let controllers = controllers_from_vec(&feed);
+                        ctx.manager
+                            .sync_vatsim_state(&controllers, &mut ctx.pending_disconnect, false)
+                            .await;
+                    }
+                    Step::DrainMessages(s) => {
+                        let rx = ctx.receivers.get_mut(&s.client_id).unwrap_or_else(|| {
+                            panic!("{step_label}: unknown client_id '{}'", s.client_id)
+                        });
+                        drain_messages(rx);
+                    }
+                    Step::AssertCallableStations(s) => {
+                        let position_id = {
+                            let client = ctx
+                                .manager
+                                .get_client(&cid(&s.client_id))
+                                .await
+                                .unwrap_or_else(|| {
+                                    panic!("{step_label}: client '{}' not found", s.client_id)
+                                });
+                            client.position_id().cloned()
+                        };
+
+                        let stations = ctx
+                            .manager
+                            .list_stations(&ActiveProfile::Custom, position_id.as_ref())
+                            .await;
+                        let own_ids: HashSet<&str> = stations
+                            .iter()
+                            .filter(|s| s.own)
+                            .map(|s| s.id.as_str())
+                            .collect();
+                        let other_ids: HashSet<&str> = stations
+                            .iter()
+                            .filter(|s| !s.own)
+                            .map(|s| s.id.as_str())
+                            .collect();
+                        let all_ids: HashSet<&str> =
+                            stations.iter().map(|s| s.id.as_str()).collect();
+
+                        let own = &s.own;
+                        let callable = &s.callable;
+                        let not_callable = &s.not_callable;
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            for expected in own {
+                                assert!(
+                                    own_ids.contains(expected.as_str()),
+                                    "{step_label}: expected station '{expected}' to be own, but it was not.\n  own: {own_ids:?}\n  other: {other_ids:?}"
+                                );
+                            }
+                            for expected in callable {
+                                assert!(
+                                    other_ids.contains(expected.as_str()),
+                                    "{step_label}: expected station '{expected}' to be callable (not own), but it was not.\n  own: {own_ids:?}\n  other: {other_ids:?}"
+                                );
+                            }
+                            for unexpected in not_callable {
+                                assert!(
+                                    !all_ids.contains(unexpected.as_str()),
+                                    "{step_label}: expected station '{unexpected}' to NOT be callable, but it was.\n  own: {own_ids:?}\n  other: {other_ids:?}"
+                                );
+                            }
+                        }));
+                        dump_state_on_panic(&ctx.manager, &step_label, r).await;
+                    }
+                    Step::AssertStationChanges(s) => {
+                        let rx = ctx.receivers.get_mut(&s.client_id).unwrap_or_else(|| {
+                            panic!("{step_label}: unknown client_id '{}'", s.client_id)
+                        });
+                        let drained = drain_messages(rx);
+                        let mut expected: Vec<StationChange> =
+                            s.changes.iter().map(StationChange::from).collect();
+                        expected.sort();
+
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            assert_eq!(
+                                drained.station_changes, expected,
+                                "{step_label}: station changes mismatch"
+                            );
+                        }));
+                        dump_state_on_panic(&ctx.manager, &step_label, r).await;
+                    }
+                    Step::AssertVatsimOnlyPositions(s) => {
+                        let vatsim_only = ctx.manager.vatsim_only_positions.read().await;
+                        let mut actual: Vec<String> = vatsim_only
+                            .iter()
+                            .map(|(p, _)| p.as_str().to_string())
+                            .collect();
+                        actual.sort();
+                        drop(vatsim_only);
+
+                        let mut expected = s.positions.clone();
+                        expected.sort();
+
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            assert_eq!(
+                                actual, expected,
+                                "{step_label}: vatsim_only_positions mismatch"
+                            );
+                        }));
+                        dump_state_on_panic(&ctx.manager, &step_label, r).await;
+                    }
+                    Step::AssertOnlineStations(s) => {
+                        let online_stations = ctx.manager.online_stations.read().await;
+                        let actual_keys: Vec<String> = online_stations
+                            .keys()
+                            .map(|k| k.as_str().to_string())
+                            .collect();
+                        let actual_set: HashSet<StationId> =
+                            online_stations.keys().cloned().collect();
+                        drop(online_stations);
+
+                        let online = &s.online;
+                        let offline = &s.offline;
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            for expected in online {
+                                assert!(
+                                    actual_set.contains(&StationId::from(expected.clone())),
+                                    "{step_label}: expected station '{expected}' to be in online_stations, but it was not.\n  online: {actual_keys:?}"
+                                );
+                            }
+                            for unexpected in offline {
+                                assert!(
+                                    !actual_set.contains(&StationId::from(unexpected.clone())),
+                                    "{step_label}: expected station '{unexpected}' to NOT be in online_stations, but it was.\n  online: {actual_keys:?}"
+                                );
+                            }
+                        }));
+                        dump_state_on_panic(&ctx.manager, &step_label, r).await;
+                    }
+                    Step::AssertOnlinePositions(s) => {
+                        let online_positions = ctx.manager.online_positions.read().await;
+                        let actual_keys: Vec<String> = online_positions
+                            .keys()
+                            .map(|k| k.as_str().to_string())
+                            .collect();
+                        let actual_set: HashSet<PositionId> =
+                            online_positions.keys().cloned().collect();
+                        drop(online_positions);
+
+                        let online = &s.online;
+                        let not_online = &s.not_online;
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            for expected in online {
+                                assert!(
+                                    actual_set.contains(&PositionId::from(expected.clone())),
+                                    "{step_label}: expected position '{expected}' to be in online_positions, but it was not.\n  online: {actual_keys:?}"
+                                );
+                            }
+                            for unexpected in not_online {
+                                assert!(
+                                    !actual_set.contains(&PositionId::from(unexpected.clone())),
+                                    "{step_label}: expected position '{unexpected}' to NOT be in online_positions, but it was.\n  online: {actual_keys:?}"
+                                );
+                            }
+                        }));
+                        dump_state_on_panic(&ctx.manager, &step_label, r).await;
+                    }
+                    Step::AssertClientCount(expected_count) => {
+                        let actual = ctx.manager.clients.read().await.len();
+                        let expected = *expected_count;
+                        let r = catch_unwind(AssertUnwindSafe(|| {
+                            assert_eq!(actual, expected, "{step_label}: client count mismatch");
+                        }));
+                        dump_state_on_panic(&ctx.manager, &step_label, r).await;
+                    }
+                    Step::Comment(_) => {}
+                }
+            }
+        }
+
+        fn discover_scenarios() -> Vec<PathBuf> {
+            let fixtures_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests")
+                .join("fixtures")
+                .join("scenarios");
+
+            if !fixtures_dir.exists() {
+                return Vec::new();
+            }
+
+            let mut paths: Vec<PathBuf> = Vec::new();
+            collect_scenarios(&fixtures_dir, &mut paths);
+            paths.sort();
+            paths
+        }
+
+        /// Recursively collect *.json scenario files, skipping `feeds/`
+        /// and `datasets/` directories.
+        fn collect_scenarios(dir: &Path, out: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path.file_name().unwrap().to_string_lossy();
+                    if name == "feeds" || name == "datasets" {
+                        continue;
+                    }
+                    collect_scenarios(&path, out);
+                } else if path.is_file() && path.extension().is_some_and(|e| e == "json") {
+                    out.push(path);
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn run_scenarios() {
+            let scenarios = discover_scenarios();
+            assert!(
+                !scenarios.is_empty(),
+                "No sync scenario files found in tests/fixtures/scenarios/"
+            );
+
+            for path in &scenarios {
+                let name = path.file_name().unwrap().to_string_lossy();
+                println!("Running scenario: {name}");
+                run_scenario(path).await;
+                println!("Scenario passed: {name}");
+            }
+        }
+    }
 }

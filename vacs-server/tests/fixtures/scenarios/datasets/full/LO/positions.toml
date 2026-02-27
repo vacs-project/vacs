@@ -1,0 +1,329 @@
+[[positions]]
+id = "LOVV_BC_CTR"
+prefixes = ["LOVV"]
+frequency = "132.950"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_BU_CTR"
+prefixes = ["LOVV"]
+frequency = "136.390"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_B_CTR"
+prefixes = ["LOVV"]
+frequency = "132.190"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_CTR"
+prefixes = ["LOVV"]
+frequency = "132.600"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_C_CTR"
+prefixes = ["LOVV"]
+frequency = "132.160"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_EU_CTR"
+prefixes = ["LOVV"]
+frequency = "135.635"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_E_CTR"
+prefixes = ["LOVV"]
+frequency = "134.440"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_F_CTR"
+prefixes = ["LOVV"]
+frequency = "133.800"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_I_CTR"
+prefixes = ["LOVV"]
+frequency = "124.400"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_L_CTR"
+prefixes = ["LOVV"]
+frequency = "129.200"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_M_CTR"
+prefixes = ["LOVV"]
+frequency = "131.025"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_NU_CTR"
+prefixes = ["LOVV"]
+frequency = "119.880"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_N_CTR"
+prefixes = ["LOVV"]
+frequency = "134.350"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_S1_CTR"
+prefixes = ["LOVV"]
+frequency = "128.700"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_SU_CTR"
+prefixes = ["LOVV"]
+frequency = "133.965"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_S_CTR"
+prefixes = ["LOVV"]
+frequency = "122.865"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_U_CTR"
+prefixes = ["LOVV"]
+frequency = "131.350"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_WU_CTR"
+prefixes = ["LOVV"]
+frequency = "129.965"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_W_CTR"
+prefixes = ["LOVV"]
+frequency = "129.125"
+facility_type = "CTR"
+
+[[positions]]
+id = "LOVV_N_APP"
+prefixes = ["LOVV"]
+frequency = "123.725"
+facility_type = "APP"
+
+[[positions]]
+id = "LOVV_S_APP"
+prefixes = ["LOVV"]
+frequency = "119.300"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWG_APP"
+prefixes = ["LOWG"]
+frequency = "119.300"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWI_APP"
+prefixes = ["LOWI"]
+frequency = "128.975"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWI_E_APP"
+prefixes = ["LOWI"]
+frequency = "119.275"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWI_F_APP"
+prefixes = ["LOWI"]
+frequency = "121.390"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWI_S_APP"
+prefixes = ["LOWI"]
+frequency = "119.275"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWK_APP"
+prefixes = ["LOWK"]
+frequency = "123.325"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWL_APP"
+prefixes = ["LOWL"]
+frequency = "125.685"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWS_APP"
+prefixes = ["LOWS"]
+frequency = "123.725"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_APP"
+prefixes = ["LOWW"]
+frequency = "134.675"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_D_APP"
+prefixes = ["LOWW"]
+frequency = "134.125"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_F_APP"
+prefixes = ["LOWW"]
+frequency = "119.800"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_M_APP"
+prefixes = ["LOWW"]
+frequency = "125.175"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_N_APP"
+prefixes = ["LOWW"]
+frequency = "118.775"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_P_APP"
+prefixes = ["LOWW"]
+frequency = "129.050"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWW_I_APP"
+prefixes = ["LOWW"]
+frequency = "118.525"
+facility_type = "APP"
+
+[[positions]]
+id = "LOXT_APP"
+prefixes = ["LOXT"]
+frequency = "136.130"
+facility_type = "APP"
+
+[[positions]]
+id = "LOXT_P_APP"
+prefixes = ["LOXT"]
+frequency = "136.205"
+facility_type = "APP"
+
+[[positions]]
+id = "LOXZ_APP"
+prefixes = ["LOXZ"]
+frequency = "129.480"
+facility_type = "APP"
+
+[[positions]]
+id = "LOXZ_P_APP"
+prefixes = ["LOXZ"]
+frequency = "136.005"
+facility_type = "APP"
+
+[[positions]]
+id = "LOWG_TWR"
+prefixes = ["LOWG"]
+frequency = "118.200"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWI_TWR"
+prefixes = ["LOWI"]
+frequency = "120.100"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWK_TWR"
+prefixes = ["LOWK"]
+frequency = "118.125"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWL_TWR"
+prefixes = ["LOWL"]
+frequency = "118.800"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWS_TWR"
+prefixes = ["LOWS"]
+frequency = "118.100"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWW_E_TWR"
+prefixes = ["LOWW"]
+frequency = "123.800"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWW_TWR"
+prefixes = ["LOWW"]
+frequency = "119.400"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOXT_TWR"
+prefixes = ["LOXT"]
+frequency = "118.905"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOXZ_TWR"
+prefixes = ["LOXZ"]
+frequency = "135.380"
+facility_type = "TWR"
+
+[[positions]]
+id = "LOWW_I_GND"
+prefixes = ["LOWW"]
+frequency = "121.680"
+facility_type = "GND"
+
+[[positions]]
+id = "LOWW_W_GND"
+prefixes = ["LOWW"]
+frequency = "121.775"
+facility_type = "GND"
+
+[[positions]]
+id = "LOWW_GND"
+prefixes = ["LOWW"]
+frequency = "121.600"
+facility_type = "GND"
+
+[[positions]]
+id = "LOWI_DEL"
+prefixes = ["LOWI"]
+frequency = "131.655"
+facility_type = "DEL"
+
+[[positions]]
+id = "LOWS_DEL"
+prefixes = ["LOWS"]
+frequency = "121.750"
+facility_type = "DEL"
+
+[[positions]]
+id = "LOWW_DEL"
+prefixes = ["LOWW"]
+frequency = "122.125"
+facility_type = "DEL"

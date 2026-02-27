@@ -1,0 +1,758 @@
+{
+  "description": "LOVV CTR: BC disconnect with coverage handoff to E, then mentoring controller switches frequency to reopen BC",
+  "dataset": "tests/fixtures/scenarios/datasets/full",
+  "steps": [
+    {
+      "_comment": "Initial state: LOVV_E_CTR and LOVV_BC_CTR are online. LOVV_X_CTR is mentoring LOVV_E_CTR and covering the same station. LOWW_APP is online on VATSIM, but not on vacs."
+    },
+    {
+      "connect": {
+        "client_id": "10000000",
+        "position_id": "LOVV_E_CTR",
+        "frequency": "134.440"
+      }
+    },
+    {
+      "connect": {
+        "client_id": "10000001",
+        "position_id": "LOVV_E_CTR",
+        "frequency": "134.440"
+      }
+    },
+    {
+      "connect": {
+        "client_id": "10000002",
+        "position_id": "LOVV_BC_CTR",
+        "frequency": "132.950"
+      }
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_E_CTR", "frequency": "134.440" },
+          { "cid": 10000001, "callsign": "LOVV_X_CTR", "frequency": "134.440" },
+          {
+            "cid": 10000002,
+            "callsign": "LOVV_BC_CTR",
+            "frequency": "132.950"
+          },
+          { "cid": 10000003, "callsign": "LOWW_APP", "frequency": "134.675" }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": ["LOVV_E_CTR", "LOVV_BC_CTR"],
+        "not_online": ["LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": ["LOWW_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": ["LOVV_E1", "LOVV_N1", "LOWL_APP"],
+        "callable": [
+          "LOVV_B1",
+          "LOVV_S1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWG_APP",
+          "LOWK_APP"
+        ],
+        "not_callable": ["LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000001",
+        "own": ["LOVV_E1", "LOVV_N1", "LOWL_APP"],
+        "callable": [
+          "LOVV_B1",
+          "LOVV_S1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWG_APP",
+          "LOWK_APP"
+        ],
+        "not_callable": ["LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000002",
+        "own": [
+          "LOVV_B1",
+          "LOVV_S1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWG_APP",
+          "LOWK_APP"
+        ],
+        "callable": ["LOVV_E1", "LOVV_N1", "LOWL_APP"],
+        "not_callable": ["LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "drain_messages": { "client_id": "10000000" }
+    },
+    {
+      "drain_messages": { "client_id": "10000001" }
+    },
+    {
+      "drain_messages": { "client_id": "10000002" }
+    },
+    {
+      "_comment": "LOVV_BC_CTR disconnects from vacs. Coverage for S/LOWG/LOXZ shifts to LOVV_E_CTR"
+    },
+    {
+      "disconnect": { "client_id": "10000002" }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000000",
+        "changes": [
+          {
+            "handoff": {
+              "station_id": "LOVV_S1",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S2",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S3",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S4",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S5",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S6",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S7",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_APP",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_TWR",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_APP",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_TWR",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          { "offline": { "station_id": "LOVV_B1" } },
+          { "offline": { "station_id": "LOVV_B2" } },
+          { "offline": { "station_id": "LOVV_B3" } },
+          { "offline": { "station_id": "LOVV_B4" } },
+          { "offline": { "station_id": "LOVV_B5" } },
+          { "offline": { "station_id": "LOVV_B6" } },
+          { "offline": { "station_id": "LOVV_B7" } },
+          { "offline": { "station_id": "LOVV_W1" } },
+          { "offline": { "station_id": "LOVV_W2" } },
+          { "offline": { "station_id": "LOVV_W3" } },
+          { "offline": { "station_id": "LOVV_W4" } },
+          { "offline": { "station_id": "LOVV_W5" } },
+          { "offline": { "station_id": "LOVV_W6" } },
+          { "offline": { "station_id": "LOVV_W7" } },
+          { "offline": { "station_id": "LOWS_APP" } },
+          { "offline": { "station_id": "LOWS_TWR" } },
+          { "offline": { "station_id": "LOWS_DEL" } },
+          { "offline": { "station_id": "LOWK_APP" } },
+          { "offline": { "station_id": "LOWK_TWR" } }
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000001",
+        "changes": [
+          {
+            "handoff": {
+              "station_id": "LOVV_S1",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S2",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S3",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S4",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S5",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S6",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S7",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_APP",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_TWR",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_APP",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_TWR",
+              "from_position_id": "LOVV_BC_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          { "offline": { "station_id": "LOVV_B1" } },
+          { "offline": { "station_id": "LOVV_B2" } },
+          { "offline": { "station_id": "LOVV_B3" } },
+          { "offline": { "station_id": "LOVV_B4" } },
+          { "offline": { "station_id": "LOVV_B5" } },
+          { "offline": { "station_id": "LOVV_B6" } },
+          { "offline": { "station_id": "LOVV_B7" } },
+          { "offline": { "station_id": "LOVV_W1" } },
+          { "offline": { "station_id": "LOVV_W2" } },
+          { "offline": { "station_id": "LOVV_W3" } },
+          { "offline": { "station_id": "LOVV_W4" } },
+          { "offline": { "station_id": "LOVV_W5" } },
+          { "offline": { "station_id": "LOVV_W6" } },
+          { "offline": { "station_id": "LOVV_W7" } },
+          { "offline": { "station_id": "LOWS_APP" } },
+          { "offline": { "station_id": "LOWS_TWR" } },
+          { "offline": { "station_id": "LOWS_DEL" } },
+          { "offline": { "station_id": "LOWK_APP" } },
+          { "offline": { "station_id": "LOWK_TWR" } }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": ["LOVV_E_CTR"],
+        "not_online": ["LOVV_BC_CTR", "LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": ["LOWW_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": ["LOVV_E1", "LOVV_N1", "LOVV_S1", "LOWL_APP", "LOWG_APP"],
+        "not_callable": [
+          "LOVV_B1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWK_APP",
+          "LOWW_APP",
+          "LOWI_APP"
+        ]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000001",
+        "own": ["LOVV_E1", "LOVV_N1", "LOVV_S1", "LOWL_APP", "LOWG_APP"],
+        "not_callable": [
+          "LOVV_B1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWK_APP",
+          "LOWW_APP",
+          "LOWI_APP"
+        ]
+      }
+    },
+    {
+      "_comment": "Datafeed updates without LOVV_BC_CTR. No changes expected as LOVV_E_CTR is already covering the same stations."
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_E_CTR", "frequency": "134.440" },
+          { "cid": 10000001, "callsign": "LOVV_X_CTR", "frequency": "134.440" },
+          { "cid": 10000003, "callsign": "LOWW_APP", "frequency": "134.675" }
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000000",
+        "changes": []
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000001",
+        "changes": []
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": ["LOVV_E_CTR"],
+        "not_online": ["LOVV_BC_CTR", "LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": ["LOWW_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": ["LOVV_E1", "LOVV_N1", "LOVV_S1", "LOWL_APP", "LOWG_APP"],
+        "not_callable": [
+          "LOVV_B1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWK_APP",
+          "LOWW_APP",
+          "LOWI_APP"
+        ]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000001",
+        "own": ["LOVV_E1", "LOVV_N1", "LOVV_S1", "LOWL_APP", "LOWG_APP"],
+        "not_callable": [
+          "LOVV_B1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWK_APP",
+          "LOWW_APP",
+          "LOWI_APP"
+        ]
+      }
+    },
+    {
+      "_comment": "LOVV_X_CTR switches primary frequency to previous LOVV_BC_CTR frequency"
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_E_CTR", "frequency": "134.440" },
+          { "cid": 10000001, "callsign": "LOVV_X_CTR", "frequency": "132.950" },
+          { "cid": 10000003, "callsign": "LOWW_APP", "frequency": "134.675" }
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000000",
+        "changes": [
+          {
+            "online": { "station_id": "LOVV_B1", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B2", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B3", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B4", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B5", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B6", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B7", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W1", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W2", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W3", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W4", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W5", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W6", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W7", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWS_APP", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWS_TWR", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWS_DEL", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWK_APP", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWK_TWR", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S1",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S2",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S3",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S4",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S5",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S6",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S7",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000001",
+        "changes": [
+          {
+            "online": { "station_id": "LOVV_B1", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B2", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B3", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B4", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B5", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B6", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_B7", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W1", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W2", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W3", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W4", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W5", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W6", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOVV_W7", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWS_APP", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWS_TWR", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWS_DEL", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWK_APP", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "online": { "station_id": "LOWK_TWR", "position_id": "LOVV_BC_CTR" }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S1",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S2",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S3",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S4",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S5",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S6",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S7",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_BC_CTR"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": ["LOVV_E_CTR", "LOVV_BC_CTR"],
+        "not_online": ["LOVV_X_CTR", "LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": ["LOWW_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": ["LOVV_E1", "LOVV_N1", "LOWL_APP"],
+        "callable": [
+          "LOVV_B1",
+          "LOVV_S1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWG_APP",
+          "LOWK_APP"
+        ],
+        "not_callable": ["LOWW_APP", "LOWI_APP"]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000001",
+        "own": [
+          "LOVV_B1",
+          "LOVV_S1",
+          "LOVV_W1",
+          "LOWS_APP",
+          "LOWG_APP",
+          "LOWK_APP"
+        ],
+        "callable": ["LOVV_E1", "LOVV_N1", "LOWL_APP"],
+        "not_callable": ["LOWW_APP", "LOWI_APP"]
+      }
+    }
+  ]
+}

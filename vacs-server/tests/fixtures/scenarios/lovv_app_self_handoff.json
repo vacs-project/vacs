@@ -1,0 +1,225 @@
+{
+  "description": "LOVV APP: N switches primary frequency to join already-occupied S position (self-handoff)",
+  "dataset": "tests/fixtures/scenarios/datasets/full",
+  "steps": [
+    {
+      "_comment": "Initial state: LOVV_N_APP and LOVV_S_APP are online."
+    },
+    {
+      "connect": {
+        "client_id": "10000000",
+        "position_id": "LOVV_N_APP",
+        "frequency": "123.725"
+      }
+    },
+    {
+      "connect": {
+        "client_id": "10000001",
+        "position_id": "LOVV_S_APP",
+        "frequency": "119.300"
+      }
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_N_APP", "frequency": "123.725" },
+          { "cid": 10000001, "callsign": "LOVV_S_APP", "frequency": "119.300" }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": ["LOVV_N_APP", "LOVV_S_APP"]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": []
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": ["LOWL_APP", "LOWL_TWR", "LOWS_APP", "LOWS_TWR", "LOWS_DEL"],
+        "callable": [
+          "LOWG_APP",
+          "LOWG_TWR",
+          "LOWK_APP",
+          "LOWK_TWR",
+          "LOXZ_APP",
+          "LOXZ_TWR"
+        ]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000001",
+        "own": [
+          "LOWG_APP",
+          "LOWG_TWR",
+          "LOWK_APP",
+          "LOWK_TWR",
+          "LOXZ_APP",
+          "LOXZ_TWR"
+        ],
+        "callable": ["LOWL_APP", "LOWL_TWR", "LOWS_APP", "LOWS_TWR", "LOWS_DEL"]
+      }
+    },
+    {
+      "drain_messages": { "client_id": "10000000" }
+    },
+    {
+      "drain_messages": { "client_id": "10000001" }
+    },
+    {
+      "_comment": "LOVV_N_APP switches primary frequency to LOVV_S_APP frequency. This station is already covered in vacs by LOVV_S_APP, but the client should still receive the appropriate handoff to set the own stations correctly."
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_N_APP", "frequency": "119.300" },
+          { "cid": 10000001, "callsign": "LOVV_S_APP", "frequency": "119.300" }
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000000",
+        "changes": [
+          {
+            "handoff": {
+              "station_id": "LOWG_APP",
+              "from_position_id": "LOVV_S_APP",
+              "to_position_id": "LOVV_S_APP"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_TWR",
+              "from_position_id": "LOVV_S_APP",
+              "to_position_id": "LOVV_S_APP"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWK_APP",
+              "from_position_id": "LOVV_S_APP",
+              "to_position_id": "LOVV_S_APP"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWK_TWR",
+              "from_position_id": "LOVV_S_APP",
+              "to_position_id": "LOVV_S_APP"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_APP",
+              "from_position_id": "LOVV_S_APP",
+              "to_position_id": "LOVV_S_APP"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_TWR",
+              "from_position_id": "LOVV_S_APP",
+              "to_position_id": "LOVV_S_APP"
+            }
+          },
+          {
+            "offline": { "station_id": "LOWL_APP" }
+          },
+          {
+            "offline": { "station_id": "LOWL_TWR" }
+          },
+          {
+            "offline": { "station_id": "LOWS_APP" }
+          },
+          {
+            "offline": { "station_id": "LOWS_TWR" }
+          },
+          {
+            "offline": { "station_id": "LOWS_DEL" }
+          }
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000001",
+        "changes": [
+          {
+            "offline": { "station_id": "LOWL_APP" }
+          },
+          {
+            "offline": { "station_id": "LOWL_TWR" }
+          },
+          {
+            "offline": { "station_id": "LOWS_APP" }
+          },
+          {
+            "offline": { "station_id": "LOWS_TWR" }
+          },
+          {
+            "offline": { "station_id": "LOWS_DEL" }
+          }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": ["LOVV_S_APP"],
+        "not_online": ["LOVV_N_APP"]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": []
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": [
+          "LOWG_APP",
+          "LOWG_TWR",
+          "LOWK_APP",
+          "LOWK_TWR",
+          "LOXZ_APP",
+          "LOXZ_TWR"
+        ],
+        "callable": [],
+        "not_callable": [
+          "LOWL_APP",
+          "LOWL_TWR",
+          "LOWS_APP",
+          "LOWS_TWR",
+          "LOWS_DEL"
+        ]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000001",
+        "own": [
+          "LOWG_APP",
+          "LOWG_TWR",
+          "LOWK_APP",
+          "LOWK_TWR",
+          "LOXZ_APP",
+          "LOXZ_TWR"
+        ],
+        "callable": [],
+        "not_callable": [
+          "LOWL_APP",
+          "LOWL_TWR",
+          "LOWS_APP",
+          "LOWS_TWR",
+          "LOWS_DEL"
+        ]
+      }
+    }
+  ]
+}
