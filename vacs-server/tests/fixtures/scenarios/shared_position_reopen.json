@@ -709,6 +709,118 @@
               "from_position_id": "LOVV_E_CTR",
               "to_position_id": "LOVV_BC_CTR"
             }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E1",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E2",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E3",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E4",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E5",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E6",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_E7",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N1",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N2",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N3",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N4",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N5",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N6",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_N7",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWL_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWL_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_E_CTR"
+            }
           }
         ]
       }
