@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      node: ${{ steps.filter.outputs.node }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            rust:
+              - "**/*.rs"
+              - "**/Cargo.toml"
+              - "**/Cargo.lock"
+              - "**/deny.toml"
+              - ".github/workflows/ci-rust.yml"
+              - ".github/workflows/ci-gate.yml"
+            node:
+              - "vacs-client/frontend/**"
+              - "!vacs-client/frontend/icons/**"
+              - ".github/workflows/ci-node.yml"
+              - ".github/workflows/ci-gate.yml"
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    uses: ./.github/workflows/ci-rust.yml
+    permissions:
+      contents: read
+
+  node:
+    needs: changes
+    if: needs.changes.outputs.node == 'true'
+    uses: ./.github/workflows/ci-node.yml
+    permissions:
+      contents: read
+
+  gate:
+    name: "CI \u2713"
+    needs: [rust, node]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Evaluate results
+        env:
+          RUST_RESULT: ${{ needs.rust.result }}
+          NODE_RESULT: ${{ needs.node.result }}
+        run: |
+          failed=false
+          for name in rust node; do
+            var="${name^^}_RESULT"
+            result="${!var}"
+            case "$result" in
+              success|skipped) echo "$name: $result" ;;
+              *)               echo "::error::$name: $result"; failed=true ;;
+            esac
+          done
+
+          if [[ "$failed" == "true" ]]; then
+            echo ""
+            echo "One or more required CI workflows failed."
+            exit 1
+          fi
+
+          echo ""
+          echo "All required checks passed or were skipped."
+
+      - name: Summary
+        if: always()
+        env:
+          RUST_RESULT: ${{ needs.rust.result }}
+          NODE_RESULT: ${{ needs.node.result }}
+        run: |
+          icon() { case "$1" in success) echo "✅";; skipped) echo "⏭️";; *) echo "❌";; esac }
+
+          echo "### CI Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Workflow | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Rust | $(icon "$RUST_RESULT") $RUST_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Node | $(icon "$NODE_RESULT") $NODE_RESULT |" >> $GITHUB_STEP_SUMMARY

@@ -2,28 +2,8 @@ name: CI • Rust
 
 on:
   workflow_call:
-  pull_request:
-    branches: [main]
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "**/deny.toml"
-      - ".github/workflows/ci-rust.yml"
-  push:
-    branches: [main]
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "**/deny.toml"
-      - ".github/workflows/ci-rust.yml"
 
 permissions: {}
-
-concurrency:
-  group: rust-ci-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
 
 jobs:
   cargo-deny:

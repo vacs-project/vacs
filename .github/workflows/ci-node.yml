@@ -2,24 +2,8 @@ name: CI • Node
 
 on:
   workflow_call:
-  pull_request:
-    branches: [main]
-    paths:
-      - "vacs-client/frontend/**"
-      - "!vacs-client/frontend/icons/**"
-      - ".github/workflows/ci-node.yml"
-  push:
-    branches: [main]
-    paths:
-      - "vacs-client/frontend/**"
-      - "!vacs-client/frontend/icons/**"
-      - ".github/workflows/ci-node.yml"
 
 permissions: {}
-
-concurrency:
-  group: node-ci-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
 
 jobs:
   check:
