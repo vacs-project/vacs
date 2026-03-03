@@ -82,8 +82,53 @@ jobs:
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "release_name=$REL_NAME" >> "$GITHUB_OUTPUT"
 
+  licenses:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup Node (LTS)
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+          cache-dependency-path: vacs-client/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: vacs-client
+        run: npm ci
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          shared-key: licenses
+
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked
+
+      - name: Generate third-party licenses
+        run: python3 scripts/generate-licenses.py --output THIRD_PARTY_LICENSES.html
+
+      - name: Upload licenses artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: third-party-licenses
+          path: THIRD_PARTY_LICENSES.html
+          if-no-files-found: error
+          retention-days: 30
+
   build:
-    needs: prep
+    needs: [prep, licenses]
     strategy:
       fail-fast: false
       matrix:
@@ -179,6 +224,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: vacs-client
         run: npm ci
+
+      - name: Download third-party licenses
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: third-party-licenses
 
       - name: Build
         uses: tauri-apps/tauri-action@73fb865345c54760d875b94642314f8c0c894afa # v0.6.1

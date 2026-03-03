@@ -38,7 +38,8 @@
       "../LICENSE-APACHE": "LICENSE-APACHE",
       "../LICENSE-MIT": "LICENSE-MIT",
       "../README.md": "README.md",
-      "frontend/src/assets/fonts/OFL-noto.txt": "licenses/OFL-noto.txt"
+      "frontend/src/assets/fonts/OFL-noto.txt": "licenses/OFL-noto.txt",
+      "../THIRD_PARTY_LICENSES.html": "licenses/THIRD_PARTY_LICENSES.html"
     },
     "windows": {
       "nsis": {
