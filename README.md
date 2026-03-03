@@ -142,6 +142,9 @@ As such, connecting to the default server is recommended to ensure the best poss
 
 However, we still provide the required server binaries in the form of a [Docker image](https://github.com/vacs-project/vacs/pkgs/container/vacs-server) should you prefer to host your own instance. Note that clients must manually edit their config files to specify your custom server URLs to use it and won't be able to call any other clients connected to the default server.
 
+> [!NOTE]  
+> Docker images for versions before 2.0.0 were published at `ghcr.io/morpheusxaut/vacs-server`. Starting with 2.0.0, images are published at `ghcr.io/vacs-project/vacs-server`.
+
 ### Production environment
 
 By default, all released `vacs` clients will connect to the production server located at `https://vacs.network` (with the WebSocket endpoint available at `wss://vacs.network/ws`). This server will always run the latest stable version available.

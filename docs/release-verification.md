@@ -72,6 +72,9 @@ rpm -K vacs-X.Y.Z-1.x86_64.rpm
 
 The signaling server is distributed as a Docker image for ease of deployment.
 
+> [!NOTE]  
+> Docker images for versions before 2.0.0 were published at `ghcr.io/morpheusxaut/vacs-server`. Starting with 2.0.0, images are published at `ghcr.io/vacs-project/vacs-server`.
+
 Server releases are built, signed and published by the [release-server](../.github/workflows/release-server.yml) GitHub action.
 
 ### Verifying server releases
