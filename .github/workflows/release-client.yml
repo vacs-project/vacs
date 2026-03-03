@@ -236,8 +236,14 @@ jobs:
             target/**/release/bundle/dmg/*.dmg
             target/**/release/bundle/dmg/*.dmg.sig
 
+      - name: Generate SBOM
+        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-path: |
             target/**/release/bundle/**/*.msi
@@ -255,12 +261,26 @@ jobs:
             target/**/release/bundle/dmg/*.dmg
             target/**/release/bundle/dmg/*.dmg.sig
 
+      - name: Attest SBOM
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: |
+            target/**/release/bundle/**/*.msi
+            target/**/release/bundle/**/*.exe
+            target/**/release/bundle/**/*.deb
+            target/**/release/bundle/**/*.rpm
+            target/**/release/bundle/**/*.AppImage
+            target/**/release/bundle/macos/vacs_*_*.app.tar.gz
+            target/**/release/bundle/dmg/*.dmg
+          sbom-path: sbom.spdx.json
+
   release:
     needs: [prep, build]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read # write access for the release is via the App token below
+      attestations: write
       id-token: write
 
     steps:
@@ -297,6 +317,11 @@ jobs:
           cosign sign-blob --yes \
             --bundle "SHA256SUMS-${VERSION}.txt.bundle.json" \
             "SHA256SUMS-${VERSION}.txt"
+
+      - name: Attest release artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-checksums: dist/SHA256SUMS-${{ needs.prep.outputs.version }}.txt
 
       - name: Generate GitHub token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
