@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -22,6 +23,7 @@ import string
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote as urlquote
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 WORKSPACE_ROOT = SCRIPT_DIR.parent
@@ -244,8 +246,10 @@ def render_html(
     # --- Overview list ---
     overview_items: list[str] = []
     for g in overview:
+        frag = urlquote(g["id"], safe="")
+        name = html.escape(g["name"])
         overview_items.append(
-            f'            <li><a href="#{g["id"]}">{g["name"]}</a> ({g["count"]})</li>'
+            f'            <li><a href="#{frag}">{name}</a> ({g["count"]})</li>'
         )
 
     # --- Detailed license blocks ---
@@ -253,30 +257,34 @@ def render_html(
     license_blocks: list[str] = []
     for g in overview:
         first = True
+        frag = urlquote(g["id"], safe="")
+        name = html.escape(g["name"])
         for idx in g["indices"]:
             entry = all_entries[idx]
             used_by = sorted(entry["used_by"], key=lambda u: u["crate"]["name"].lower())
 
             used_by_items = "\n".join(
-                f'                    <li><a href="{_crate_url(u)}">'
-                f'{u["crate"]["name"]} {u["crate"]["version"]}</a></li>'
+                f'                    <li><a href="{html.escape(_crate_url(u))}">' 
+                f'{html.escape(u["crate"]["name"])} {html.escape(u["crate"]["version"])}</a></li>'
                 for u in used_by
             )
 
             text = entry.get("text", "").strip()
             text_html = (
-                f'<pre class="license-text">{_esc(text)}</pre>'
+                f'<pre class="license-text">{html.escape(text)}</pre>'
                 if text
                 else '<pre class="license-text">(license text not available)</pre>'
             )
 
             # The first block for each SPDX ID gets the anchor for the overview link.
-            anchor = f' id="{g["id"]}"' if first else ""
+            # Use the raw ID (HTML-escaped) for the id attribute — browsers
+            # URL-decode href fragments before matching against id values.
+            anchor = f' id="{html.escape(g["id"])}"' if first else ""
             first = False
 
             license_blocks.append(
                 f"""            <li class="license">
-                <h3{anchor}>{g["name"]}</h3>
+                <h3{anchor}>{name}</h3>
                 <h4>Used by:</h4>
                 <ul class="license-used-by">
 {used_by_items}
@@ -287,15 +295,11 @@ def render_html(
 
     template = string.Template(TEMPLATE_FILE.read_text(encoding="utf-8"))
     return template.substitute(
-        title=title,
-        subtitle=subtitle,
+        title=html.escape(title),
+        subtitle=html.escape(subtitle),
         overview_items="\n".join(overview_items),
         license_blocks="\n".join(license_blocks),
     )
-
-
-def _esc(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _crate_url(u: dict) -> str:
@@ -347,7 +351,7 @@ def main() -> None:
     html = render_html(rust, node)
 
     out = Path(args.output)
-    out.write_text(html)
+    out.write_text(html, encoding="utf-8")
     print(f"Written to {out} ({len(html):,} bytes)")
 
 
