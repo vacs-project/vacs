@@ -1,0 +1,35 @@
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>${title}</title>
+    <style>
+        @media (prefers-color-scheme: dark) {
+            body { background: #333; color: white; }
+            a { color: skyblue; }
+        }
+        .container { font-family: sans-serif; max-width: 800px; margin: 0 auto; }
+        .intro { text-align: center; }
+        .licenses-list { list-style-type: none; margin: 0; padding: 0; }
+        .license-used-by { margin-top: -10px; }
+        .license-text { max-height: 200px; overflow-y: scroll; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <div class="intro">
+            <h1>${title}</h1>
+            <p>Covering ${subtitle}.</p>
+        </div>
+
+        <h2>Overview of licenses:</h2>
+        <ul class="licenses-overview">
+${overview_items}
+        </ul>
+
+        <h2>All license text:</h2>
+        <ul class="licenses-list">
+${license_blocks}
+        </ul>
+    </main>
+</body>
+</html>

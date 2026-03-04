@@ -1,0 +1,39 @@
+# Priority-ordered list of globally accepted licenses.
+# cargo-about picks the first match, so MIT is preferred over Apache-2.0
+# when a crate offers both.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+]
+
+ignore-build-dependencies = false
+ignore-dev-dependencies = false
+ignore-transitive-dependencies = false
+filter-noassertion = true
+
+workarounds = [
+    "cocoa",
+    "ring",
+    "rustix",
+    "rustls",
+]
+
+private = { ignore = true }
+
+# aws-lc-sys bundles OpenSSL-licensed code (AND expression, not optional)
+[aws-lc-sys]
+accepted = ["OpenSSL"]
+
+# webpki-root-certs provides Mozilla root certificates
+[webpki-root-certs]
+accepted = ["CDLA-Permissive-2.0"]
+
+# foldhash is solely Zlib-licensed (other Zlib-OR crates satisfied by MIT)
+[foldhash]
+accepted = ["Zlib"]

@@ -145,6 +145,9 @@ target/
 # Secrets and other local-only config
 /.envrc
 
+# Generated third-party license notices
+THIRD_PARTY_LICENSES.html
+
 # VSCode and derivate workspaces
 *.code-workspace
 .idea/copilot.data.migration.ask2agent.xml
