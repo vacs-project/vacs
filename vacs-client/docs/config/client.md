@@ -9,8 +9,8 @@ For general information on the configuration file format, file locations, and re
 The `client` configuration allows you to control the client's behavior and local logic. It consists of the following sections:
 
 - **[Ignore list](#ignore-list)** - Manage ignored users
-- **[Extra stations config](#extra-stations-config)** - Load an additional stations config file
-- **[Selected stations profile](#selected-stations-profile)** - Currently active stations profile
+- **[Extra client page config](#extra-client-page-config)** - Load an additional client page config file
+- **[Selected client page config](#selected-client-page-config)** - Currently active client page config
 - **[Transmit configuration](#transmit-configuration)** - Configure transmission mode and PTT keys
 - **[Keybinds](#keybinds)** - Configure general keybinds
 - **[Call](#call)** - Configure call behavior
@@ -20,8 +20,8 @@ The `client` configuration allows you to control the client's behavior and local
 ```toml
 [client]
 ignored = []
-selected_stations_profile = "Default"
-# extra_stations_config = "/path/to/extra_stations.toml"
+selected_client_page_config = "Default"
+# extra_client_page_config = "/path/to/extra_client_page.toml"
 
 [client.transmit_config]
 mode = "VoiceActivation" # or "PushToTalk", "PushToMute", "RadioIntegration"
@@ -53,7 +53,7 @@ Any incoming calls initiated by a CID in this list will be silently ignored by t
 **This is not a block feature:** You can still initiate calls to users in your ignore list. The setting only suppresses _incoming_ interactions.
 
 > [!NOTE]  
-> This is a global setting and independent from your currently selected [stations profile](stations.md#profiles).
+> This is a global setting and independent from your currently selected [client page config](client_page.md#configs).
 
 You can change this list manually in the configuration file before startup, or by going to the `Telephone` page in the client and modifying the list of ignored users in the `Ign.` tab. Alternatively, you can select a call from the `Call List` and ignore the caller using the `Ignore CID` button.
 
@@ -69,40 +69,40 @@ ignored = ["10000003", "1234567"]
 
 ---
 
-## Extra stations config
+## Extra client page config
 
-The `extra_stations_config` setting allows you to load an additional stations configuration file. This is useful for including the stations profiles provided by your NAV team in your FIR's sector file.
+The `extra_client_page_config` setting allows you to load an additional client page configuration file. This is useful for including the client page configs provided by your NAV team in your FIR's sector file.
 
 **Type:** String (Path)  
 **Default:** None  
 **Optional:** Yes
 
-The path can be absolute or relative to the configuration directory. You can pick an extra stations config file to apply via the `Mission` page in the client.
+The path can be absolute or relative to the configuration directory. You can pick an extra client page config file to apply via the `Mission` page in the client.
 
 > [!WARNING]  
-> Under Windows, all backslashes in the path must be escaped with another backslash (e.g., `C:\\Users\\user\\Documents\\EuroScope\\SectorFile\\stations.toml`).
+> Under Windows, all backslashes in the path must be escaped with another backslash (e.g., `C:\\Users\\user\\Documents\\EuroScope\\SectorFile\\client_page.toml`).
 
 **Example:**
 
 ```toml
 [client]
-extra_stations_config = "/home/user/Documents/EuroScope/SectorFile/stations.toml"
+extra_client_page_config = "/home/user/Documents/EuroScope/SectorFile/client_page.toml"
 ```
 
 > [!NOTE]  
-> The extra stations config is merged with the main stations config. If there are any conflicts, the extra stations config takes precedence.
+> The extra client page config is merged with the main client page config. If there are any conflicts, the extra client page config takes precedence.
 
 ---
 
-## Selected stations profile
+## Selected client page config
 
-The `selected_stations_profile` setting determines which [stations profile](stations.md#profiles) is currently active.
+The `selected_client_page_config` setting determines which [client page config](client_page.md#configs) is currently active.
 
 **Type:** String  
 **Default:** `"Default"`  
 **Optional:** Yes
 
-This value is updated automatically when you switch profiles in the client UI.
+This value is updated automatically when you switch configs in the client UI.
 
 ---
 

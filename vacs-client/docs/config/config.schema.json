@@ -9,14 +9,14 @@
       "title": "ClientConfig",
       "description": "Configuration for local client behavior",
       "properties": {
-        "selected_stations_profile": {
+        "selected_client_page_config": {
           "type": "string",
           "default": "Default",
-          "description": "Name of the currently selected stations profile."
+          "description": "Name of the currently selected client page config."
         },
-        "extra_stations_config": {
+        "extra_client_page_config": {
           "type": "string",
-          "description": "Path to an additional stations configuration file to load."
+          "description": "Path to an additional client page configuration file to load."
         },
         "ignored": {
           "type": "array",

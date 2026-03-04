@@ -11,9 +11,11 @@ The `vacs` client reads configuration from:
 3. `config.toml` in the current working directory,
 4. `audio.toml` in the config directory,
 5. `audio.toml` in the current working directory,
-6. `client.toml` in the config directory,
-7. `client.toml` in the current working directory,
-8. Environment variables with the `VACS_CLIENT_` prefix.
+6. `client_page.toml` in the config directory,
+7. `client_page.toml` in the current working directory,
+8. `client.toml` in the config directory,
+9. `client.toml` in the current working directory,
+10. Environment variables with the `VACS_CLIENT_` prefix.
 
 The config directory is dependent on the operating system:
 
@@ -42,6 +44,9 @@ If your tool of choice supports [JSON Schema](https://json-schema.org/), you can
 
 [client]
 # ClientConfig
+
+[client_page]
+# ClientPageSettings
 ```
 
 ### `backend`: Backend server configuration
@@ -53,3 +58,7 @@ If your tool of choice supports [JSON Schema](https://json-schema.org/), you can
 ### `client`: Influencing the client's behavior
 
 [ClientConfig reference](client.md)
+
+### `client_page`: Filtering and customizing the Client page
+
+[ClientPageSettings reference](client_page.md)
