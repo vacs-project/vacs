@@ -84,7 +84,7 @@ tauri-plugin-updater = "2.10.0"
 tempfile = "3.26.0"
 test-log = { version = "0.2.19", features = ["trace"] }
 thiserror = "2.0.18"
-tokio = { version = "1.49.0", features = ["rt", "rt-multi-thread", "macros", "process", "signal", "sync", "time"] }
+tokio = { version = "1.50.0", features = ["rt", "rt-multi-thread", "macros", "process", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.28.0", features = ["rustls", "rustls-tls-native-roots"] }
 tokio-util = "0.7.18"
 toml = "1.0.3"
