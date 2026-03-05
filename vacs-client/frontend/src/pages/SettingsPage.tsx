@@ -7,7 +7,7 @@ import DeviceSelector from "../components/settings/DeviceSelector.tsx";
 import VolumeSettings from "../components/settings/VolumeSettings.tsx";
 import AudioHostSelector from "../components/settings/AudioHostSelector.tsx";
 import {useEffect, useState} from "preact/hooks";
-import {getCurrentWindow} from "@tauri-apps/api/window";
+import {isTauri} from "../transport";
 import {useUpdateStore} from "../stores/update-store.ts";
 import {Route, Switch} from "wouter";
 import TransmitModePage from "../components/settings/TransmitModePage.tsx";
@@ -250,17 +250,16 @@ function WindowStateButtons() {
     });
 
     useEffect(() => {
-        const fetchIsAlwaysOnTop = async () => {
+        if (!isTauri) return;
+        const fetchWindowState = async () => {
+            const {getCurrentWindow} = await import("@tauri-apps/api/window");
             const isAlwaysOnTop = await getCurrentWindow().isAlwaysOnTop();
-            setAlwaysOnTop(alwaysOnTop => isAlwaysOnTop ?? alwaysOnTop);
-        };
-        const fetchIsFullscreen = async () => {
-            const isFullscreen = await getCurrentWindow().isFullscreen();
-            setFullscreen(isFullscreen);
+            setAlwaysOnTop(prev => isAlwaysOnTop ?? prev);
+            const isFs = await getCurrentWindow().isFullscreen();
+            setFullscreen(isFs);
         };
 
-        void fetchIsAlwaysOnTop();
-        void fetchIsFullscreen();
+        void fetchWindowState();
     }, []);
 
     return (

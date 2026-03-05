@@ -2,7 +2,7 @@ import {invokeSafe, invokeStrict} from "../error.ts";
 import {useAsyncDebounce} from "../hooks/debounce-hook.ts";
 import {clsx} from "clsx";
 import {useEffect, useState} from "preact/hooks";
-import {listen} from "@tauri-apps/api/event";
+import {listen} from "../transport";
 
 const LOGIN_TIMEOUT = 30 * 1000;
 

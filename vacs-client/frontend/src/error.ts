@@ -1,6 +1,5 @@
-import {invoke, InvokeArgs} from "@tauri-apps/api/core";
+import {invoke, InvokeArgs, isTauri, RemoteCommand} from "./transport";
 import {useErrorOverlayStore} from "./stores/error-overlay-store.ts";
-import {error} from "@tauri-apps/plugin-log";
 import {CallId} from "./types/generic.ts";
 
 export type Error = {
@@ -15,7 +14,7 @@ export type CallError = {
     reason: string;
 };
 
-export async function invokeSafe<T>(cmd: string, args?: InvokeArgs): Promise<T | undefined> {
+export async function invokeSafe<T>(cmd: RemoteCommand, args?: InvokeArgs): Promise<T | undefined> {
     try {
         return await invoke<T>(cmd, args);
     } catch (e) {
@@ -23,7 +22,7 @@ export async function invokeSafe<T>(cmd: string, args?: InvokeArgs): Promise<T |
     }
 }
 
-export async function invokeStrict<T>(cmd: string, args?: InvokeArgs): Promise<T> {
+export async function invokeStrict<T>(cmd: RemoteCommand, args?: InvokeArgs): Promise<T> {
     try {
         return await invoke<T>(cmd, args);
     } catch (e) {
@@ -38,7 +37,7 @@ export function openErrorOverlayFromUnknown(e: unknown) {
     if (isError(e)) {
         openErrorOverlay(e.title, e.message, false, e.timeoutMs);
     } else {
-        void error(JSON.stringify(e));
+        logError(JSON.stringify(e));
         openErrorOverlay("Unexpected error", "An unknown error occurred", false);
     }
 }
@@ -70,5 +69,13 @@ export function safeSerialize(value: unknown): unknown {
         return JSON.parse(JSON.stringify(value));
     } catch {
         return String(value);
+    }
+}
+
+export function logError(msg: string) {
+    if (isTauri) {
+        import("@tauri-apps/plugin-log").then(mod => void mod.error(msg));
+    } else {
+        console.error(msg);
     }
 }
