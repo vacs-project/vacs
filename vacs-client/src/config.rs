@@ -9,6 +9,7 @@ use keyboard_types::Code;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -39,6 +40,8 @@ pub struct AppConfig {
     pub client: ClientConfig,
     #[serde(default)]
     pub client_page: ClientPageSettings,
+    #[serde(default)]
+    pub remote: RemoteConfig,
 }
 
 impl AppConfig {
@@ -838,6 +841,25 @@ impl From<ClientPageConfig> for FrontendClientPageConfig {
             priority: client_page_config.priority,
             frequencies: client_page_config.frequencies,
             grouping: client_page_config.grouping,
+        }
+    }
+}
+
+/// Configuration for the embedded remote-control server.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteConfig {
+    /// Whether the remote control server is enabled.
+    pub enabled: bool,
+    /// Socket address to bind the remote control server to.
+    /// Must be in the format "IP:PORT", e.g. "0.0.0.0:9600".
+    pub listen_addr: SocketAddr,
+}
+
+impl Default for RemoteConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen_addr: "0.0.0.0:9600".parse().unwrap(),
         }
     }
 }

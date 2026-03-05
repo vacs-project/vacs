@@ -8360,6 +8360,7 @@ dependencies = [
  "anyhow",
  "ashpd",
  "async-trait",
+ "axum",
  "base64 0.22.1",
  "cfg-if",
  "chacha20poly1305",
