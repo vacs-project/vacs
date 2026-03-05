@@ -3,7 +3,7 @@ import InfoGrid from "./components/InfoGrid.tsx";
 import FunctionKeys from "./components/FunctionKeys.tsx";
 import CallQueue from "./components/CallQueue.tsx";
 import {useEffect} from "preact/hooks";
-import {invoke} from "@tauri-apps/api/core";
+import {invoke} from "./transport";
 import {Route, Switch} from "wouter";
 import LoginPage from "./pages/LoginPage.tsx";
 import {useAuthStore} from "./stores/auth-store.ts";

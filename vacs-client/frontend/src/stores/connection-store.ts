@@ -1,5 +1,5 @@
 import {create} from "zustand/react";
-import {invoke} from "@tauri-apps/api/core";
+import {invoke} from "../transport";
 import {isError, openErrorOverlayFromUnknown} from "../error.ts";
 import {ClientInfo} from "../types/client.ts";
 import {PositionId} from "../types/generic.ts";
