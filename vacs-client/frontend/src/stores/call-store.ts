@@ -8,7 +8,7 @@ import {useConnectionStore} from "./connection-store.ts";
 import {useCallListStore} from "./call-list-store.ts";
 import {useStationsStore} from "./stations-store.ts";
 
-type ConnectionState = "connecting" | "connected" | "disconnected";
+export type ConnectionState = "connecting" | "connected" | "disconnected";
 
 type CallDisplay = {
     type: "outgoing" | "accepted" | "rejected" | "error";
