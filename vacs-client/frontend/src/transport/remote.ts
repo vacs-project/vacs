@@ -1,4 +1,5 @@
 import type {EventCallback, InvokeArgs, RemoteCommand, RemoteEvent, UnlistenFn} from "./types.ts";
+import {SessionStateSnapshot} from "./hydrate.ts";
 
 type PendingRequest = {
     resolve: (value: unknown) => void;
@@ -31,6 +32,7 @@ class RemoteTransport {
                     this.ws!.send(JSON.stringify({type: "subscribe", event}));
                 }
                 resolve();
+                void this.hydrateFromSnapshot();
             };
 
             this.ws.onmessage = ev => {
@@ -122,6 +124,16 @@ class RemoteTransport {
                 }
             }
         };
+    }
+
+    private async hydrateFromSnapshot() {
+        try {
+            const snapshot = await this.invoke<SessionStateSnapshot>("remote_get_session_state");
+            const {hydrateStores} = await import("./hydrate.ts");
+            hydrateStores(snapshot);
+        } catch (e) {
+            console.error("[remote] Failed to hydrate stores from snapshot:", e);
+        }
     }
 }
 
