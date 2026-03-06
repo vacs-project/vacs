@@ -14,11 +14,15 @@ type SelectedPage = {current: DirectAccessPage | undefined; parent: DirectAccess
 type ProfileState = {
     profile: Profile | undefined;
     page: SelectedPage;
+    activeTab: number;
+    tabOffset: number;
     testProfilePath: string | undefined;
     setProfile: (profile: Profile | undefined) => void;
     setPage: (page: DirectAccessPage | undefined) => void;
     setSubpage: (page: DirectAccessPage, parent: DirectAccessPage) => void;
     navigateParentPage: () => void;
+    setActiveTab: (tab: number) => void;
+    setTabOffset: (offset: number) => void;
     setTestProfilePath: (path: string | undefined) => void;
     reset: (resetTestProfilePath?: boolean) => void;
 };
@@ -26,6 +30,8 @@ type ProfileState = {
 export const useProfileStore = create<ProfileState>()((set, get, store) => ({
     profile: undefined,
     page: {current: undefined, parent: undefined},
+    activeTab: 0,
+    tabOffset: 0,
     testProfilePath: undefined,
     setProfile: profile => set({profile}),
     setPage: page => set({page: {current: page, parent: undefined}}),
@@ -35,6 +41,8 @@ export const useProfileStore = create<ProfileState>()((set, get, store) => ({
         if (parent === undefined) return;
         set({page: {current: parent, parent: undefined}});
     },
+    setActiveTab: activeTab => set({activeTab}),
+    setTabOffset: tabOffset => set({tabOffset}),
     setTestProfilePath: path => set({testProfilePath: path}),
     reset: (resetTestProfilePath = true) =>
         set({
