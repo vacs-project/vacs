@@ -306,10 +306,12 @@ pub async fn audio_stop_input_level_meter(
 #[tauri::command]
 #[vacs_macros::log_err]
 pub async fn audio_set_radio_prio(
+    app: AppHandle,
     keybind_engine: State<'_, KeybindEngineHandle>,
     prio: bool,
 ) -> Result<(), Error> {
     keybind_engine.read().await.set_radio_prio(prio);
+    app.emit("audio:radio-prio", prio).ok();
     Ok(())
 }
 

@@ -22,6 +22,7 @@ import PhoneButton from "./components/ui/PhoneButton.tsx";
 import RadioPrioButton from "./components/ui/RadioPrioButton.tsx";
 import EndButton from "./components/ui/EndButton.tsx";
 import {setupWebrtcListeners} from "./listeners/webrtc-listener.ts";
+import {setupStoreSync} from "./transport/store-sync.ts";
 import UpdateOverlay from "./components/overlays/UpdateOverlay.tsx";
 import {fetchCapabilities} from "./stores/capabilities-store.ts";
 import RadioButton from "./components/ui/RadioButton.tsx";
@@ -51,6 +52,7 @@ function App() {
         cleanups.push(setupAuthListeners());
         cleanups.push(setupSignalingListeners());
         cleanups.push(setupWebrtcListeners());
+        cleanups.push(setupStoreSync());
 
         void invokeSafe("auth_check_session");
 

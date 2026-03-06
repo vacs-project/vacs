@@ -190,6 +190,8 @@ pub fn run() {
             signaling::commands::signaling_remove_ignored_client,
             signaling::commands::signaling_start_call,
             signaling::commands::signaling_terminate,
+            remote::commands::remote_broadcast_store_sync,
+            remote::commands::remote_is_enabled,
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build tauri application")

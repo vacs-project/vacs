@@ -67,6 +67,7 @@ pub enum RemoteCommand {
     KeybindsOpenSystemShortcutsSettings,
     KeybindsReconnectRadio,
 
+    RemoteBroadcastStoreSync,
     RemoteGetSessionState,
 
     SignalingConnect,
@@ -131,6 +132,7 @@ pub enum RemoteEvent {
     UpdateProgress,
     WebrtcCallConnected,
     WebrtcCallDisconnected,
+    StoreSync,
     WebrtcCallError,
 }
 
@@ -165,6 +167,7 @@ impl RemoteEvent {
         Self::SignalingStationList,
         Self::SignalingTestProfile,
         Self::SignalingUpdateCallList,
+        Self::StoreSync,
         Self::UpdateProgress,
         Self::WebrtcCallConnected,
         Self::WebrtcCallDisconnected,
@@ -202,6 +205,7 @@ impl RemoteEvent {
             Self::SignalingStationList => "signaling:station-list",
             Self::SignalingTestProfile => "signaling:test-profile",
             Self::SignalingUpdateCallList => "signaling:update-call-list",
+            Self::StoreSync => "store:sync",
             Self::UpdateProgress => "update:progress",
             Self::WebrtcCallConnected => "webrtc:call-connected",
             Self::WebrtcCallDisconnected => "webrtc:call-disconnected",
