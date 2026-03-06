@@ -95,7 +95,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 tracing = { version = "0.1.44", features = ["log"] }
 trackaudio = "0.2.1"
 url = "2.5.8"
-uuid = { version = "1.21.0", features = ["v7", "serde"] }
+uuid = { version = "1.22.0", features = ["v7", "serde"] }
 vacs-audio = { path = "vacs-audio" }
 vacs-macros = { path = "vacs-macros" }
 vacs-protocol = { path = "vacs-protocol" }
