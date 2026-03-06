@@ -12,10 +12,8 @@ import ButtonLabel from "./ui/ButtonLabel.tsx";
 function Tabs() {
     const tabs = useProfileStore(state => state.profile?.tabbed);
     const setPage = useProfileStore(state => state.setPage);
-    const active = useProfileStore(state => state.activeTab);
-    const setActive = useProfileStore(state => state.setActiveTab);
-    const offset = useProfileStore(state => state.tabOffset);
-    const setOffset = useProfileStore(state => state.setTabOffset);
+    const [active, setActive] = useState<number>(0);
+    const [offset, setOffset] = useState<number>(0);
 
     const [visible, setVisible] = useState<boolean>(false);
 
@@ -35,7 +33,7 @@ function Tabs() {
             setOffset(0);
             setPage(tabs[0].page);
         }
-    }, [active, offset, tabs, setPage, setActive, setOffset]);
+    }, [active, offset, tabs, setPage]);
 
     if (tabs === undefined) return <></>;
 
@@ -53,13 +51,15 @@ function Tabs() {
                     color="gray"
                     className={clsx("w-20 h-full mr-1")}
                     onClick={() => {
-                        const next = getNextOffset(offset, tabs.length);
+                        setOffset(o => {
+                            const next = getNextOffset(o, tabs.length);
 
-                        if (tabs[active + next] === undefined) {
-                            setActive((tabs.length - 1) % 4);
-                        }
+                            if (tabs[active + next] === undefined) {
+                                setActive((tabs.length - 1) % 4);
+                            }
 
-                        setOffset(next);
+                            return next;
+                        });
                     }}
                 >
                     <div className="w-full h-full flex flex-col items-center">
