@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "../THIRD_PARTY_LICENSES.html": "licenses/THIRD_PARTY_LICENSES.html"
+    }
+  }
+}

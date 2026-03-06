@@ -173,8 +173,13 @@ jobs:
           git describe --tags --always
           # override version info built into client
           echo "VACS_VERSION_OVERRIDE=$VERSION" >> "$GITHUB_ENV"
-          # build tauri user config with version info
-          echo "EXTRA_TAURI_ARGS=--config '{\"version\":\"$VERSION\"}'" >> "$GITHUB_ENV"
+          # build tauri user config with version info and release config
+          echo "EXTRA_TAURI_ARGS=--config '{\"version\":\"$VERSION\"}' --config tauri.release.conf.json" >> "$GITHUB_ENV"
+
+      - name: Set release tauri config
+        if: github.event_name != 'workflow_dispatch'
+        shell: bash
+        run: echo "EXTRA_TAURI_ARGS=--config tauri.release.conf.json" >> "$GITHUB_ENV"
 
       - name: Install build dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
