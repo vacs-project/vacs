@@ -67,6 +67,8 @@ pub enum RemoteCommand {
     KeybindsOpenSystemShortcutsSettings,
     KeybindsReconnectRadio,
 
+    RemoteGetSessionState,
+
     SignalingConnect,
     SignalingDisconnect,
     SignalingTerminate,

@@ -1,8 +1,11 @@
 use crate::app::state::AppState;
 use crate::app::state::http::HttpState;
+use crate::app::state::signaling::ConnectionState;
 use crate::audio::manager::AudioManagerHandle;
+use crate::config::{FrontendCallConfig, FrontendClientPageSettings};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
+use crate::platform::Capabilities;
 use crate::remote::protocol::{ClientMessage, RemoteCommand, RemoteEvent, ServerMessage};
 use axum::Router;
 use axum::body::Body;
@@ -13,12 +16,15 @@ use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use futures_util::{SinkExt, StreamExt};
+use serde::Serialize;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tauri::{AppHandle, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+use vacs_signaling::protocol::vatsim::ClientId;
+use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
 
 const BROADCAST_CHANNEL_SIZE: usize = 256;
 const DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -251,6 +257,19 @@ macro_rules! arg {
             }
         }
     };
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStateSnapshot {
+    connection_state: ConnectionState,
+    session_info: Option<SessionInfo>,
+    stations: Vec<StationInfo>,
+    clients: Vec<ClientInfo>,
+    client_id: Option<ClientId>,
+    call_config: FrontendCallConfig,
+    client_page_settings: FrontendClientPageSettings,
+    capabilities: Capabilities,
 }
 
 async fn dispatch_command(
@@ -499,6 +518,24 @@ async fn dispatch_command(
             let client_id = arg!(args, "clientId");
             let app_state = app.state::<AppState>();
             dispatch(signaling_remove_ignored_client(app.clone(), app_state, client_id).await)
+        }
+
+        RemoteGetSessionState => {
+            let app_state = app.state::<AppState>();
+            let state = app_state.lock().await;
+
+            let snapshot = SessionStateSnapshot {
+                connection_state: state.connection_state,
+                session_info: state.session_info.clone(),
+                stations: state.stations.clone(),
+                clients: state.clients.clone(),
+                client_id: state.client_id.clone(),
+                call_config: state.config.client.call.clone().into(),
+                client_page_settings: FrontendClientPageSettings::from(&state.config),
+                capabilities: *Capabilities::get(),
+            };
+
+            DispatchResult::Ok(serde_json::to_value(snapshot).unwrap_or_default())
         }
 
         AppOpenFolder
