@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::{SignalingClient, SignalingEvent, State};
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
 use vacs_signaling::protocol::http::webrtc::IceConfig;
-use vacs_signaling::protocol::vatsim::{ClientId, PositionId};
+use vacs_signaling::protocol::vatsim::{ClientId, PositionId, StationChange};
 use vacs_signaling::protocol::ws::client::{CallRejectReason, ClientMessage};
 use vacs_signaling::protocol::ws::server::{
     CallCancelReason, DisconnectReason, LoginFailureReason, ServerMessage, SessionProfile,
@@ -23,6 +23,17 @@ use vacs_signaling::protocol::ws::{client, server, shared};
 use vacs_signaling::transport::tokio::TokioTransport;
 
 const INCOMING_CALLS_LIMIT: usize = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConnectionState {
+    #[default]
+    Disconnected,
+    Connecting,
+    Connected,
+    #[allow(dead_code)]
+    Test,
+}
 
 pub trait AppStateSignalingExt: sealed::Sealed {
     async fn connect_signaling(
@@ -66,6 +77,7 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         call_id: Option<CallId>,
     ) -> Result<bool, Error>;
     async fn end_call(&mut self, app: &AppHandle, call_id: Option<CallId>) -> Result<bool, Error>;
+    fn clear_session_cache(&mut self);
 }
 
 impl AppStateSignalingExt for AppStateInner {
@@ -386,6 +398,13 @@ impl AppStateSignalingExt for AppStateInner {
 
         Ok(true)
     }
+
+    fn clear_session_cache(&mut self) {
+        self.connection_state = ConnectionState::Disconnected;
+        self.session_info = None;
+        self.stations.clear();
+        self.clients.clear();
+    }
 }
 
 impl AppStateInner {
@@ -401,14 +420,19 @@ impl AppStateInner {
                     &client_info.frequency,
                 );
 
-                app.emit(
-                    "signaling:connected",
-                    server::SessionInfo {
-                        client: client_info,
-                        profile: SessionProfile::Changed(profile),
-                    },
-                )
-                .ok();
+                let session_info = server::SessionInfo {
+                    client: client_info,
+                    profile: SessionProfile::Changed(profile),
+                };
+
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.connection_state = ConnectionState::Connected;
+                    state.session_info = Some(session_info.clone());
+                }
+
+                app.emit("signaling:connected", session_info).ok();
             }
             SignalingEvent::Message(msg) => Self::handle_signaling_message(msg, app).await,
             SignalingEvent::Error(error) => {
@@ -427,6 +451,7 @@ impl AppStateInner {
 
                         app.emit("signaling:ambiguous-position", &positions).ok();
                     } else if error.can_reconnect() {
+                        state.connection_state = ConnectionState::Connecting;
                         app.emit("signaling:reconnecting", Value::Null).ok();
                     } else {
                         app.emit::<FrontendError>("error", Error::from(error).into())
@@ -710,34 +735,69 @@ impl AppStateInner {
             ServerMessage::ClientConnected(server::ClientConnected { client }) => {
                 log::trace!("Client connected: {client:?}");
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.clients.push(client.clone());
+                }
+
                 app.emit("signaling:client-connected", client).ok();
             }
             ServerMessage::ClientDisconnected(server::ClientDisconnected { client_id }) => {
                 log::trace!("Client disconnected: {client_id:?}");
+
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.clients.retain(|c| c.id != client_id);
+                }
 
                 app.emit("signaling:client-disconnected", client_id).ok();
             }
             ServerMessage::ClientList(server::ClientList { clients }) => {
                 log::trace!("Received client list: {} clients connected", clients.len());
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.clients = clients.clone();
+                }
+
                 app.emit("signaling:client-list", clients).ok();
             }
             ServerMessage::ClientInfo(info) => {
                 log::trace!("Received client info: {info:?}");
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    if let Some(existing) = state.clients.iter_mut().find(|c| c.id == info.id) {
+                        *existing = info.clone();
+                    } else {
+                        state.clients.push(info.clone());
+                    }
+                }
+
                 app.emit("signaling:client-connected", info).ok();
             }
-            ref msg @ ServerMessage::SessionInfo(server::SessionInfo {
-                ref client,
-                ref profile,
-            }) => {
-                log::trace!("Received session info for client {client:?}: {profile}");
+            ServerMessage::SessionInfo(session_info) => {
+                log::trace!(
+                    "Received session info for client {:?}: {}",
+                    &session_info.client,
+                    &session_info.profile
+                );
 
-                if let SessionProfile::Changed(active_profile) = profile {
+                if let SessionProfile::Changed(ref active_profile) = session_info.profile {
                     log::debug!("Active profile changed: {active_profile}");
                 }
 
-                app.emit("signaling:connected", msg).ok();
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.session_info = Some(session_info.clone());
+                }
+
+                app.emit("signaling:connected", session_info).ok();
             }
             ServerMessage::StationList(server::StationList { stations }) => {
                 log::trace!(
@@ -746,10 +806,53 @@ impl AppStateInner {
                     stations.iter().filter(|s| s.own).count()
                 );
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.stations = stations.clone();
+                }
+
                 app.emit("signaling:station-list", stations).ok();
             }
             ServerMessage::StationChanges(server::StationChanges { changes }) => {
                 log::trace!("Received station changes: {changes:?}");
+
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    let own_position_id = state
+                        .session_info
+                        .as_ref()
+                        .and_then(|s| s.client.position_id.clone());
+
+                    for change in &changes {
+                        match change {
+                            StationChange::Online {
+                                station_id,
+                                position_id,
+                            } => {
+                                state.stations.push(server::StationInfo {
+                                    id: station_id.clone(),
+                                    own: own_position_id.as_ref() == Some(position_id),
+                                });
+                            }
+                            StationChange::Handoff {
+                                station_id,
+                                to_position_id,
+                                ..
+                            } => {
+                                if let Some(s) =
+                                    state.stations.iter_mut().find(|s| s.id == *station_id)
+                                {
+                                    s.own = own_position_id.as_ref() == Some(to_position_id);
+                                }
+                            }
+                            StationChange::Offline { station_id } => {
+                                state.stations.retain(|s| s.id != *station_id);
+                            }
+                        }
+                    }
+                }
 
                 app.emit("signaling:station-changes", changes).ok();
             }
@@ -845,6 +948,7 @@ impl AppStateInner {
     async fn cleanup_signaling(&mut self, app: &AppHandle) {
         self.incoming_call_ids.clear();
         self.outgoing_call_id = None;
+        self.clear_session_cache();
 
         {
             let mut audio_manager = self.audio_manager.write();
