@@ -25,7 +25,12 @@ function Clock() {
             const seconds = now.getUTCSeconds().toString().padStart(2, "0");
 
             setTime(prev => {
-                if (prev.hours === hours && prev.minutes === minutes && prev.day === day && prev.seconds == seconds) {
+                if (
+                    prev.hours === hours &&
+                    prev.minutes === minutes &&
+                    prev.day === day &&
+                    prev.seconds === seconds
+                ) {
                     return prev;
                 }
                 return {hours, minutes, day, seconds};
