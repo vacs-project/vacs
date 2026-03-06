@@ -20,7 +20,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tauri::{AppHandle, Listener, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::ClientId;
@@ -239,7 +239,7 @@ fn desktop_only() -> DispatchResult {
     }))
 }
 
-macro_rules! arg {
+macro_rules! args {
     ($args:expr, $key:literal) => {
         match serde_json::from_value(
             $args
@@ -256,6 +256,9 @@ macro_rules! arg {
                 }))
             }
         }
+    };
+    ($args:expr, $($key:literal),+ $(,)?) => {
+        ($(args!($args, $key)),+)
     };
 }
 
@@ -300,14 +303,14 @@ async fn dispatch_command(
             dispatch(app_get_call_config(app_state).await)
         }
         AppSetCallConfig => {
-            let call_config = arg!(args, "callConfig");
+            let call_config = args!(args, "callConfig");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(app_set_call_config(app.clone(), app_state, audio_manager, call_config).await)
         }
         AppLoadTestProfile => {
             // Only allow manual reloading of test profile if already set
-            let path: Option<String> = arg!(args, "path");
+            let path: Option<String> = args!(args, "path");
             if path.is_none() {
                 return desktop_only();
             }
@@ -323,7 +326,7 @@ async fn dispatch_command(
             dispatch(app_get_client_page_settings(app_state).await)
         }
         AppSetSelectedClientPageConfig => {
-            let config_name: Option<String> = arg!(args, "configName");
+            let config_name: Option<String> = args!(args, "configName");
             let app_state = app.state::<AppState>();
             dispatch(app_set_selected_client_page_config(app.clone(), app_state, config_name).await)
         }
@@ -333,20 +336,19 @@ async fn dispatch_command(
             dispatch(audio_get_hosts(app_state).await)
         }
         AudioSetHost => {
-            let host_name: String = arg!(args, "hostName");
+            let host_name: String = args!(args, "hostName");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(audio_set_host(app.clone(), app_state, audio_manager, host_name).await)
         }
         AudioGetDevices => {
-            let device_type = arg!(args, "deviceType");
+            let device_type = args!(args, "deviceType");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(audio_get_devices(app_state, audio_manager, device_type).await)
         }
         AudioSetDevice => {
-            let device_type = arg!(args, "deviceType");
-            let device_name: String = arg!(args, "deviceName");
+            let (device_type, device_name) = args!(args, "deviceType", "deviceName");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(
@@ -365,8 +367,7 @@ async fn dispatch_command(
             dispatch(audio_get_volumes(app_state).await)
         }
         AudioSetVolume => {
-            let volume_type = arg!(args, "volumeType");
-            let volume: f32 = arg!(args, "volume");
+            let (volume_type, volume) = args!(args, "volumeType", "volume");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(
@@ -387,9 +388,9 @@ async fn dispatch_command(
             dispatch(audio_stop_input_level_meter(audio_manager).await)
         }
         AudioSetRadioPrio => {
-            let prio: bool = arg!(args, "prio");
+            let prio: bool = args!(args, "prio");
             let keybind_engine = app.state::<KeybindEngineHandle>();
-            dispatch(audio_set_radio_prio(keybind_engine, prio).await)
+            dispatch(audio_set_radio_prio(app.clone(), keybind_engine, prio).await)
         }
 
         AuthOpenOauthUrl => {
@@ -411,7 +412,7 @@ async fn dispatch_command(
             dispatch(keybinds_get_transmit_config(app_state).await)
         }
         KeybindsSetTransmitConfig => {
-            let transmit_config = arg!(args, "transmitConfig");
+            let transmit_config = args!(args, "transmitConfig");
             let app_state = app.state::<AppState>();
             let keybind_engine = app.state::<KeybindEngineHandle>();
             dispatch(
@@ -429,8 +430,7 @@ async fn dispatch_command(
             dispatch(keybinds_get_keybinds_config(app_state).await)
         }
         KeybindsSetBinding => {
-            let code: Option<String> = arg!(args, "code");
-            let keybind = arg!(args, "keybind");
+            let (code, keybind) = args!(args, "code", "keybind");
             let app_state = app.state::<AppState>();
             let keybind_engine = app.state::<KeybindEngineHandle>();
             dispatch(
@@ -442,7 +442,7 @@ async fn dispatch_command(
             dispatch(keybinds_get_radio_config(app_state).await)
         }
         KeybindsSetRadioConfig => {
-            let radio_config = arg!(args, "radioConfig");
+            let radio_config = args!(args, "radioConfig");
             let app_state = app.state::<AppState>();
             let keybind_engine = app.state::<KeybindEngineHandle>();
             dispatch(
@@ -455,7 +455,7 @@ async fn dispatch_command(
             dispatch(keybinds_get_radio_state(keybind_engine).await)
         }
         KeybindsGetExternalBinding => {
-            let keybind = arg!(args, "keybind");
+            let keybind = args!(args, "keybind");
             let keybind_engine = app.state::<KeybindEngineHandle>();
             dispatch(keybinds_get_external_binding(keybind_engine, keybind).await)
         }
@@ -465,7 +465,7 @@ async fn dispatch_command(
         }
 
         SignalingConnect => {
-            let position_id = arg!(args, "positionId");
+            let position_id = args!(args, "positionId");
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();
             dispatch(signaling_connect(app.clone(), app_state, http_state, position_id).await)
@@ -476,9 +476,7 @@ async fn dispatch_command(
             dispatch(signaling_terminate(app.clone(), http_state).await)
         }
         SignalingStartCall => {
-            let target = arg!(args, "target");
-            let source = arg!(args, "source");
-            let prio: bool = arg!(args, "prio");
+            let (target, source, prio) = args!(args, "target", "source", "prio");
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();
             let audio_manager = app.state::<AudioManagerHandle>();
@@ -496,12 +494,12 @@ async fn dispatch_command(
             )
         }
         SignalingAcceptCall => {
-            let call_id = arg!(args, "callId");
+            let call_id = args!(args, "callId");
             let app_state = app.state::<AppState>();
             dispatch(signaling_accept_call(app.clone(), app_state, call_id).await)
         }
         SignalingEndCall => {
-            let call_id = arg!(args, "callId");
+            let call_id = args!(args, "callId");
             let app_state = app.state::<AppState>();
             dispatch(signaling_end_call(app.clone(), app_state, call_id).await)
         }
@@ -510,14 +508,24 @@ async fn dispatch_command(
             dispatch(signaling_get_ignored_clients(app_state).await)
         }
         SignalingAddIgnoredClient => {
-            let client_id = arg!(args, "clientId");
+            let client_id = args!(args, "clientId");
             let app_state = app.state::<AppState>();
             dispatch(signaling_add_ignored_client(app.clone(), app_state, client_id).await)
         }
         SignalingRemoveIgnoredClient => {
-            let client_id = arg!(args, "clientId");
+            let client_id = args!(args, "clientId");
             let app_state = app.state::<AppState>();
             dispatch(signaling_remove_ignored_client(app.clone(), app_state, client_id).await)
+        }
+
+        RemoteBroadcastStoreSync => {
+            let (store, state): (String, serde_json::Value) = args!(args, "store", "state");
+            app.emit(
+                "store:sync",
+                serde_json::json!({"store": store, "state": state}),
+            )
+            .ok();
+            DispatchResult::Ok(serde_json::Value::Null)
         }
 
         RemoteGetSessionState => {
