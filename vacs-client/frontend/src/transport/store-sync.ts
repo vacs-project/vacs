@@ -2,13 +2,10 @@ import {invoke, isRemote, listen} from "./index.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
 import {type CallDisplayType, useCallStore} from "../stores/call-store.ts";
 import {type CallListItem, useCallListStore} from "../stores/call-list-store.ts";
-import {useProfileStore} from "../stores/profile-store.ts";
-import {useFilterStore} from "../stores/filter-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import type {CallId, StationId} from "../types/generic.ts";
 import type {UnlistenFn} from "./types.ts";
 import type {ClientPageConfig} from "../types/client.ts";
-import {DirectAccessPage} from "../types/profile.ts";
 
 type StationsSync = {
     defaultSource: StationId | undefined;
@@ -24,16 +21,6 @@ type CallListSync = {
     callList: [CallId, CallListItem][];
 };
 
-type ProfileSync = {
-    page: {current: DirectAccessPage | undefined; parent: DirectAccessPage | undefined};
-    activeTab: number;
-    tabOffset: number;
-};
-
-type FilterSync = {
-    filter: string;
-};
-
 type SettingsSync = {
     selectedClientPageConfig: ClientPageConfig & {name: string};
 };
@@ -42,8 +29,6 @@ type SyncMap = {
     stations: StationsSync;
     call: CallSync;
     callList: CallListSync;
-    profile: ProfileSync;
-    filter: FilterSync;
     settings: SettingsSync;
 };
 
@@ -114,19 +99,6 @@ function applySync(payload: SyncPayload) {
             }
             break;
         }
-        case "profile": {
-            const {page, activeTab, tabOffset} = payload.state;
-            useProfileStore.setState({
-                page,
-                activeTab: activeTab ?? 0,
-                tabOffset: tabOffset ?? 0,
-            });
-            break;
-        }
-        case "filter": {
-            useFilterStore.getState().setFilter(payload.state.filter);
-            break;
-        }
         case "callList": {
             useCallListStore.setState({callList: new Map(payload.state.callList)});
             break;
@@ -179,16 +151,6 @@ function startSync(): () => void {
             callList: Array.from(s.callList.entries()),
         })),
     );
-
-    unsubs.push(
-        subscribeFields(useProfileStore, "profile", s => ({
-            page: s.page,
-            activeTab: s.activeTab,
-            tabOffset: s.tabOffset,
-        })),
-    );
-
-    unsubs.push(subscribeFields(useFilterStore, "filter", s => ({filter: s.filter})));
 
     unsubs.push(
         subscribeFields(useSettingsStore, "settings", s => ({
