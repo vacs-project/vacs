@@ -76,7 +76,7 @@ jobs:
         run: cargo update -w
 
       - name: Setup Node (LTS)
-        if: contains(join(matrix.pr.files, ','), 'vacs-client')
+        if: contains(matrix.pr.headBranchName, 'vacs-client')
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "lts/*"
@@ -84,7 +84,7 @@ jobs:
           cache-dependency-path: vacs-client/package-lock.json
 
       - name: Update npm workspace lockfile
-        if: contains(join(matrix.pr.files, ','), 'vacs-client')
+        if: contains(matrix.pr.headBranchName, 'vacs-client')
         working-directory: vacs-client
         run: npm install --package-lock-only
 
