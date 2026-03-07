@@ -89,7 +89,7 @@ pub fn run() {
                 let transmit_config = state.config.client.transmit_config.clone();
                 let call_control_config = state.config.client.keybinds.clone();
                 let keybind_engine = state.keybind_engine_handle();
-                let remote_config = state.config.remote.clone();
+                let remote_config = state.config.client.remote.clone();
 
                 app.manage::<HttpState>(HttpState::new(app.handle())?);
                 app.manage::<AudioManagerHandle>(state.audio_manager_handle());
@@ -117,6 +117,7 @@ pub fn run() {
                         if let Err(err) = remote::start_server(
                             app_handle,
                             remote_config.listen_addr,
+                            remote_config.serve_frontend,
                             shutdown_token,
                         )
                         .await
