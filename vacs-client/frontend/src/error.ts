@@ -4,7 +4,7 @@ import {CallId} from "./types/generic.ts";
 
 export type Error = {
     title: string;
-    message: string;
+    detail: string;
     isNonCritical: boolean;
     timeoutMs?: number;
 };
@@ -35,7 +35,7 @@ export function openErrorOverlayFromUnknown(e: unknown) {
     const openErrorOverlay = useErrorOverlayStore.getState().open;
 
     if (isError(e)) {
-        openErrorOverlay(e.title, e.message, false, e.timeoutMs);
+        openErrorOverlay(e.title, e.detail, false, e.timeoutMs);
     } else {
         logError(JSON.stringify(e));
         openErrorOverlay("Unexpected error", "An unknown error occurred", false);
@@ -51,7 +51,7 @@ export function isError(err: unknown): err is Error {
 
     return (
         typeof maybeError.title === "string" &&
-        typeof maybeError.message === "string" &&
+        typeof maybeError.detail === "string" &&
         (maybeError.timeout_ms === undefined || typeof maybeError.timeout_ms === "number")
     );
 }

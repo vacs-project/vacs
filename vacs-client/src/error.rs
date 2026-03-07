@@ -134,18 +134,18 @@ impl<R> LogErrExt<R> for Result<R, Error> {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FrontendError {
-    title: String,
-    message: String,
-    is_non_critical: bool,
+    pub title: String,
+    pub detail: String,
+    pub is_non_critical: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    timeout_ms: Option<u16>,
+    pub timeout_ms: Option<u16>,
 }
 
 impl FrontendError {
-    pub fn new(title: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(title: impl Into<String>, detail: impl Into<String>) -> Self {
         Self {
             title: title.into(),
-            message: message.into(),
+            detail: detail.into(),
             is_non_critical: false,
             timeout_ms: None,
         }
@@ -163,10 +163,10 @@ impl FrontendError {
 
     pub fn new_with_timeout(
         title: impl Into<String>,
-        message: impl Into<String>,
+        detail: impl Into<String>,
         timeout_ms: u16,
     ) -> Self {
-        Self::new(title, message).with_timeout(timeout_ms)
+        Self::new(title, detail).with_timeout(timeout_ms)
     }
 
     pub fn with_timeout(mut self, timeout_ms: u16) -> Self {
