@@ -15,7 +15,7 @@ use crate::signaling::auth::TauriTokenProvider;
 use notify_debouncer_full::notify::RecommendedWatcher;
 use notify_debouncer_full::{Debouncer, RecommendedCache};
 use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
@@ -23,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::SignalingClient;
 use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::server;
-use vacs_signaling::protocol::ws::shared::CallId;
+use vacs_signaling::protocol::ws::shared::{CallId, CallInvite};
 use vacs_signaling::transport::tokio::TokioTransport;
 
 pub struct AppStateInner {
@@ -34,9 +34,9 @@ pub struct AppStateInner {
     keybind_engine: KeybindEngineHandle,
     active_call: Option<Call>,
     unanswered_call_guard: Option<UnansweredCallGuard>,
-    held_calls: HashMap<CallId, Call>,  // call_id -> call
-    outgoing_call_id: Option<CallId>,   // peer_id
-    incoming_call_ids: HashSet<CallId>, // peer_id
+    held_calls: HashMap<CallId, Call>, // call_id -> call
+    pub(crate) outgoing_call: Option<CallInvite>,
+    pub(crate) incoming_calls: HashMap<CallId, CallInvite>,
     pub test_profile_watcher: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
     pub(crate) client_id: Option<ClientId>,
     pub(crate) connection_state: ConnectionState,
@@ -80,8 +80,8 @@ impl AppStateInner {
             active_call: None,
             unanswered_call_guard: None,
             held_calls: HashMap::new(),
-            outgoing_call_id: None,
-            incoming_call_ids: HashSet::new(),
+            outgoing_call: None,
+            incoming_calls: HashMap::new(),
             test_profile_watcher: None,
             client_id: None,
             connection_state: ConnectionState::Disconnected,

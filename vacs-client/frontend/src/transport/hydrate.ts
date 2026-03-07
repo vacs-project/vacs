@@ -3,7 +3,8 @@ import type {ClientInfo, ClientPageSettings, SessionInfo} from "../types/client.
 import type {StationInfo} from "../types/station.ts";
 import type {CallConfig} from "../types/settings.ts";
 import type {Capabilities} from "../types/capabilities.ts";
-import type {ConnectionState} from "../stores/call-store.ts";
+import type {Call} from "../types/call.ts";
+import {type ConnectionState, useCallStore} from "../stores/call-store.ts";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import {useAuthStore} from "../stores/auth-store.ts";
 import {useClientsStore} from "../stores/clients-store.ts";
@@ -21,6 +22,8 @@ export type SessionStateSnapshot = {
     callConfig: CallConfig;
     clientPageSettings: ClientPageSettings;
     capabilities: Capabilities;
+    incomingCalls: Call[];
+    outgoingCall: Call | null;
 };
 
 export function hydrateStores(snapshot: SessionStateSnapshot) {
@@ -57,6 +60,14 @@ export function hydrateStores(snapshot: SessionStateSnapshot) {
     setClientPageSettings(snapshot.clientPageSettings);
 
     setCapabilities(snapshot.capabilities);
+
+    const callActions = useCallStore.getState().actions;
+    for (const call of snapshot.incomingCalls) {
+        callActions.addIncomingCall(call);
+    }
+    if (snapshot.outgoingCall) {
+        callActions.setOutgoingCall(snapshot.outgoingCall);
+    }
 
     console.log("[remote] Stores hydrated from session state snapshot");
 }
