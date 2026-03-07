@@ -6,7 +6,9 @@ use crate::config::{FrontendCallConfig, FrontendClientPageSettings};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
-use crate::remote::protocol::{ClientMessage, RemoteCommand, RemoteEvent, ServerMessage};
+use crate::remote::protocol::{
+    ClientMessage, ProblemDetails, RemoteCommand, RemoteEvent, ServerMessage,
+};
 use axum::Router;
 use axum::body::Body;
 use axum::extract::connect_info::ConnectInfo;
@@ -193,11 +195,7 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
                         .await
                         .unwrap_or_else(|_| {
                             log::warn!("[{peer}] Remote client command {cmd:?} timed out");
-                            DispatchResult::Err(serde_json::json!({
-                                "title": "Timeout",
-                                "message": "The command did not complete within the time limit",
-                                "isNonCritical": true
-                            }))
+                            DispatchResult::Err(ProblemDetails::timeout())
                         });
                         let _ = client_tx.send(response.with_id(id)).await;
                     }
@@ -217,7 +215,7 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
 
 enum DispatchResult {
     Ok(serde_json::Value),
-    Err(serde_json::Value),
+    Err(ProblemDetails),
 }
 
 impl DispatchResult {
@@ -231,23 +229,13 @@ impl DispatchResult {
 
 fn dispatch<T: serde::Serialize>(result: Result<T, Error>) -> DispatchResult {
     match result {
-        Ok(v) => DispatchResult::Ok(
-            serde_json::to_value(v).unwrap_or(serde_json::Value::Null),
-        ),
-        Err(e) => DispatchResult::Err(
-            serde_json::to_value(&e).unwrap_or_else(|_| {
-                serde_json::json!({"title": "Internal error", "message": "Failed to serialize error"})
-            }),
-        ),
+        Ok(v) => DispatchResult::Ok(serde_json::to_value(v).unwrap_or(serde_json::Value::Null)),
+        Err(e) => DispatchResult::Err(ProblemDetails::from(&e)),
     }
 }
 
 fn desktop_only() -> DispatchResult {
-    DispatchResult::Err(serde_json::json!({
-        "title": "Desktop only",
-        "message": "This operation is only available on the desktop application",
-        "isNonCritical": true
-    }))
+    DispatchResult::Err(ProblemDetails::desktop_only())
 }
 
 macro_rules! args {
@@ -260,11 +248,7 @@ macro_rules! args {
         ) {
             Ok(v) => v,
             Err(e) => {
-                return DispatchResult::Err(serde_json::json!({
-                    "title": "Invalid argument",
-                    "message": format!("Failed to parse argument '{}': {}", $key, e),
-                    "isNonCritical": true
-                }))
+                return DispatchResult::Err(ProblemDetails::invalid_argument($key, e))
             }
         }
     };
