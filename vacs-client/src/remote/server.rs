@@ -40,6 +40,7 @@ pub struct RemoteServerState {
 pub async fn start_server(
     app_handle: AppHandle,
     listen_addr: SocketAddr,
+    serve_frontend: bool,
     shutdown: CancellationToken,
 ) -> anyhow::Result<()> {
     let (event_tx, _) = broadcast::channel::<ServerMessage>(BROADCAST_CHANNEL_SIZE);
@@ -52,10 +53,13 @@ pub async fn start_server(
 
     register_event_forwarders(&app_handle, &event_tx);
 
-    let app = Router::new()
-        .route("/ws", get(ws_handler))
-        .fallback(serve_embedded_asset)
-        .with_state(state);
+    let mut router = Router::new().route("/ws", get(ws_handler));
+
+    if serve_frontend {
+        router = router.fallback(serve_embedded_asset);
+    }
+
+    let app = router.with_state(state);
 
     log::info!("Remote control server listening on http://{listen_addr}");
 

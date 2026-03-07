@@ -3,13 +3,13 @@ use crate::error::Error;
 use crate::radio::push_to_talk::PushToTalkRadio;
 use crate::radio::track_audio::TrackAudioRadio;
 use crate::radio::{DynRadio, RadioIntegration};
+use crate::remote::RemoteConfig;
 use anyhow::Context;
 use config::{Config, Environment, File};
 use keyboard_types::Code;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,8 +40,6 @@ pub struct AppConfig {
     pub client: ClientConfig,
     #[serde(default)]
     pub client_page: ClientPageSettings,
-    #[serde(default)]
-    pub remote: RemoteConfig,
 }
 
 impl AppConfig {
@@ -277,6 +275,8 @@ pub struct ClientConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_client_page_config: Option<String>,
     pub test_profile_watcher_delay_ms: u64,
+    #[serde(default)]
+    pub remote: RemoteConfig,
 }
 
 impl Default for ClientConfig {
@@ -297,6 +297,7 @@ impl Default for ClientConfig {
             selected_client_page_config: None,
             extra_client_page_config: None,
             test_profile_watcher_delay_ms: 500,
+            remote: RemoteConfig::default(),
         }
     }
 }
@@ -841,25 +842,6 @@ impl From<ClientPageConfig> for FrontendClientPageConfig {
             priority: client_page_config.priority,
             frequencies: client_page_config.frequencies,
             grouping: client_page_config.grouping,
-        }
-    }
-}
-
-/// Configuration for the embedded remote-control server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteConfig {
-    /// Whether the remote control server is enabled.
-    pub enabled: bool,
-    /// Socket address to bind the remote control server to.
-    /// Must be in the format "IP:PORT", e.g. "0.0.0.0:9600".
-    pub listen_addr: SocketAddr,
-}
-
-impl Default for RemoteConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            listen_addr: "0.0.0.0:9600".parse().unwrap(),
         }
     }
 }
