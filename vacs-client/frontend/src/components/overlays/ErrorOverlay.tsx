@@ -6,11 +6,12 @@ function ErrorOverlay() {
     const title = useErrorOverlayStore(state => state.title);
     const message = useErrorOverlayStore(state => state.message);
     const isNonCritical = useErrorOverlayStore(state => state.isNonCritical);
+    const dismissable = useErrorOverlayStore(state => state.dismissable);
 
     const close = useErrorOverlayStore(state => state.close);
 
     const handleClick = () => {
-        close();
+        if (dismissable) close();
     };
 
     return visible ? (

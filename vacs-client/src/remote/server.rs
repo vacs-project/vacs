@@ -178,6 +178,9 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
                         log::debug!("[{peer}] Remote client unsubscribed from event: {event}");
                         subscribed_events.lock().remove(&event);
                     }
+                    ClientMessage::Ping => {
+                        let _ = client_tx.send(ServerMessage::Pong).await;
+                    }
                     ClientMessage::Invoke { id, cmd, args } => {
                         let response = tokio::time::timeout(
                             DISPATCH_TIMEOUT,
