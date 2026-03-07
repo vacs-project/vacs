@@ -6,6 +6,7 @@ import {useSettingsStore} from "../stores/settings-store.ts";
 import type {CallId, StationId} from "../types/generic.ts";
 import type {UnlistenFn} from "./types.ts";
 import type {ClientPageConfig} from "../types/client.ts";
+import type {CallConfig} from "../types/settings.ts";
 
 type StationsSync = {
     defaultSource: StationId | undefined;
@@ -22,6 +23,7 @@ type CallListSync = {
 };
 
 type SettingsSync = {
+    callConfig: CallConfig;
     selectedClientPageConfig: ClientPageConfig & {name: string};
 };
 
@@ -105,6 +107,7 @@ function applySync(payload: SyncPayload) {
         }
         case "settings": {
             useSettingsStore.setState({
+                callConfig: payload.state.callConfig,
                 selectedClientPageConfig: payload.state.selectedClientPageConfig,
             });
             break;
@@ -154,6 +157,7 @@ function startSync(): () => void {
 
     unsubs.push(
         subscribeFields(useSettingsStore, "settings", s => ({
+            callConfig: s.callConfig,
             selectedClientPageConfig: s.selectedClientPageConfig,
         })),
     );
