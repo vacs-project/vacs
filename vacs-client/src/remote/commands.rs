@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, State};
 #[tauri::command]
 #[vacs_macros::log_err]
 pub async fn remote_is_enabled(app_state: State<'_, AppState>) -> Result<bool, Error> {
-    Ok(app_state.lock().await.config.remote.enabled)
+    Ok(app_state.lock().await.config.client.remote.enabled)
 }
 
 #[tauri::command]
