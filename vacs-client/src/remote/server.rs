@@ -204,6 +204,9 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
                 }
             }
             Message::Close(_) => break,
+            Message::Ping(data) => {
+                let _ = client_tx.send(ServerMessage::WsPong(data.to_vec())).await;
+            }
             _ => {}
         }
     }

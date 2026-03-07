@@ -274,6 +274,9 @@ pub enum ServerMessage {
     },
     /// Keepalive pong in response to a `Ping`.
     Pong,
+    /// WebSocket protocol-level pong (not serialized as JSON).
+    #[serde(skip)]
+    WsPong(Vec<u8>),
 }
 
 impl ServerMessage {
@@ -296,8 +299,11 @@ impl ServerMessage {
     }
 
     pub fn serialize(self) -> Result<ws::Message, serde_json::Error> {
-        serde_json::to_string(&self)
-            .map(Utf8Bytes::from)
-            .map(ws::Message::Text)
+        match self {
+            Self::WsPong(data) => Ok(ws::Message::Pong(data.into())),
+            other => serde_json::to_string(&other)
+                .map(Utf8Bytes::from)
+                .map(ws::Message::Text),
+        }
     }
 }
