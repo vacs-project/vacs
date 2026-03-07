@@ -217,7 +217,7 @@ impl AudioManager {
                     {
                         log::warn!("Failed to send call end signaling message: {:?}", err);
                     };
-                    state.set_outgoing_call_id(None);
+                    state.set_outgoing_call(None);
                     app.state::<AudioManagerHandle>()
                         .read()
                         .stop(SourceType::Ringback);
@@ -436,7 +436,7 @@ impl AudioManager {
                         {
                             log::warn!("Failed to send call end signaling message: {:?}", err);
                         };
-                        state.set_outgoing_call_id(None);
+                        state.set_outgoing_call(None);
                         app.state::<AudioManagerHandle>()
                             .read()
                             .stop(SourceType::Ringback);

@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
+use vacs_signaling::protocol::ws::shared::CallInvite;
 
 const BROADCAST_CHANNEL_SIZE: usize = 256;
 const DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -273,6 +274,8 @@ struct SessionStateSnapshot {
     call_config: FrontendCallConfig,
     client_page_settings: FrontendClientPageSettings,
     capabilities: Capabilities,
+    incoming_calls: Vec<CallInvite>,
+    outgoing_call: Option<CallInvite>,
 }
 
 async fn dispatch_command(
@@ -541,6 +544,8 @@ async fn dispatch_command(
                 call_config: state.config.client.call.clone().into(),
                 client_page_settings: FrontendClientPageSettings::from(&state.config),
                 capabilities: *Capabilities::get(),
+                incoming_calls: state.incoming_calls.values().cloned().collect(),
+                outgoing_call: state.outgoing_call.clone(),
             };
 
             DispatchResult::Ok(serde_json::to_value(snapshot).unwrap_or_default())
