@@ -18,6 +18,8 @@ pub enum ClientMessage {
     Subscribe { event: RemoteEvent },
     /// Unsubscribe from a previously subscribed event.
     Unsubscribe { event: RemoteEvent },
+    /// Keepalive ping. The server replies with a `Pong`.
+    Ping,
 }
 
 /// All commands that can be invoked over the remote WebSocket protocol.
@@ -270,6 +272,8 @@ pub enum ServerMessage {
         /// The event payload.
         payload: serde_json::Value,
     },
+    /// Keepalive pong in response to a `Ping`.
+    Pong,
 }
 
 impl ServerMessage {
