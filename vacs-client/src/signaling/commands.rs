@@ -24,7 +24,7 @@ pub async fn signaling_connect(
 ) -> Result<(), Error> {
     let mut app_state = app_state.lock().await;
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "rc"))]
     let position_id = position_id.or_else(|| app_state.config.backend.dev_position_id.clone());
 
     app_state.connect_signaling(&app, position_id).await?;
