@@ -35,7 +35,7 @@ export function openErrorOverlayFromUnknown(e: unknown) {
     const openErrorOverlay = useErrorOverlayStore.getState().open;
 
     if (isError(e)) {
-        openErrorOverlay(e.title, e.detail, false, e.timeoutMs);
+        openErrorOverlay(e.title, e.detail, e.isNonCritical, e.timeoutMs);
     } else {
         logError(JSON.stringify(e));
         openErrorOverlay("Unexpected error", "An unknown error occurred", false);
