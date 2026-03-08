@@ -13,6 +13,8 @@ import DirectAccessPage from "../components/DirectAccessPage.tsx";
 import {clsx} from "clsx";
 import ButtonLabel from "../components/ui/ButtonLabel.tsx";
 import {useCallState} from "../hooks/call-state-hook.ts";
+import {useDirectAccessStationKey} from "../hooks/use-direct-access-station-key.ts";
+import {StationId} from "../types/generic.ts";
 
 type GeoPageProps = {
     page: GeoPageContainerModel;
@@ -96,6 +98,51 @@ type GeoPageButtonProps = {
 };
 
 function GeoPageButton({button}: GeoPageButtonProps) {
+    const singleKey = button.page?.keys?.length === 1 ? button.page.keys[0] : undefined;
+
+    return singleKey?.stationId !== undefined ? (
+        <GeoPageDirectButton
+            button={button}
+            stationId={singleKey.stationId}
+            label={singleKey.label}
+        />
+    ) : (
+        <GeoPageNavButton button={button} />
+    );
+}
+
+function GeoPageDirectButton({
+    button,
+    stationId,
+    label,
+}: {
+    button: GeoPageButtonModel;
+    stationId: StationId;
+    label: string[];
+}) {
+    const {color, highlight, handleClick, disabled, own, hasStationId} = useDirectAccessStationKey({
+        stationId,
+    });
+
+    return (
+        <Button
+            color={color}
+            highlight={highlight}
+            disabled={disabled}
+            className={clsx(
+                "aspect-square w-auto! rounded-none! overflow-hidden",
+                (own || !hasStationId) && "text-gray-500",
+                color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
+            )}
+            style={{height: `${button.size}rem`}}
+            onClick={handleClick}
+        >
+            <ButtonLabel label={label} />
+        </Button>
+    );
+}
+
+function GeoPageNavButton({button}: {button: GeoPageButtonModel}) {
     const {color, highlight} = useCallState(button.page);
     const setSelectedPage = useProfileStore(state => state.setPage);
 
