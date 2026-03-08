@@ -29,6 +29,7 @@ jobs:
       tag: ${{ steps.vars.outputs.tag }}
       draft: ${{ steps.vars.outputs.draft }}
       prerelease: ${{ steps.vars.outputs.prerelease }}
+      rc: ${{ steps.vars.outputs.rc }}
       release_name: ${{ steps.vars.outputs.release_name }}
 
     steps:
@@ -76,10 +77,18 @@ jobs:
             PRERELEASE=false
           fi
 
+          # Detect release candidate (RC) builds (case-insensitive, matches -rc, -rc.1, -RC.2, etc.)
+          if [[ "$VER" =~ -[rR][cC][.0-9]* ]]; then
+            RC=true
+          else
+            RC=false
+          fi
+
           echo "version=$VER"       >> "$GITHUB_OUTPUT"
           echo "tag=$TAG"           >> "$GITHUB_OUTPUT"
           echo "draft=$DRAFT"       >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "rc=$RC"             >> "$GITHUB_OUTPUT"
           echo "release_name=$REL_NAME" >> "$GITHUB_OUTPUT"
 
   licenses:
@@ -167,19 +176,35 @@ jobs:
         env:
           TAG: ${{ needs.prep.outputs.tag }}
           VERSION: ${{ needs.prep.outputs.version }}
+          RC: ${{ needs.prep.outputs.rc }}
         run: |
           # create/update a lightweight tag locally so vergen sees it
           git tag -f "$TAG" HEAD
           git describe --tags --always
           # override version info built into client
           echo "VACS_VERSION_OVERRIDE=$VERSION" >> "$GITHUB_ENV"
+
+          RC_ARGS=""
+          if [[ "$RC" == "true" ]]; then
+            RC_ARGS="--config tauri.rc.conf.json"
+            echo "CARGO_FEATURES=--features rc" >> "$GITHUB_ENV"
+          fi
+
           # build tauri user config with version info and release config
-          echo "EXTRA_TAURI_ARGS=--config '{\"version\":\"$VERSION\"}' --config tauri.release.conf.json" >> "$GITHUB_ENV"
+          echo "EXTRA_TAURI_ARGS=--config '{\"version\":\"$VERSION\"}' --config tauri.release.conf.json $RC_ARGS" >> "$GITHUB_ENV"
 
       - name: Set release tauri config
         if: github.event_name != 'workflow_dispatch'
         shell: bash
-        run: echo "EXTRA_TAURI_ARGS=--config tauri.release.conf.json" >> "$GITHUB_ENV"
+        env:
+          RC: ${{ needs.prep.outputs.rc }}
+        run: |
+          RC_ARGS=""
+          if [[ "$RC" == "true" ]]; then
+            RC_ARGS="--config tauri.rc.conf.json"
+            echo "CARGO_FEATURES=--features rc" >> "$GITHUB_ENV"
+          fi
+          echo "EXTRA_TAURI_ARGS=--config tauri.release.conf.json $RC_ARGS" >> "$GITHUB_ENV"
 
       - name: Install build dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -245,7 +270,7 @@ jobs:
         with:
           projectPath: vacs-client
           appVersion: ${{ needs.prep.outputs.version }}
-          args: ${{ matrix.target && format('--target {0}', matrix.target) }} ${{ env.EXTRA_TAURI_ARGS }}
+          args: ${{ matrix.target && format('--target {0}', matrix.target) }} ${{ env.EXTRA_TAURI_ARGS }} ${{ env.CARGO_FEATURES }}
           includeUpdaterJson: false
 
       - name: Rename macOS bundles to include version & architecture
@@ -255,6 +280,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           VERSION: ${{ needs.prep.outputs.version }}
           ARCH: ${{ matrix.arch }}
+          RC: ${{ needs.prep.outputs.rc }}
         run: |
           if [[ "$TARGET" == "" ]]; then
             BUNDLE_DIR="target/release/bundle"
@@ -262,11 +288,17 @@ jobs:
             BUNDLE_DIR="target/${TARGET}/release/bundle"
           fi
 
-          if [[ -f "$BUNDLE_DIR/macos/vacs.app.tar.gz" ]]; then
-            mv "$BUNDLE_DIR/macos/vacs.app.tar.gz" "$BUNDLE_DIR/macos/vacs_${VERSION}_${ARCH}.app.tar.gz"
+          if [[ "$RC" == "true" ]]; then
+            NAME="vacs-rc"
+          else
+            NAME="vacs"
           fi
-          if [[ -f "$BUNDLE_DIR/macos/vacs.app.tar.gz.sig" ]]; then
-            mv "$BUNDLE_DIR/macos/vacs.app.tar.gz.sig" "$BUNDLE_DIR/macos/vacs_${VERSION}_${ARCH}.app.tar.gz.sig"
+
+          if [[ -f "$BUNDLE_DIR/macos/${NAME}.app.tar.gz" ]]; then
+            mv "$BUNDLE_DIR/macos/${NAME}.app.tar.gz" "$BUNDLE_DIR/macos/${NAME}_${VERSION}_${ARCH}.app.tar.gz"
+          fi
+          if [[ -f "$BUNDLE_DIR/macos/${NAME}.app.tar.gz.sig" ]]; then
+            mv "$BUNDLE_DIR/macos/${NAME}.app.tar.gz.sig" "$BUNDLE_DIR/macos/${NAME}_${VERSION}_${ARCH}.app.tar.gz.sig"
           fi
 
       - name: Upload bundles as artifact
@@ -286,8 +318,8 @@ jobs:
             target/**/release/bundle/**/*.rpm.sig
             target/**/release/bundle/**/*.AppImage
             target/**/release/bundle/**/*.AppImage.sig
-            target/**/release/bundle/macos/vacs_*_*.app.tar.gz
-            target/**/release/bundle/macos/vacs_*_*.app.tar.gz.sig
+            target/**/release/bundle/macos/vacs*_*_*.app.tar.gz
+            target/**/release/bundle/macos/vacs*_*_*.app.tar.gz.sig
             target/**/release/bundle/dmg/*.dmg
             target/**/release/bundle/dmg/*.dmg.sig
 
@@ -311,8 +343,8 @@ jobs:
             target/**/release/bundle/**/*.rpm.sig
             target/**/release/bundle/**/*.AppImage
             target/**/release/bundle/**/*.AppImage.sig
-            target/**/release/bundle/macos/vacs_*_*.app.tar.gz
-            target/**/release/bundle/macos/vacs_*_*.app.tar.gz.sig
+            target/**/release/bundle/macos/vacs*_*_*.app.tar.gz
+            target/**/release/bundle/macos/vacs*_*_*.app.tar.gz.sig
             target/**/release/bundle/dmg/*.dmg
             target/**/release/bundle/dmg/*.dmg.sig
 
@@ -325,7 +357,7 @@ jobs:
             target/**/release/bundle/**/*.deb
             target/**/release/bundle/**/*.rpm
             target/**/release/bundle/**/*.AppImage
-            target/**/release/bundle/macos/vacs_*_*.app.tar.gz
+            target/**/release/bundle/macos/vacs*_*_*.app.tar.gz
             target/**/release/bundle/dmg/*.dmg
           sbom-path: sbom.spdx.json
 
