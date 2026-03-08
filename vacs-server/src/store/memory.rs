@@ -94,6 +94,15 @@ impl StoreBackend for MemoryStore {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self), err)]
+    async fn expire(&self, key: &str, duration: Duration) -> anyhow::Result<()> {
+        tracing::trace!("Setting expiry on memory store key");
+        if let Some(mut entry) = self.map.get_mut(key) {
+            entry.expires_at = Some(Instant::now() + duration);
+        }
+        Ok(())
+    }
+
     async fn is_healthy(&self) -> anyhow::Result<()> {
         Ok(())
     }
