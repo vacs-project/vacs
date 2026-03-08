@@ -116,14 +116,7 @@ impl Policy {
                 ReleaseChannel::Beta,
                 vec![ReleaseChannel::Beta, ReleaseChannel::Stable],
             );
-            visibility.insert(
-                ReleaseChannel::Dev,
-                vec![
-                    ReleaseChannel::Dev,
-                    ReleaseChannel::Beta,
-                    ReleaseChannel::Stable,
-                ],
-            );
+            visibility.insert(ReleaseChannel::Rc, vec![ReleaseChannel::Rc]);
         }
 
         *self.required_ranges.write() = required_ranges;

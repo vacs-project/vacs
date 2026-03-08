@@ -20,7 +20,8 @@ pub enum ReleaseChannel {
     #[default]
     Stable,
     Beta,
-    Dev,
+    #[serde(alias = "dev")]
+    Rc,
 }
 
 impl ReleaseChannel {
@@ -28,7 +29,7 @@ impl ReleaseChannel {
         match self {
             ReleaseChannel::Stable => "stable",
             ReleaseChannel::Beta => "beta",
-            ReleaseChannel::Dev => "dev",
+            ReleaseChannel::Rc => "rc",
         }
     }
 }
@@ -39,7 +40,7 @@ impl FromStr for ReleaseChannel {
         match s.trim().to_ascii_lowercase().as_str() {
             "stable" => Ok(ReleaseChannel::Stable),
             "beta" => Ok(ReleaseChannel::Beta),
-            "dev" => Ok(ReleaseChannel::Dev),
+            "rc" | "dev" => Ok(ReleaseChannel::Rc),
             _ => Err(format!("unknown release channel {}", s)),
         }
     }

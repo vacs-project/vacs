@@ -13,6 +13,10 @@ publish.workspace = true
 name = "vacs_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Release candidate builds, automatically connect to dev backend and allow dev_position_id usage
+rc = []
+
 [build-dependencies]
 tauri-build = { workspace = true, features = [] }
 vergen-git2 = { workspace = true }
