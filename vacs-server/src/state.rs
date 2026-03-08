@@ -205,6 +205,56 @@ impl AppState {
     }
 
     #[instrument(level = "debug", skip(self), err)]
+    pub async fn generate_api_token(&self, cid: &str) -> anyhow::Result<String> {
+        tracing::debug!("Generating API token");
+
+        let token = Uuid::now_v7().to_string();
+        let expiry = Duration::from_secs(self.config.auth.api_token.expiry_secs);
+
+        self.store
+            .set(format!("api.token.{token}").as_str(), cid, Some(expiry))
+            .await
+            .context("Failed to store API token")?;
+
+        tracing::debug!("API token generated");
+        Ok(token)
+    }
+
+    #[instrument(level = "debug", skip_all, err)]
+    pub async fn verify_api_token(&self, token: &str) -> anyhow::Result<Option<ClientId>> {
+        tracing::debug!("Verifying API token");
+
+        if Uuid::try_parse(token).is_err() {
+            tracing::debug!("Rejected malformed API token");
+            return Ok(None);
+        }
+
+        let key = format!("api.token.{token}");
+        match self.store.get(key.as_str()).await {
+            Ok(Some(cid)) => {
+                tracing::debug!(?cid, "API token verified");
+                // extend TTL on each use (inactivity-based expiry, like sessions)
+                let expiry = Duration::from_secs(self.config.auth.api_token.expiry_secs);
+                if let Err(err) = self.store.expire(&key, expiry).await {
+                    tracing::warn!(?err, "Failed to extend API token TTL");
+                }
+                Ok(Some(cid))
+            }
+            Ok(None) => Ok(None),
+            Err(err) => anyhow::bail!(err),
+        }
+    }
+
+    #[instrument(level = "debug", skip(self), err)]
+    pub async fn revoke_api_token(&self, token: &str) -> anyhow::Result<()> {
+        tracing::debug!("Revoking API token");
+        self.store
+            .remove(format!("api.token.{token}").as_str())
+            .await
+            .context("Failed to revoke API token")
+    }
+
+    #[instrument(level = "debug", skip(self), err)]
     pub async fn get_vatsim_controller_info(
         &self,
         cid: &ClientId,
@@ -314,5 +364,97 @@ impl AppState {
 
     pub async fn replace_network(&self, network: Network) {
         self.clients.replace_network(network).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ice::provider::stun::StunOnlyProvider;
+    use crate::release::UpdateChecker;
+    use crate::store::Store;
+    use crate::store::memory::MemoryStore;
+    use vacs_vatsim::coverage::network::Network;
+    use vacs_vatsim::data_feed::mock::MockDataFeed;
+    use vacs_vatsim::slurper::SlurperClient;
+
+    fn test_state() -> Arc<AppState> {
+        let (_, shutdown_rx) = watch::channel(());
+        Arc::new(AppState::new(
+            AppConfig::default(),
+            UpdateChecker::default(),
+            Store::Memory(MemoryStore::default()),
+            SlurperClient::new("http://localhost:12345").unwrap(),
+            Arc::new(MockDataFeed::default()),
+            Network::default(),
+            RateLimiters::default(),
+            shutdown_rx,
+            Arc::new(StunOnlyProvider::default()),
+            None,
+        ))
+    }
+
+    #[tokio::test]
+    async fn verify_api_token_returns_cid() {
+        let state = test_state();
+        let token = state.generate_api_token("123456").await.unwrap();
+        let cid = state.verify_api_token(&token).await.unwrap();
+        assert_eq!(cid, Some(ClientId::from("123456")));
+    }
+
+    #[tokio::test]
+    async fn verify_api_token_rejects_malformed_token() {
+        let state = test_state();
+        let result = state.verify_api_token("not-a-uuid").await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn verify_api_token_returns_none_for_unknown() {
+        let state = test_state();
+        // Valid UUID format but not stored
+        let result = state
+            .verify_api_token("01234567-89ab-7def-8000-000000000099")
+            .await
+            .unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn revoke_api_token_removes_it() {
+        let state = test_state();
+        let token = state.generate_api_token("123456").await.unwrap();
+
+        state.revoke_api_token(&token).await.unwrap();
+
+        let result = state.verify_api_token(&token).await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[tokio::test]
+    async fn revoke_nonexistent_token_succeeds() {
+        let state = test_state();
+        state.revoke_api_token("does-not-exist").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn multiple_tokens_for_same_cid() {
+        let state = test_state();
+        let token1 = state.generate_api_token("123456").await.unwrap();
+        let token2 = state.generate_api_token("123456").await.unwrap();
+
+        assert_ne!(token1, token2);
+
+        let cid1 = state.verify_api_token(&token1).await.unwrap();
+        let cid2 = state.verify_api_token(&token2).await.unwrap();
+        assert_eq!(cid1, Some(ClientId::from("123456")));
+        assert_eq!(cid2, Some(ClientId::from("123456")));
+
+        state.revoke_api_token(&token1).await.unwrap();
+        assert_eq!(state.verify_api_token(&token1).await.unwrap(), None);
+        assert_eq!(
+            state.verify_api_token(&token2).await.unwrap(),
+            Some(ClientId::from("123456"))
+        );
     }
 }
