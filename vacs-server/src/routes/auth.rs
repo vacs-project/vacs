@@ -48,6 +48,7 @@ mod post {
     use crate::http::StatusCodeResult;
     use axum::extract::{FromRequestParts, State};
     use axum::http::StatusCode;
+    use axum_client_ip::ClientIp;
     use vacs_protocol::http::auth::AuthExchangeToken;
 
     pub async fn vatsim_callback(
@@ -114,8 +115,18 @@ mod post {
     pub async fn vatsim_token(
         auth_session: AuthSession,
         State(state): State<Arc<AppState>>,
+        ClientIp(client_ip): ClientIp,
         headers: http::HeaderMap,
     ) -> ApiResult<vacs_protocol::http::auth::AuthTokenResponse> {
+        if let Err(until) = state.rate_limiters().check_vatsim_token(client_ip) {
+            tracing::debug!(
+                ?client_ip,
+                ?until,
+                "Rate limit exceeded, rejecting token request"
+            );
+            return Err(AppError::TooManyRequests(until.as_secs()));
+        }
+
         let access_token = headers
             .get(http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
