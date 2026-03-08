@@ -89,7 +89,7 @@ tokio-tungstenite = { version = "0.28.0", features = ["rustls", "rustls-tls-nati
 tokio-util = "0.7.18"
 toml = "1.0.4"
 tower-http = "0.6.8"
-tower-sessions = { version = "0.14.0", features = ["signed"] }
+tower-sessions = { version = "0.15.0", features = ["signed"] }
 tower-sessions-redis-store = "0.16.0"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 tracing = { version = "0.1.44", features = ["log"] }
