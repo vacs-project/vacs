@@ -128,6 +128,21 @@ impl Validator for PositionRaw {
             }
             .into());
         }
+        if let Ok(id_facility_type) = self.id.as_str().parse::<FacilityType>()
+            && id_facility_type != self.facility_type
+        {
+            return Err(ValidationError::InvalidValue {
+                field: "facility_type".to_string(),
+                value: self.facility_type.as_str().to_string(),
+                reason: format!(
+                    "facility_type is `{}`, but id `{}` requires matching facility type `{}`",
+                    self.facility_type.as_str(),
+                    self.id.as_str(),
+                    id_facility_type.as_str()
+                ),
+            }
+            .into());
+        }
         if self.profile_id.as_ref().is_some_and(|p| p.is_empty()) {
             return Err(ValidationError::Empty {
                 field: "profile_id".to_string(),
@@ -368,5 +383,54 @@ mod tests {
             profile_id: None,
         };
         assert!(raw_none.validate_references(&valid_profiles).is_ok());
+    }
+
+    #[test]
+    fn position_raw_id_facility_type_mismatch() {
+        let raw = PositionRaw {
+            id: "LOWW_TWR".into(),
+            prefixes: HashSet::from(["LOWW".to_string()]),
+            frequency: "119.400".to_string(),
+            facility_type: FacilityType::Ground,
+            profile_id: Some(ProfileId::from("LOWW")),
+        };
+        assert_matches!(
+            raw.validate(),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. }))
+                if field == "facility_type"
+        );
+    }
+
+    #[test]
+    fn position_raw_id_facility_type_match() {
+        let raw = PositionRaw {
+            id: "LOWW_TWR".into(),
+            prefixes: HashSet::from(["LOWW".to_string()]),
+            frequency: "119.400".to_string(),
+            facility_type: FacilityType::Tower,
+            profile_id: Some(ProfileId::from("LOWW")),
+        };
+        assert!(raw.validate().is_ok());
+    }
+
+    #[test]
+    fn position_raw_id_no_facility_suffix() {
+        let raw = PositionRaw {
+            id: "LOWW_ATIS".into(),
+            prefixes: HashSet::from(["LOWW".to_string()]),
+            frequency: "122.955".to_string(),
+            facility_type: FacilityType::Approach,
+            profile_id: None,
+        };
+        assert!(raw.validate().is_ok());
+
+        let raw = PositionRaw {
+            id: "LON_SC".into(),
+            prefixes: HashSet::from(["LON".to_string()]),
+            frequency: "132.605".to_string(),
+            facility_type: FacilityType::Enroute,
+            profile_id: None,
+        };
+        assert!(raw.validate().is_ok());
     }
 }
