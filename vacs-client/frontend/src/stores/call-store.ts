@@ -8,10 +8,11 @@ import {useConnectionStore} from "./connection-store.ts";
 import {useCallListStore} from "./call-list-store.ts";
 import {useStationsStore} from "./stations-store.ts";
 
-type ConnectionState = "connecting" | "connected" | "disconnected";
+export type ConnectionState = "connecting" | "connected" | "disconnected";
+export type CallDisplayType = "outgoing" | "accepted" | "rejected" | "error";
 
 type CallDisplay = {
-    type: "outgoing" | "accepted" | "rejected" | "error";
+    type: CallDisplayType;
     call: Call;
     targetClientId?: ClientId;
     errorReason?: string;

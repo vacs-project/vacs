@@ -1,4 +1,4 @@
-import {listen, UnlistenFn} from "@tauri-apps/api/event";
+import {listen, UnlistenFn} from "../transport";
 import {useCallStore} from "../stores/call-store.ts";
 import {CallError} from "../error.ts";
 import {CallId} from "../types/generic.ts";

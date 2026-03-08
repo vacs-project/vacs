@@ -1,7 +1,7 @@
 import {useEffect, useState} from "preact/hooks";
 import {RadioState} from "../types/radio.ts";
 import {invokeStrict} from "../error.ts";
-import {listen} from "@tauri-apps/api/event";
+import {listen} from "../transport";
 import {useAsyncDebounce} from "./debounce-hook.ts";
 
 export function useRadioState() {

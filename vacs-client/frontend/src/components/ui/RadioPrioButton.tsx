@@ -3,7 +3,7 @@ import {useCallStore} from "../../stores/call-store.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {invokeSafe} from "../../error.ts";
 import {useEffect, useState} from "preact/hooks";
-import {listen} from "@tauri-apps/api/event";
+import {listen} from "../../transport";
 import {clsx} from "clsx";
 import {useProfileType} from "../../stores/profile-store.ts";
 

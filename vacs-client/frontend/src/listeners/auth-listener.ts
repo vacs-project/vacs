@@ -1,5 +1,5 @@
 import {useAuthStore} from "../stores/auth-store.ts";
-import {listen, UnlistenFn} from "@tauri-apps/api/event";
+import {listen, UnlistenFn} from "../transport";
 import {ClientId} from "../types/generic.ts";
 
 export function setupAuthListeners() {

@@ -86,21 +86,20 @@ pub async fn signaling_start_call(
     let mut state = app_state.lock().await;
 
     let call_id = CallId::new();
-    state
-        .send_signaling_message(shared::CallInvite {
-            call_id,
-            target,
-            source,
-            prio,
-        })
-        .await?;
+    let invite = shared::CallInvite {
+        call_id,
+        target,
+        source,
+        prio,
+    };
+    state.send_signaling_message(invite.clone()).await?;
 
     if state.is_ice_config_expired() {
         refresh_ice_config(&http_state, &mut state).await;
     }
 
     state.start_unanswered_call_timer(&app, &call_id);
-    state.set_outgoing_call_id(Some(call_id));
+    state.set_outgoing_call(Some(invite));
 
     audio_manager.read().restart(SourceType::Ringback);
 

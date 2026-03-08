@@ -1,5 +1,5 @@
 import {useErrorOverlayStore} from "../stores/error-overlay-store.ts";
-import {listen, UnlistenFn} from "@tauri-apps/api/event";
+import {listen, UnlistenFn} from "../transport";
 import {Error} from "../error.ts";
 
 export function setupErrorListeners() {
@@ -12,7 +12,7 @@ export function setupErrorListeners() {
             listen<Error>("error", event => {
                 openErrorOverlay(
                     event.payload.title,
-                    event.payload.message,
+                    event.payload.detail,
                     event.payload.isNonCritical,
                     event.payload.timeoutMs,
                 );

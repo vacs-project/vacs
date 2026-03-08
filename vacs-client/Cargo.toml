@@ -20,11 +20,13 @@ vergen-git2 = { workspace = true }
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
 base64 = { workspace = true }
 cfg-if = { workspace = true }
 chacha20poly1305 = { workspace = true }
 config = { workspace = true }
 cookie_store = { workspace = true }
+futures-util = { workspace = true }
 keyboard-types = { workspace = true }
 keyring = { workspace = true }
 log = { workspace = true }
