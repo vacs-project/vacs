@@ -135,8 +135,7 @@ impl Validator for PositionRaw {
                 field: "facility_type".to_string(),
                 value: self.facility_type.as_str().to_string(),
                 reason: format!(
-                    "facility_type is `{}`, but id `{}` requires matching facility type `{}`",
-                    self.facility_type.as_str(),
+                    "id `{}` implies `{}`",
                     self.id.as_str(),
                     id_facility_type.as_str()
                 ),
