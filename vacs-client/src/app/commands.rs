@@ -28,6 +28,13 @@ pub async fn app_frontend_ready(
     #[cfg(target_os = "linux")]
     window.eval("document.body.classList.add('linux')").ok();
 
+    #[cfg(target_os = "windows")]
+    if let Ok(hwnd) = window.hwnd() {
+        crate::platform::windows_touch_handler::install(hwnd.0 as usize);
+    } else {
+        log::error!("Failed to get HWND for Input Shield");
+    }
+
     let state = app_state.lock().await;
     if let Err(err) = state.config.client.restore_window_state(&app) {
         log::warn!("Failed to restore saved window state: {err}");
