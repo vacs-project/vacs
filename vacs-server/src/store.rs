@@ -17,6 +17,7 @@ pub trait StoreBackend {
         expiry: Option<Duration>,
     ) -> anyhow::Result<()>;
     async fn remove(&self, key: &str) -> anyhow::Result<()>;
+    async fn expire(&self, key: &str, duration: Duration) -> anyhow::Result<()>;
     async fn is_healthy(&self) -> anyhow::Result<()>;
 }
 
@@ -50,6 +51,13 @@ impl StoreBackend for Store {
         match self {
             Store::Redis(store) => store.remove(key).await,
             Store::Memory(store) => store.remove(key).await,
+        }
+    }
+
+    async fn expire(&self, key: &str, duration: Duration) -> anyhow::Result<()> {
+        match self {
+            Store::Redis(store) => store.expire(key, duration).await,
+            Store::Memory(store) => store.expire(key, duration).await,
         }
     }
 

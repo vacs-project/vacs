@@ -19,6 +19,7 @@ pub struct TestApp {
     state: Arc<AppState>,
     pub mock_data_feed: Arc<MockDataFeed>,
     addr: String,
+    http_base_url: String,
     shutdown_tx: watch::Sender<()>,
     handle: JoinHandle<()>,
 }
@@ -81,6 +82,7 @@ impl TestApp {
         Self {
             state,
             mock_data_feed,
+            http_base_url: format!("http://{addr}"),
             addr: format!("ws://{addr}/ws"),
             shutdown_tx,
             handle,
@@ -89,6 +91,10 @@ impl TestApp {
 
     pub fn addr(&self) -> &str {
         &self.addr
+    }
+
+    pub fn http_base_url(&self) -> &str {
+        &self.http_base_url
     }
 
     pub fn state(&self) -> Arc<AppState> {

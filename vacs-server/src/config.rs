@@ -118,6 +118,7 @@ impl Default for SessionConfig {
 pub struct AuthConfig {
     pub login_flow_timeout_millis: u64,
     pub oauth: OAuthConfig,
+    pub api_token: ApiTokenConfig,
 }
 
 impl Default for AuthConfig {
@@ -125,6 +126,20 @@ impl Default for AuthConfig {
         Self {
             login_flow_timeout_millis: 10000,
             oauth: OAuthConfig::default(),
+            api_token: ApiTokenConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ApiTokenConfig {
+    pub expiry_secs: u64,
+}
+
+impl Default for ApiTokenConfig {
+    fn default() -> Self {
+        Self {
+            expiry_secs: 86400, // 24 hours
         }
     }
 }

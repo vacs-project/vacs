@@ -112,6 +112,8 @@ pub struct RateLimiters {
     failed_auth_per_minute: Option<KeyedLimiter<Key>>,
     version_update: Option<KeyedLimiter<Key>>,
     version_update_per_minute: Option<KeyedLimiter<Key>>,
+    vatsim_token: Option<KeyedLimiter<Key>>,
+    vatsim_token_per_minute: Option<KeyedLimiter<Key>>,
 }
 
 impl RateLimiters {
@@ -141,6 +143,17 @@ impl RateLimiters {
     }
 
     #[inline]
+    pub fn check_vatsim_token(&self, key: impl Into<Key>) -> Result<(), Duration> {
+        let key = key.into();
+        Self::check(
+            &self.vatsim_token_per_minute,
+            "vatsim_token_per_minute",
+            &key,
+        )
+        .and_then(|_| Self::check(&self.vatsim_token, "vatsim_token", &key))
+    }
+
+    #[inline]
     fn check(
         limiter: &Option<KeyedLimiter<Key>>,
         limit_name: impl Into<String>,
@@ -167,6 +180,8 @@ pub struct RateLimitersConfig {
     pub failed_auth_per_minute: u32,
     pub version_update: Policy,
     pub version_update_per_minute: u32,
+    pub vatsim_token: Policy,
+    pub vatsim_token_per_minute: u32,
 }
 
 impl Default for RateLimitersConfig {
@@ -179,6 +194,8 @@ impl Default for RateLimitersConfig {
             failed_auth_per_minute: 0, // 60
             version_update: Policy::new(1, nonzero!(10u32)),
             version_update_per_minute: 60,
+            vatsim_token: Policy::new(30, nonzero!(3u32)),
+            vatsim_token_per_minute: 10,
         }
     }
 }
@@ -193,6 +210,8 @@ impl From<RateLimitersConfig> for RateLimiters {
                 failed_auth_per_minute: None,
                 version_update: None,
                 version_update_per_minute: None,
+                vatsim_token: None,
+                vatsim_token_per_minute: None,
             };
         }
 
@@ -241,6 +260,21 @@ impl From<RateLimitersConfig> for RateLimiters {
             None
         };
 
+        let vatsim_token = if value.vatsim_token.enabled {
+            Some(KeyedLimiter::<Key>::keyed(value.vatsim_token.quota()))
+        } else {
+            None
+        };
+        let vatsim_token_per_minute = if value.vatsim_token_per_minute > 0 {
+            let val = NonZero::new(value.vatsim_token_per_minute)
+                .expect("invalid vatsim_token_per_minute");
+            Some(KeyedLimiter::<Key>::keyed(
+                Quota::per_minute(val).allow_burst(val),
+            ))
+        } else {
+            None
+        };
+
         Self {
             call_invite,
             call_invite_per_minute,
@@ -248,6 +282,8 @@ impl From<RateLimitersConfig> for RateLimiters {
             failed_auth_per_minute,
             version_update,
             version_update_per_minute,
+            vatsim_token,
+            vatsim_token_per_minute,
         }
     }
 }
