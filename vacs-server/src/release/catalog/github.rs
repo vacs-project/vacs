@@ -29,6 +29,7 @@ struct RegexPatterns {
     title: Regex,
     semver: Regex,
     ignored_assets: Regex,
+    rc_prerelease: Regex,
     arch_x86_64: Regex,
     arch_arm64: Regex,
     arch_armv7: Regex,
@@ -41,6 +42,7 @@ impl Default for RegexPatterns {
                 .unwrap(),
             semver: Regex::new(r"v?(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)").unwrap(),
             ignored_assets: Regex::new(r"^SHA256SUMS|(?i)\.sig$").unwrap(),
+            rc_prerelease: Regex::new(r"(?i)^rc").unwrap(),
             arch_x86_64: Regex::new(r"(?i)(x86_64|amd64|x64)").unwrap(),
             arch_arm64: Regex::new(r"(?i)(aarch64|arm64)").unwrap(),
             arch_armv7: Regex::new(r"(?i)(armv7)").unwrap(),
@@ -61,7 +63,7 @@ pub struct GitHubCatalog {
 
     stable_versions: RwLock<Vec<Version>>,
     beta_versions: RwLock<Vec<Version>>,
-    dev_versions: RwLock<Vec<Version>>,
+    rc_versions: RwLock<Vec<Version>>,
 
     signatures: RwLock<LruCache<String, (Instant, String)>>,
     signature_cache_ttl: Duration,
@@ -126,7 +128,7 @@ impl GitHubCatalog {
 
             stable_versions: RwLock::new(Vec::new()),
             beta_versions: RwLock::new(Vec::new()),
-            dev_versions: RwLock::new(Vec::new()),
+            rc_versions: RwLock::new(Vec::new()),
 
             signatures: RwLock::new(LruCache::new(
                 NonZeroUsize::new(SIGNATURE_CACHE_SIZE).unwrap(),
@@ -154,7 +156,7 @@ impl GitHubCatalog {
         let mut by_version = HashMap::new();
         let mut stable_versions = Vec::new();
         let mut beta_versions = Vec::new();
-        let mut dev_versions = Vec::new();
+        let mut rc_versions = Vec::new();
 
         for release in raw_releases {
             if let Some(meta) = self.filter_map_release(&release) {
@@ -163,7 +165,7 @@ impl GitHubCatalog {
                 match meta.channel {
                     ReleaseChannel::Stable => stable_versions.push(version.clone()),
                     ReleaseChannel::Beta => beta_versions.push(version.clone()),
-                    ReleaseChannel::Dev => dev_versions.push(version.clone()),
+                    ReleaseChannel::Rc => rc_versions.push(version.clone()),
                 }
 
                 by_version.insert(version, meta);
@@ -172,12 +174,12 @@ impl GitHubCatalog {
 
         stable_versions.sort();
         beta_versions.sort();
-        dev_versions.sort();
+        rc_versions.sort();
 
         tracing::trace!(
             stable = stable_versions.len(),
             beta = beta_versions.len(),
-            dev = dev_versions.len(),
+            rc = rc_versions.len(),
             "Partitioned releases by channel"
         );
 
@@ -185,7 +187,7 @@ impl GitHubCatalog {
             *self.releases.write() = by_version;
             *self.stable_versions.write() = stable_versions;
             *self.beta_versions.write() = beta_versions;
-            *self.dev_versions.write() = dev_versions;
+            *self.rc_versions.write() = rc_versions;
             *self.releases_updated_at.write() = Some(Instant::now());
         }
 
@@ -195,7 +197,7 @@ impl GitHubCatalog {
             total_releases = self.releases.read().len(),
             stable_releases = self.stable_versions.read().len(),
             beta_releases = self.beta_versions.read().len(),
-            dev_releases = self.dev_versions.read().len(),
+            rc_releases = self.rc_versions.read().len(),
             cached_signatures = self.signatures.read().len(),
             "Successfully fetched releases"
         );
@@ -252,12 +254,12 @@ impl GitHubCatalog {
         let versions_to_prefetch = {
             let stable = self.stable_versions.read();
             let beta = self.beta_versions.read();
-            let dev = self.dev_versions.read();
+            let rc = self.rc_versions.read();
 
             [
                 stable.last().cloned(),
                 beta.last().cloned(),
-                dev.last().cloned(),
+                rc.last().cloned(),
             ]
             .into_iter()
             .flatten()
@@ -343,6 +345,11 @@ impl GitHubCatalog {
 
     #[instrument(level = "trace", skip(self, release), fields(release_name = ?release.name, release_tag_name = ?release.tag_name))]
     fn filter_map_release(&self, release: &OctocrabRelease) -> Option<ReleaseMeta> {
+        if release.draft {
+            tracing::trace!("Ignoring draft release");
+            return None;
+        }
+
         if !self.patterns.title.is_match(release.name.as_ref()?) {
             tracing::trace!("Ignoring release due to name mismatch");
             return None;
@@ -354,7 +361,7 @@ impl GitHubCatalog {
             self.parse_release_version(release.name.as_ref()?, release.tag_name.as_str())?;
         tracing::trace!(?version, "Parsed release version");
 
-        let channel = self.derive_release_channel(&version, release.prerelease, release.draft);
+        let channel = self.derive_release_channel(&version, release.prerelease);
         tracing::trace!(?version, ?channel, "Parsed release channel");
 
         let assets: Vec<ReleaseAsset> = release
@@ -418,16 +425,13 @@ impl GitHubCatalog {
         .ok()
     }
 
-    fn derive_release_channel(
-        &self,
-        version: &Version,
-        prerelease: bool,
-        draft: bool,
-    ) -> ReleaseChannel {
-        if draft {
-            ReleaseChannel::Dev
-        } else if prerelease || !version.pre.is_empty() {
-            ReleaseChannel::Beta
+    fn derive_release_channel(&self, version: &Version, prerelease: bool) -> ReleaseChannel {
+        if prerelease || !version.pre.is_empty() {
+            if self.patterns.rc_prerelease.is_match(version.pre.as_str()) {
+                ReleaseChannel::Rc
+            } else {
+                ReleaseChannel::Beta
+            }
         } else {
             ReleaseChannel::Stable
         }
@@ -476,7 +480,7 @@ impl Catalog for GitHubCatalog {
         let versions = match channel {
             ReleaseChannel::Stable => self.stable_versions.read().clone(),
             ReleaseChannel::Beta => self.beta_versions.read().clone(),
-            ReleaseChannel::Dev => self.dev_versions.read().clone(),
+            ReleaseChannel::Rc => self.rc_versions.read().clone(),
         };
 
         let releases = self.releases.read();
@@ -533,7 +537,7 @@ impl Debug for GitHubCatalog {
             .field("total_releases", &self.releases.read().len())
             .field("stable_releases", &self.stable_versions.read().len())
             .field("beta_releases", &self.beta_versions.read().len())
-            .field("dev_releases", &self.dev_versions.read().len())
+            .field("rc_releases", &self.rc_versions.read().len())
             .field("cached_signatures", &self.signatures.read().len())
             .finish_non_exhaustive()
     }
