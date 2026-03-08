@@ -390,10 +390,6 @@ async fn dispatch_command(
             dispatch(audio_set_radio_prio(app.clone(), keybind_engine, prio).await)
         }
 
-        AuthOpenOauthUrl => {
-            let http_state = app.state::<HttpState>();
-            dispatch(auth_open_oauth_url(http_state).await)
-        }
         AuthCheckSession => {
             let http_state = app.state::<HttpState>();
             dispatch(auth_check_session(app.clone(), http_state).await)
@@ -516,6 +512,9 @@ async fn dispatch_command(
         }
 
         RemoteBroadcastStoreSync => {
+            // Mirrors the Tauri command in remote/commands.rs - both emit the same
+            // event, but this path is used by remote (WS) clients while the command
+            // is used by the desktop (IPC) frontend.
             let (store, state): (String, serde_json::Value) = args!(args, "store", "state");
             app.emit(
                 "store:sync",
@@ -552,6 +551,7 @@ async fn dispatch_command(
         | AppSetFullscreen
         | AppResetWindowSize
         | AppLoadExtraClientPageConfig
+        | AuthOpenOauthUrl
         | KeybindsOpenSystemShortcutsSettings => {
             unreachable!("desktop-only commands should have been rejected up front")
         }

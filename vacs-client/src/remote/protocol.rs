@@ -219,6 +219,7 @@ impl RemoteCommand {
                 | Self::AppSetFullscreen
                 | Self::AppResetWindowSize
                 | Self::AppLoadExtraClientPageConfig
+                | Self::AuthOpenOauthUrl
                 | Self::KeybindsOpenSystemShortcutsSettings
         )
     }
