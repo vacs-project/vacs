@@ -29,10 +29,15 @@ impl AuthUser for User {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Credentials {
-    pub code: String,
-    pub stored_state: String,
-    pub received_state: String,
+pub enum Credentials {
+    OAuthCode {
+        code: String,
+        stored_state: String,
+        received_state: String,
+    },
+    AccessToken {
+        access_token: String,
+    },
 }
 
 pub type VatsimOAuthClient =
@@ -63,6 +68,29 @@ impl Backend {
     pub fn authorize_url(&self) -> (Url, CsrfToken) {
         self.client.authorize_url(CsrfToken::new_random).url()
     }
+
+    async fn fetch_user_details(&self, access_token: &str) -> Result<User, AppError> {
+        tracing::trace!(?access_token, "Fetching user details");
+        let response = self
+            .http_client
+            .get(self.vatsim_user_details_endpoint_url.clone())
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .context("Failed to get user details")?
+            .error_for_status()
+            .context("Received non-200 HTTP status code")?;
+
+        tracing::trace!(content_length = ?response.content_length(), "Parsing response body");
+        let user_details = response
+            .json::<ConnectUserDetails>()
+            .await
+            .context("Failed to parse response body")?;
+
+        Ok(User {
+            cid: user_details.data.cid,
+        })
+    }
 }
 
 impl AuthnBackend for Backend {
@@ -76,44 +104,36 @@ impl AuthnBackend for Backend {
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
         tracing::debug!("Authenticating user");
-        if creds.stored_state != creds.received_state {
-            tracing::debug!("CSRF token mismatch");
-            return Ok(None);
-        }
 
-        tracing::trace!("Exchanging code for VATSIM access token");
-        let token = self
-            .client
-            .exchange_code(AuthorizationCode::new(creds.code))
-            .request_async(&ReqwestClient(&self.http_client))
-            .await
-            .context("Failed to exchange code")
-            .map_err(|err| {
-                tracing::warn!(?err, "Failed to exchange code for VATSIM access token");
-                AppError::Unauthorized("Invalid code".to_string())
-            })?;
+        let access_token = match creds {
+            Credentials::OAuthCode {
+                code,
+                stored_state,
+                received_state,
+            } => {
+                if stored_state != received_state {
+                    tracing::debug!("CSRF token mismatch");
+                    return Ok(None);
+                }
 
-        tracing::trace!("Fetching user details");
-        let response = self
-            .http_client
-            .get(self.vatsim_user_details_endpoint_url.clone())
-            .bearer_auth(token.access_token().secret())
-            .send()
-            .await
-            .context("Failed to get user details")?
-            .error_for_status()
-            .context("Received non-200 HTTP status code")?;
+                tracing::trace!("Exchanging code for VATSIM access token");
+                let token = self
+                    .client
+                    .exchange_code(AuthorizationCode::new(code))
+                    .request_async(&ReqwestClient(&self.http_client))
+                    .await
+                    .context("Failed to exchange code")
+                    .map_err(|err| {
+                        tracing::warn!(?err, "Failed to exchange code for VATSIM access token");
+                        AppError::Unauthorized("Invalid code".to_string())
+                    })?;
 
-        tracing::trace!(content_length = ?response.content_length(), "Parsing response body");
-        let user_details = response
-            .json::<ConnectUserDetails>()
-            .await
-            .context("Failed to parse response body")?;
-
-        let user = User {
-            cid: user_details.data.cid,
+                token.access_token().secret().to_string()
+            }
+            Credentials::AccessToken { access_token } => access_token,
         };
 
+        let user = self.fetch_user_details(&access_token).await?;
         tracing::debug!(?user, "User authenticated");
         Ok(Some(user))
     }
@@ -195,8 +215,15 @@ pub mod mock {
                         },
                     },
                 );
+                user_details.insert(
+                    format!("access_token{i}"),
+                    ConnectUserDetails {
+                        data: ConnectUserDetailsData {
+                            cid: ClientId::from(format!("cid{i}")),
+                        },
+                    },
+                );
             }
-
             Self {
                 access_tokens,
                 user_details,
@@ -213,12 +240,22 @@ pub mod mock {
             &self,
             creds: Self::Credentials,
         ) -> Result<Option<Self::User>, Self::Error> {
-            if creds.stored_state != creds.received_state {
-                return Ok(None);
-            }
+            let access_token = match creds {
+                Credentials::OAuthCode {
+                    code,
+                    stored_state,
+                    received_state,
+                } => {
+                    if stored_state != received_state {
+                        return Ok(None);
+                    }
 
-            let Some(access_token) = self.access_tokens.get(&creds.code).map(|t| t.clone()) else {
-                return Err(AppError::Unauthorized("Invalid code".to_string()));
+                    let Some(token) = self.access_tokens.get(&code).map(|t| t.clone()) else {
+                        return Err(AppError::Unauthorized("Invalid code".to_string()));
+                    };
+                    token
+                }
+                Credentials::AccessToken { access_token } => access_token,
             };
 
             let Some(user_details) = self.user_details.get(&access_token).map(|d| d.clone()) else {
