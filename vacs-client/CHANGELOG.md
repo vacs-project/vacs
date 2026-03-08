@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/vacs-project/vacs/compare/vacs-client-v2.0.0...vacs-client-v2.0.1) (2026-03-08)
+
+
+### Bug Fixes
+
+* display seconds instead of current day in clock ([#605](https://github.com/vacs-project/vacs/issues/605)) ([3823760](https://github.com/vacs-project/vacs/commit/382376012c432cc8d028c34daf1ba93090c68548))
+* move third party licenses bundling to release config ([#602](https://github.com/vacs-project/vacs/issues/602)) ([b2627da](https://github.com/vacs-project/vacs/commit/b2627daed01f5aad466b19b179b09ec0b77869a6))
+
 ## [2.0.0](https://github.com/vacs-project/vacs/compare/vacs-client-v1.3.1...vacs-client-v2.0.0) (2026-03-02)
 
 
