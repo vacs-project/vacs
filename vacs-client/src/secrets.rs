@@ -10,7 +10,7 @@ pub enum SecretKey {
 }
 
 impl SecretKey {
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             SecretKey::CookieStoreEncryptionKey => "cookie-store-encryption-key",
         }

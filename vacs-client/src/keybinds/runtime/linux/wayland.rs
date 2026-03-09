@@ -66,7 +66,7 @@ pub enum PortalShortcutId {
 }
 
 impl PortalShortcutId {
-    pub const fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             PortalShortcutId::PushToTalk => "push_to_talk",
             PortalShortcutId::PushToMute => "push_to_mute",

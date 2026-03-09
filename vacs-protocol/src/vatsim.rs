@@ -45,6 +45,16 @@ pub enum StationChange {
     },
 }
 
+impl StationChange {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            StationChange::Online { .. } => "online",
+            StationChange::Offline { .. } => "offline",
+            StationChange::Handoff { .. } => "handoff",
+        }
+    }
+}
+
 impl ClientId {
     pub fn new(id: impl Into<String>) -> Self {
         Self(id.into())

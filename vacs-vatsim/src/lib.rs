@@ -60,7 +60,20 @@ pub enum FacilityType {
 }
 
 impl FacilityType {
-    pub const fn as_str(&self) -> &str {
+    pub const ALL: &[Self] = &[
+        FacilityType::Ramp,
+        FacilityType::Delivery,
+        FacilityType::Ground,
+        FacilityType::Tower,
+        FacilityType::Approach,
+        FacilityType::Departure,
+        FacilityType::Enroute,
+        FacilityType::FlightServiceStation,
+        FacilityType::Radio,
+        FacilityType::TrafficFlow,
+    ];
+
+    pub const fn as_str(&self) -> &'static str {
         match self {
             FacilityType::Ramp => "RMP",
             FacilityType::Delivery => "DEL",
