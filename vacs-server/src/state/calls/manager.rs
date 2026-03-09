@@ -1,3 +1,4 @@
+use crate::metrics::ErrorMetrics;
 use crate::metrics::guards::CallAttemptOutcome;
 use crate::state::AppState;
 use crate::state::calls::{ActiveCall, ActiveCallEntry, RingingCall, RingingCallEntry};
@@ -356,7 +357,6 @@ impl CallManager {
                 for callee_id in ringing.notified_clients {
                     tracing::trace!(?callee_id, "Sending call cancelled to notified client");
                     if let Err(err) = state.send_message(&callee_id, cancelled.clone()).await {
-                        // TODO error metrics
                         tracing::warn!(
                             ?err,
                             ?callee_id,
@@ -368,8 +368,6 @@ impl CallManager {
                 tracing::trace!(
                     "All notified clients either rejected or errored, call failed, sending call error to source client"
                 );
-                // TODO error metrics
-                // TODO other call error reason?
                 // TODO send CallCancelled to all notified, just in case?
                 if let Err(err) = state
                     .send_message(
@@ -392,11 +390,10 @@ impl CallManager {
                 .await
             {
                 tracing::warn!(?err, ?peer_id, "Failed to send call end to peer");
-                // TODO error metrics
-            } else {
-                tracing::warn!("No peer found for active call");
-                // TODO error metrics
             }
+        } else {
+            ErrorMetrics::peer_not_found();
+            tracing::warn!("No peer found for active call");
         }
     }
 

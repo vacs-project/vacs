@@ -144,6 +144,21 @@ impl AsMetricLabel for ErrorReason {
     }
 }
 
+impl AsMetricLabel for CallErrorReason {
+    fn as_metric_label(&self) -> &'static str {
+        match self {
+            CallErrorReason::TargetNotFound => "target_not_found",
+            CallErrorReason::CallActive => "call_active",
+            CallErrorReason::WebrtcFailure => "webrtc_failure",
+            CallErrorReason::AudioFailure => "audio_failure",
+            CallErrorReason::CallFailure => "call_failure",
+            CallErrorReason::SignalingFailure => "signaling_failure",
+            CallErrorReason::AutoHangup => "auto_hangup",
+            CallErrorReason::Other => "other",
+        }
+    }
+}
+
 impl AsMetricLabel for CallTarget {
     fn as_metric_label(&self) -> &'static str {
         match self {

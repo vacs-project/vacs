@@ -15,7 +15,7 @@ use semver::Version;
 use vacs_protocol::http::version::ReleaseChannel;
 use vacs_protocol::profile::{ActiveProfile, ProfileReference};
 use vacs_protocol::ws::server::LoginFailureReason;
-use vacs_protocol::ws::shared::{CallSource, CallTarget};
+use vacs_protocol::ws::shared::{CallErrorReason, CallSource, CallTarget};
 use vacs_vatsim::FacilityType;
 
 pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, PrometheusHandle) {
@@ -147,6 +147,10 @@ impl CallMetrics {
         .increment(1);
     }
 
+    pub fn call_error(reason: &CallErrorReason) {
+        counter!("vacs_calls_errors_total", "reason" => reason.as_metric_label()).increment(1);
+    }
+
     fn register() {
         describe_gauge!(
             "vacs_calls_active",
@@ -177,6 +181,11 @@ impl CallMetrics {
             "vacs_calls_invites_total",
             Unit::Count,
             "Call invites by source type, target type, and priority"
+        );
+        describe_counter!(
+            "vacs_calls_errors_total",
+            Unit::Count,
+            "Call errors sent to clients, labeled by error reason"
         );
     }
 }

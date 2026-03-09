@@ -89,7 +89,6 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
     if invite.source.client_id != *caller_id {
         tracing::debug!("Source client ID mismatch, rejecting call invite");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -119,7 +118,6 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
     if target_clients.is_empty() {
         tracing::trace!("No clients found for call invite, returning target not found error");
-        // TODO error metrics
         send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
         return;
     }
@@ -131,7 +129,6 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         Ok(_) => {}
         Err(StartCallError::CallerBusy) => {
             tracing::debug!("Client already has an outgoing call, rejecting call invite");
-            // TODO error metrics
             send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
             return;
         }
@@ -141,11 +138,8 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         tracing::trace!(?callee_id, "Sending call invite to target");
         if let Err(err) = state.send_message(&callee_id, invite.clone()).await {
             tracing::warn!(?err, ?callee_id, "Failed to send call invite to target");
-            // TODO error metrics
             if let CallTerminationOutcome::Failed(_) = state.calls.call_error(call_id, &callee_id) {
                 tracing::trace!(?callee_id, "All call attempts failed, returning call error");
-                // TODO error metrics
-                // TODO other call error reason?
                 send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
                 return;
             }
@@ -161,7 +155,6 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
 
     if accept.accepting_client_id != *answerer_id {
         tracing::debug!("Accepting client ID mismatch, rejecting call acceptance");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -174,8 +167,6 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
 
     let Some(ringing) = state.calls.accept_call(call_id, answerer_id) else {
         tracing::warn!("No ringing call found, returning call error");
-        // TODO error metrics
-        // TODO other call error reason?
         send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
         return;
     };
@@ -183,7 +174,6 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
     tracing::trace!("Sending call accept to source client");
     if let Err(err) = state.send_message(&ringing.caller_id, accept.clone()).await {
         tracing::warn!(?err, "Failed to send call accept to source client");
-        // TODO error metrics
         send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
         return;
     }
@@ -204,7 +194,6 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
                 "Sending call cancelled to other notified client"
             );
             if let Err(err) = state.send_message(&callee_id, cancelled.clone()).await {
-                // TODO error metrics
                 tracing::warn!(
                     ?err,
                     ?callee_id,
@@ -223,7 +212,6 @@ async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: Ca
 
     if reject.rejecting_client_id != *rejecter_id {
         tracing::debug!("Rejecting client ID mismatch, rejecting call rejection");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -237,14 +225,11 @@ async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: Ca
     match state.calls.reject_call(call_id, rejecter_id) {
         CallTerminationOutcome::CallNotFound => {
             tracing::warn!("No ringing call found, returning call error");
-            // TODO error metrics
-            // TODO other call error reason?
             send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
             return;
         }
         CallTerminationOutcome::ClientNotNotified => {
             tracing::warn!("Client was not notified of this call, returning call error");
-            // TODO error metrics
             send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
             return;
         }
@@ -253,8 +238,6 @@ async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: Ca
             tracing::trace!(
                 "All notified clients either rejected or errored, call failed, sending call error to source client"
             );
-            // TODO error metrics
-            // TODO other call error reason?
             // TODO send CallCancelled to all notified, just in case?
             if let Err(err) = state
                 .send_message(
@@ -278,7 +261,6 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
 
     if end.ending_client_id != *ender_id {
         tracing::debug!("Ending client ID mismatch, rejecting call end");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -296,7 +278,6 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
         for callee_id in ringing.notified_clients {
             tracing::trace!(?callee_id, "Sending call cancelled to notified client");
             if let Err(err) = state.send_message(&callee_id, cancelled.clone()).await {
-                // TODO error metrics
                 tracing::warn!(
                     ?err,
                     ?callee_id,
@@ -310,20 +291,15 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
             tracing::trace!(?peer_id, "Sending call end to peer");
             if let Err(err) = state.send_message(peer_id, end.clone()).await {
                 tracing::warn!(?err, ?peer_id, "Failed to send call end to peer");
-                // TODO error metrics
-                // TODO other call error reason?
                 send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
             }
         } else {
             tracing::warn!("No peer found for active call, returning call error");
-            // TODO error metrics
             send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
             return;
         }
     } else {
         tracing::trace!("No ringing or active call found, returning call error");
-        // TODO error metrics
-        // TODO other call error reason?
         send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
         return;
     }
@@ -338,14 +314,11 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
     match state.calls.call_error(call_id, erroring_id) {
         CallTerminationOutcome::CallNotFound => {
             tracing::warn!("No ringing call found, returning call error");
-            // TODO error metrics
-            // TODO other call error reason?
             send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
             return;
         }
         CallTerminationOutcome::ClientNotNotified => {
             tracing::warn!("Client was not notified of this call, returning call error");
-            // TODO error metrics
             send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
             return;
         }
@@ -354,8 +327,6 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
             tracing::trace!(
                 "All notified clients either rejected or errored, call failed, sending call error to source client"
             );
-            // TODO error metrics
-            // TODO other call error reason?
             // TODO send CallCancelled to all notified, just in case?
             if let Err(err) = state
                 .send_message(
@@ -379,7 +350,6 @@ async fn handle_webrtc_offer(state: &AppState, client: &ClientSession, offer: We
 
     if offer.from_client_id != *client_id {
         tracing::debug!("Source client ID mismatch, rejecting WebRTC offer");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -392,8 +362,6 @@ async fn handle_webrtc_offer(state: &AppState, client: &ClientSession, offer: We
 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC offer, returning call error");
-        // TODO error metrics
-        // TODO other call error reason?
         send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
         return;
     }
@@ -412,7 +380,6 @@ async fn handle_webrtc_answer(state: &AppState, client: &ClientSession, answer: 
 
     if answer.from_client_id != *client_id {
         tracing::debug!("Source client ID mismatch, rejecting WebRTC answer");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -425,8 +392,6 @@ async fn handle_webrtc_answer(state: &AppState, client: &ClientSession, answer: 
 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC answer, returning call error");
-        // TODO error metrics
-        // TODO other call error reason?
         send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
         return;
     }
@@ -452,7 +417,6 @@ async fn handle_webrtc_ice_candidate(
 
     if ice_candidate.from_client_id != *client_id {
         tracing::debug!("Source client ID mismatch, rejecting WebRTC ice candidate");
-        // TODO error metrics
         send_call_error(
             client,
             call_id,
@@ -465,8 +429,6 @@ async fn handle_webrtc_ice_candidate(
 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC ice candidate, returning call error");
-        // TODO error metrics
-        // TODO other call error reason?
         send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
         return;
     }
@@ -486,6 +448,7 @@ async fn send_call_error(
     reason: CallErrorReason,
     message: Option<&str>,
 ) {
+    CallMetrics::call_error(&reason);
     if let Err(err) = client
         .send_message(CallError {
             call_id: *call_id,
