@@ -70,6 +70,8 @@ pub struct ServerConfig {
     pub bind_addr: String,
     pub metrics_bind_addr: String,
     pub client_ip_source: ClientIpSource,
+    #[serde(default)]
+    pub debug_endpoints: bool,
 }
 
 impl Default for ServerConfig {
@@ -78,6 +80,7 @@ impl Default for ServerConfig {
             bind_addr: "0.0.0.0:3000".to_string(),
             metrics_bind_addr: "0.0.0.0:9200".to_string(),
             client_ip_source: ClientIpSource::ConnectInfo,
+            debug_endpoints: false,
         }
     }
 }
