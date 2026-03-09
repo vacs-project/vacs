@@ -23,7 +23,7 @@ pub struct ClientManager {
     clients: RwLock<HashMap<ClientId, ClientSession>>,
     online_positions: RwLock<HashMap<PositionId, HashSet<ClientId>>>,
     online_stations: RwLock<HashMap<StationId, PositionId>>,
-    vatsim_only_positions: RwLock<HashSet<PositionId>>,
+    vatsim_only_positions: RwLock<HashMap<PositionId, HashSet<ClientId>>>,
 }
 
 impl ClientManager {
@@ -34,7 +34,7 @@ impl ClientManager {
             clients: RwLock::new(HashMap::new()),
             online_positions: RwLock::new(HashMap::new()),
             online_stations: RwLock::new(HashMap::new()),
-            vatsim_only_positions: RwLock::new(HashSet::new()),
+            vatsim_only_positions: RwLock::new(HashMap::new()),
         }
     }
 
@@ -126,7 +126,7 @@ impl ClientManager {
             } else {
                 tracing::trace!(?position_id, "Adding position to online positions list");
                 let mut vatsim_only = self.vatsim_only_positions.write().await;
-                let was_vatsim_only = vatsim_only.remove(position_id);
+                let was_vatsim_only = vatsim_only.remove(position_id).is_some();
 
                 if was_vatsim_only {
                     drop(vatsim_only);
@@ -156,7 +156,7 @@ impl ClientManager {
                         .collect()
                 } else {
                     let all_positions: HashSet<&PositionId> =
-                        online_positions.keys().chain(vatsim_only.iter()).collect();
+                        online_positions.keys().chain(vatsim_only.keys()).collect();
                     let all_changes = self.network.read().coverage_changes(
                         None,
                         Some(position_id),
@@ -218,7 +218,7 @@ impl ClientManager {
 
                     let vatsim_only = self.vatsim_only_positions.read().await;
                     let before_all: HashSet<&PositionId> =
-                        online_positions.keys().chain(vatsim_only.iter()).collect();
+                        online_positions.keys().chain(vatsim_only.keys()).collect();
                     let mut after_all = before_all.clone();
                     after_all.remove(position_id);
                     let all_changes = self.network.read().coverage_diff(&before_all, &after_all);
@@ -359,6 +359,51 @@ impl ClientManager {
         self.clients.read().await.is_empty()
     }
 
+    /// Returns the controlling position for a station and (if VATSIM-only)
+    /// the CIDs of the VATSIM controllers covering it.
+    pub async fn debug_station_controller(
+        &self,
+        station_id: &StationId,
+    ) -> Option<(PositionId, HashSet<ClientId>)> {
+        let online_stations = self.online_stations.read().await;
+        let position_id = online_stations.get(station_id)?;
+        let vatsim_only = self.vatsim_only_positions.read().await;
+        let vatsim_cids = vatsim_only.get(position_id).cloned().unwrap_or_default();
+        Some((position_id.clone(), vatsim_cids))
+    }
+
+    /// Returns the full internal state for debugging: online stations (with
+    /// controlling position and VATSIM controller CIDs), online positions
+    /// (with connected client IDs), and the map of vatsim-only positions to
+    /// their VATSIM controller CIDs.
+    pub async fn debug_state(
+        &self,
+    ) -> (
+        Vec<(StationId, PositionId, HashSet<ClientId>)>,
+        HashMap<PositionId, HashSet<ClientId>>,
+        HashMap<PositionId, HashSet<ClientId>>,
+    ) {
+        let online_stations = self.online_stations.read().await;
+        let online_positions = self.online_positions.read().await;
+        let vatsim_only = self.vatsim_only_positions.read().await;
+
+        let stations: Vec<(StationId, PositionId, HashSet<ClientId>)> = {
+            let mut v: Vec<_> = online_stations
+                .iter()
+                .map(|(sid, pid)| {
+                    let vcids = vatsim_only.get(pid).cloned().unwrap_or_default();
+                    (sid.clone(), pid.clone(), vcids)
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0));
+            v
+        };
+        let positions = online_positions.clone();
+        let vatsim_only_map = vatsim_only.clone();
+
+        (stations, positions, vatsim_only_map)
+    }
+
     #[allow(clippy::result_large_err)]
     pub fn broadcast(
         &self,
@@ -429,7 +474,7 @@ impl ClientManager {
 
             // Remove VATSIM-only positions that no longer exist in the new network
             let stale_vatsim_only: Vec<PositionId> = vatsim_only
-                .iter()
+                .keys()
                 .filter(|pos_id| network.get_position(pos_id).is_none())
                 .cloned()
                 .collect();
@@ -500,7 +545,7 @@ impl ClientManager {
             // Recalculate the full online stations map from scratch, including
             // VATSIM-only positions for correct coverage computation
             let all_online_pos_ids: HashSet<&PositionId> =
-                online_positions.keys().chain(vatsim_only.iter()).collect();
+                online_positions.keys().chain(vatsim_only.keys()).collect();
 
             let mut new_online_stations: HashMap<StationId, PositionId> = HashMap::new();
             let covered = network.covered_stations(None, &all_online_pos_ids);
@@ -558,7 +603,7 @@ impl ClientManager {
 
             let start_all_positions: HashSet<PositionId> = online_positions
                 .keys()
-                .chain(vatsim_only.iter())
+                .chain(vatsim_only.keys())
                 .cloned()
                 .collect();
             let mut positions_changed = false;
@@ -732,7 +777,7 @@ impl ClientManager {
             }
 
             let vacs_client_ids: HashSet<&ClientId> = clients.keys().collect();
-            let mut new_vatsim_only: HashSet<PositionId> = HashSet::new();
+            let mut new_vatsim_only: HashMap<PositionId, HashSet<ClientId>> = HashMap::new();
 
             for (cid, controller) in controllers {
                 if controller.facility_type == FacilityType::Unknown
@@ -752,7 +797,10 @@ impl ClientManager {
                     .cloned()
                     .collect();
                 if positions.len() == 1 && !online_positions.contains_key(&positions[0].id) {
-                    new_vatsim_only.insert(positions[0].id.clone());
+                    new_vatsim_only
+                        .entry(positions[0].id.clone())
+                        .or_default()
+                        .insert(cid.clone());
                 }
             }
 
@@ -770,7 +818,7 @@ impl ClientManager {
                 tracing::debug!("Online positions changed, calculating coverage changes");
                 let start_all = start_all_positions.iter().collect::<HashSet<_>>();
                 let end_all: HashSet<&PositionId> =
-                    online_positions.keys().chain(vatsim_only.iter()).collect();
+                    online_positions.keys().chain(vatsim_only.keys()).collect();
 
                 let all_changes = self.network.read().coverage_diff(&start_all, &end_all);
                 self.update_online_stations(&all_changes).await;
@@ -915,7 +963,7 @@ impl ClientManager {
             return;
         }
 
-        tracing::trace!("Sending station changes to clients");
+        tracing::trace!(?changes, "Sending station changes to clients");
         let mut filtered_changes_cache: HashMap<ActiveProfile<ProfileId>, Vec<StationChange>> =
             HashMap::new();
 
@@ -1878,7 +1926,7 @@ mod tests {
                 .vatsim_only_positions
                 .read()
                 .await
-                .contains(&pos("LOWW_TWR")),
+                .contains_key(&pos("LOWW_TWR")),
             "LOWW_TWR should be in vatsim_only"
         );
 
@@ -1900,7 +1948,7 @@ mod tests {
                 .vatsim_only_positions
                 .read()
                 .await
-                .contains(&pos("LOWW_TWR")),
+                .contains_key(&pos("LOWW_TWR")),
             "LOWW_TWR should still be in vatsim_only (position still exists)"
         );
     }
@@ -1945,7 +1993,7 @@ mod tests {
                 .vatsim_only_positions
                 .read()
                 .await
-                .contains(&pos("LOWW_DEL"))
+                .contains_key(&pos("LOWW_DEL"))
         );
 
         // Replace with network that no longer has LOWW_DEL position
@@ -1962,7 +2010,7 @@ mod tests {
                 .vatsim_only_positions
                 .read()
                 .await
-                .contains(&pos("LOWW_DEL")),
+                .contains_key(&pos("LOWW_DEL")),
             "LOWW_DEL should be removed from vatsim_only after network replace"
         );
     }
@@ -2430,7 +2478,7 @@ controlled_by = ["LOWW_DEL"]
                 .vatsim_only_positions
                 .read()
                 .await
-                .contains(&pos("LOWW_TWR")),
+                .contains_key(&pos("LOWW_TWR")),
             "LOWW_TWR should be removed from vatsim_only"
         );
 
@@ -2607,7 +2655,7 @@ controlled_by = ["LOWW_DEL"]
                 .vatsim_only_positions
                 .read()
                 .await
-                .contains(&pos("LOVV_CTR")),
+                .contains_key(&pos("LOVV_CTR")),
             "LOVV_CTR should be removed from vatsim_only"
         );
     }
