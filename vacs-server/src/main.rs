@@ -8,6 +8,7 @@ use vacs_server::auth::layer::setup_auth_layer;
 use vacs_server::build::BuildInfo;
 use vacs_server::config::AppConfig;
 use vacs_server::dataset::DatasetManager;
+use vacs_server::metrics::NetworkDatasetMetrics;
 use vacs_server::metrics::setup_prometheus_metric_layer;
 use vacs_server::ratelimit::RateLimiters;
 use vacs_server::release::UpdateChecker;
@@ -101,6 +102,12 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|err| anyhow::anyhow!("Failed to load network coverage data: {err:?}"))?
         }
     };
+
+    NetworkDatasetMetrics::set_dataset_size(
+        network.positions_count(),
+        network.stations_count(),
+        network.profiles_count(),
+    );
 
     let app_state = Arc::new(AppState::new(
         config.clone(),

@@ -1,4 +1,4 @@
-use crate::metrics::ErrorMetrics;
+use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::state::AppState;
 use crate::state::calls::{CallTerminationOutcome, StartCallError};
 use crate::state::clients::session::ClientSession;
@@ -114,6 +114,8 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     .into_iter()
     .filter(|client_id| client_id != client.id())
     .collect::<HashSet<_>>();
+
+    CallMetrics::call_invite(&invite.source, &invite.target, invite.prio);
 
     if target_clients.is_empty() {
         tracing::trace!("No clients found for call invite, returning target not found error");

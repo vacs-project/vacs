@@ -293,6 +293,18 @@ impl Network {
         self.positions.get(position_id)
     }
 
+    pub fn positions_count(&self) -> usize {
+        self.positions.len()
+    }
+
+    pub fn stations_count(&self) -> usize {
+        self.stations.len()
+    }
+
+    pub fn profiles_count(&self) -> usize {
+        self.profiles.len()
+    }
+
     #[tracing::instrument(level = "trace", skip_all, fields(callsign = tracing::field::Empty, frequency = tracing::field::Empty, facility_type = tracing::field::Empty))]
     pub fn find_positions(
         &self,

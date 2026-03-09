@@ -1,4 +1,4 @@
-use crate::metrics::{ClientMetrics, ErrorMetrics};
+use crate::metrics::{ClientMetrics, ErrorMetrics, ProfileMetrics, VatsimSyncMetrics};
 use crate::state::AppState;
 use crate::ws::message::{MessageResult, receive_message, send_message_raw};
 use axum::extract::ws;
@@ -120,6 +120,7 @@ async fn process_login_request(
             display_name: cid.to_string(),
             frequency: "".to_string(),
         };
+        ProfileMetrics::profile_activated(&active_profile);
         return Ok((client_info, active_profile));
     }
 
@@ -164,9 +165,11 @@ async fn resolve_vatsim_position(
 
                 let position = if positions.is_empty() {
                     tracing::trace!(?cid, ?controller_info, "No matching position found");
+                    VatsimSyncMetrics::position_match("none");
                     None
                 } else if positions.len() == 1 {
                     tracing::trace!(?cid, ?controller_info, position = ?positions[0], "Found matching position");
+                    VatsimSyncMetrics::position_match("matched");
                     Some(&positions[0])
                 } else if let Some(target_pid) = position_id.as_ref() {
                     if let Some(position) = positions.iter().find(|p| &p.id == target_pid) {
@@ -176,6 +179,7 @@ async fn resolve_vatsim_position(
                             ?position,
                             "Found multiple matching positions, user selection is included, assigning selection"
                         );
+                        VatsimSyncMetrics::position_match("ambiguous_resolved");
                         Some(position)
                     } else {
                         tracing::trace!(
@@ -184,6 +188,7 @@ async fn resolve_vatsim_position(
                             ?target_pid,
                             "Found multiple matching positions, but user selection is not included, rejecting login as invalid"
                         );
+                        VatsimSyncMetrics::position_match("ambiguous_invalid");
                         return Err(LoginOutcome::Failure(
                             LoginFailureReason::InvalidVatsimPosition,
                         ));
@@ -195,6 +200,7 @@ async fn resolve_vatsim_position(
                         positions = positions.len(),
                         "Found multiple matching positions, rejecting login as ambiguous"
                     );
+                    VatsimSyncMetrics::position_match("ambiguous");
                     let position_ids = positions.into_iter().map(|p| p.id.clone()).collect();
                     return Err(LoginOutcome::Failure(
                         LoginFailureReason::AmbiguousVatsimPosition(position_ids),
@@ -220,6 +226,7 @@ async fn resolve_vatsim_position(
                         .unwrap_or(ActiveProfile::None)
                 };
 
+                ProfileMetrics::profile_activated(&active_profile);
                 Ok((client_info, active_profile))
             }
         },

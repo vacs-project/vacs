@@ -5,8 +5,8 @@ use crate::config;
 use crate::config::AppConfig;
 use crate::dataset::DatasetManager;
 use crate::ice::provider::IceConfigProvider;
-use crate::metrics::ErrorMetrics;
 use crate::metrics::guards::ClientConnectionGuard;
+use crate::metrics::{ErrorMetrics, VatsimSyncMetrics};
 use crate::ratelimit::RateLimiters;
 use crate::release::UpdateChecker;
 use crate::state::calls::CallManager;
@@ -279,7 +279,9 @@ impl AppState {
 
         let start = std::time::Instant::now();
         let controllers = self.get_vatsim_controllers().await?;
-        tracing::trace!(elapsed = ?start.elapsed(), "Finished retrieving VATSIM controllers");
+        let fetch_elapsed = start.elapsed();
+        VatsimSyncMetrics::sync_phase("fetch", fetch_elapsed.as_secs_f64());
+        tracing::trace!(elapsed = ?fetch_elapsed, "Finished retrieving VATSIM controllers");
 
         let start_sync = std::time::Instant::now();
         let current: HashMap<ClientId, ControllerInfo> = controllers
@@ -288,19 +290,27 @@ impl AppState {
             .map(|c| (c.cid.clone(), c))
             .collect();
 
+        VatsimSyncMetrics::set_controllers_seen(current.len());
+
         let disconnected_clients = self
             .clients
             .sync_vatsim_state(&current, pending_disconnect, require_active_connection)
             .await;
-        tracing::trace!(elapsed = ?start_sync.elapsed(), "Finished syncing VATSIM state");
+        let sync_elapsed = start_sync.elapsed();
+        VatsimSyncMetrics::sync_phase("sync", sync_elapsed.as_secs_f64());
+        tracing::trace!(elapsed = ?sync_elapsed, "Finished syncing VATSIM state");
 
         let start_unregister = std::time::Instant::now();
         for (cid, disconnect_reason) in disconnected_clients {
             self.unregister_client(&cid, Some(disconnect_reason)).await;
         }
-        tracing::trace!(elapsed = ?start_unregister.elapsed(), "Finished unregistering clients");
+        let unregister_elapsed = start_unregister.elapsed();
+        VatsimSyncMetrics::sync_phase("unregister", unregister_elapsed.as_secs_f64());
+        tracing::trace!(elapsed = ?unregister_elapsed, "Finished unregistering clients");
 
-        tracing::debug!(elapsed = ?start.elapsed(), "Finished updating VATSIM controllers");
+        let total_elapsed = start.elapsed();
+        VatsimSyncMetrics::sync_completed(total_elapsed.as_secs_f64());
+        tracing::debug!(elapsed = ?total_elapsed, "Finished updating VATSIM controllers");
         Ok(())
     }
 

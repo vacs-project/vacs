@@ -1,4 +1,5 @@
 use crate::metrics::guards::ClientConnectionGuard;
+use crate::metrics::{CoverageMetrics, NetworkDatasetMetrics};
 use crate::state::clients::session::ClientSession;
 use crate::state::clients::{ClientManagerError, Result};
 use std::collections::{HashMap, HashSet};
@@ -189,6 +190,7 @@ impl ClientManager {
         }
 
         self.broadcast_station_changes(&changes).await;
+        self.emit_coverage_gauges().await;
 
         tracing::trace!("Client added");
         Ok((client, rx))
@@ -275,6 +277,7 @@ impl ClientManager {
         }
 
         self.broadcast_station_changes(&changes).await;
+        self.emit_coverage_gauges().await;
 
         tracing::debug!("Client removed");
     }
@@ -537,6 +540,16 @@ impl ClientManager {
         }
 
         self.broadcast_station_changes(&station_changes).await;
+        self.emit_coverage_gauges().await;
+
+        {
+            let network = self.network.read();
+            NetworkDatasetMetrics::set_dataset_size(
+                network.positions_count(),
+                network.stations_count(),
+                network.profiles_count(),
+            );
+        }
 
         tracing::info!("Network housekeeping completed");
     }
@@ -790,6 +803,7 @@ impl ClientManager {
         }
 
         self.broadcast_station_changes(&coverage_changes).await;
+        self.emit_coverage_gauges().await;
 
         disconnected_clients
     }
@@ -915,6 +929,10 @@ impl ClientManager {
             return;
         }
 
+        for change in changes {
+            CoverageMetrics::station_change(change.as_str());
+        }
+
         tracing::trace!("Sending station changes to clients");
         let mut filtered_changes_cache: HashMap<ActiveProfile<ProfileId>, Vec<StationChange>> =
             HashMap::new();
@@ -976,6 +994,34 @@ impl ClientManager {
             {
                 tracing::warn!(?err, ?client, "Failed to send station changes to client");
             }
+        }
+    }
+
+    async fn emit_coverage_gauges(&self) {
+        let online_positions = self.online_positions.read().await;
+        let online_stations = self.online_stations.read().await;
+        let vatsim_only = self.vatsim_only_positions.read().await;
+
+        CoverageMetrics::set_stations_online(online_stations.len());
+        CoverageMetrics::set_positions_vatsim_only(vatsim_only.len());
+
+        let mut facility_counts: HashMap<FacilityType, usize> = HashMap::new();
+        let network = self.network.read();
+        for position_id in online_positions.keys() {
+            if let Some(position) = network.get_position(position_id) {
+                *facility_counts.entry(position.facility_type).or_default() += 1;
+            }
+        }
+        drop(network);
+        drop(online_positions);
+        drop(online_stations);
+        drop(vatsim_only);
+
+        for facility_type in FacilityType::ALL {
+            CoverageMetrics::set_positions_online(
+                facility_type,
+                facility_counts.get(facility_type).copied().unwrap_or(0),
+            );
         }
     }
 }

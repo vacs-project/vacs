@@ -3,7 +3,7 @@ use crate::release::catalog::BundleType;
 use vacs_protocol::http::version::ReleaseChannel;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{DisconnectReason, LoginFailureReason, ServerMessage};
-use vacs_protocol::ws::shared::{CallErrorReason, ErrorReason};
+use vacs_protocol::ws::shared::{CallErrorReason, CallSource, CallTarget, ErrorReason};
 
 pub trait AsMetricLabel {
     fn as_metric_label(&self) -> &'static str;
@@ -140,6 +140,26 @@ impl AsMetricLabel for ErrorReason {
             ErrorReason::UnexpectedMessage(_) => "unexpected_message",
             ErrorReason::RateLimited { .. } => "rate_limited",
             ErrorReason::ClientNotFound => "client_not_found",
+        }
+    }
+}
+
+impl AsMetricLabel for CallTarget {
+    fn as_metric_label(&self) -> &'static str {
+        match self {
+            CallTarget::Client(_) => "client",
+            CallTarget::Position(_) => "position",
+            CallTarget::Station(_) => "station",
+        }
+    }
+}
+
+impl AsMetricLabel for CallSource {
+    fn as_metric_label(&self) -> &'static str {
+        match (&self.station_id, &self.position_id) {
+            (Some(_), _) => "station",
+            (None, Some(_)) => "position",
+            (None, None) => "client",
         }
     }
 }

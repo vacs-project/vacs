@@ -8,10 +8,15 @@ use axum_prometheus::utils::SECONDS_DURATION_BUCKETS;
 use axum_prometheus::{
     AXUM_HTTP_REQUESTS_DURATION_SECONDS, PrometheusMetricLayer, PrometheusMetricLayerBuilder,
 };
-use metrics::{Unit, counter, describe_counter, describe_gauge, describe_histogram, histogram};
+use metrics::{
+    Unit, counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram,
+};
 use semver::Version;
 use vacs_protocol::http::version::ReleaseChannel;
+use vacs_protocol::profile::{ActiveProfile, ProfileReference};
 use vacs_protocol::ws::server::LoginFailureReason;
+use vacs_protocol::ws::shared::{CallSource, CallTarget};
+use vacs_vatsim::FacilityType;
 
 pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, PrometheusHandle) {
     register_metrics();
@@ -54,6 +59,16 @@ pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, Prome
                     ],
                 )
                 .unwrap()
+                .set_buckets_for_metric(
+                    Matcher::Full("vacs_vatsim_sync_duration_seconds".to_string()),
+                    &[0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
+                )
+                .unwrap()
+                .set_buckets_for_metric(
+                    Matcher::Prefix("vacs_vatsim_sync_phase_duration_seconds".to_string()),
+                    &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0],
+                )
+                .unwrap()
                 .install_recorder()
                 .unwrap()
         })
@@ -66,6 +81,10 @@ pub fn register_metrics() {
     MessageMetrics::register();
     ErrorMetrics::register();
     VersionMetrics::register();
+    CoverageMetrics::register();
+    ProfileMetrics::register();
+    VatsimSyncMetrics::register();
+    NetworkDatasetMetrics::register();
 }
 
 pub struct ClientMetrics;
@@ -115,9 +134,19 @@ impl ClientMetrics {
     }
 }
 
-struct CallMetrics;
+pub struct CallMetrics;
 
 impl CallMetrics {
+    pub fn call_invite(source: &CallSource, target: &CallTarget, prio: bool) {
+        counter!(
+            "vacs_calls_invites_total",
+            "source_type" => source.as_metric_label(),
+            "target_type" => target.as_metric_label(),
+            "priority" => if prio { "true" } else { "false" }
+        )
+        .increment(1);
+    }
+
     fn register() {
         describe_gauge!(
             "vacs_calls_active",
@@ -143,6 +172,11 @@ impl CallMetrics {
             "vacs_calls_attempts_duration_seconds",
             Unit::Seconds,
             "Duration of call attempts in seconds, labeled by outcome (accepted, error, cancelled, no_answer, aborted)"
+        );
+        describe_counter!(
+            "vacs_calls_invites_total",
+            Unit::Count,
+            "Call invites by source type, target type, and priority"
         );
     }
 }
@@ -255,6 +289,152 @@ impl VersionMetrics {
             "vacs_version_checks_total",
             Unit::Count,
             "Version checks labeled by version, channel, platform, architecture, bundle, and update availability"
+        );
+    }
+}
+
+pub struct CoverageMetrics;
+
+impl CoverageMetrics {
+    pub fn set_stations_online(count: usize) {
+        gauge!("vacs_stations_online").set(count as f64);
+    }
+
+    pub fn station_change(change_type: &str) {
+        counter!("vacs_stations_changes_total", "type" => change_type.to_string()).increment(1);
+    }
+
+    pub fn set_positions_vatsim_only(count: usize) {
+        gauge!("vacs_positions_vatsim_only").set(count as f64);
+    }
+
+    pub fn set_positions_online(facility_type: &FacilityType, count: usize) {
+        gauge!(
+            "vacs_positions_online",
+            "facility_type" => facility_type.as_str()
+        )
+        .set(count as f64);
+    }
+
+    fn register() {
+        describe_gauge!(
+            "vacs_stations_online",
+            Unit::Count,
+            "Number of currently online stations"
+        );
+        describe_counter!(
+            "vacs_stations_changes_total",
+            Unit::Count,
+            "Total station state changes, labeled by type (online, offline, handoff)"
+        );
+        describe_gauge!(
+            "vacs_positions_vatsim_only",
+            Unit::Count,
+            "Number of positions online on VATSIM but not using vacs"
+        );
+        describe_gauge!(
+            "vacs_positions_online",
+            Unit::Count,
+            "Online positions by facility type (GND, TWR, APP, CTR, etc.)"
+        );
+    }
+}
+
+pub struct ProfileMetrics;
+
+impl ProfileMetrics {
+    pub fn profile_activated<T: ProfileReference>(profile: &ActiveProfile<T>) {
+        let label = match profile {
+            ActiveProfile::Specific(_) => "specific",
+            ActiveProfile::Custom => "custom",
+            ActiveProfile::None => "none",
+        };
+        counter!("vacs_profiles_activated_total", "type" => label).increment(1);
+    }
+
+    fn register() {
+        describe_counter!(
+            "vacs_profiles_activated_total",
+            Unit::Count,
+            "Total profile activations, labeled by type (specific, custom, none)"
+        );
+    }
+}
+
+pub struct VatsimSyncMetrics;
+
+impl VatsimSyncMetrics {
+    pub fn sync_completed(duration_secs: f64) {
+        counter!("vacs_vatsim_sync_total").increment(1);
+        histogram!("vacs_vatsim_sync_duration_seconds").record(duration_secs);
+    }
+
+    pub fn sync_phase(phase: &'static str, duration_secs: f64) {
+        histogram!("vacs_vatsim_sync_phase_duration_seconds", "phase" => phase)
+            .record(duration_secs);
+    }
+
+    pub fn set_controllers_seen(count: usize) {
+        gauge!("vacs_vatsim_controllers_total").set(count as f64);
+    }
+
+    pub fn position_match(result: &str) {
+        counter!("vacs_vatsim_position_matches_total", "result" => result.to_string()).increment(1);
+    }
+
+    fn register() {
+        describe_counter!(
+            "vacs_vatsim_sync_total",
+            Unit::Count,
+            "Total number of VATSIM data sync cycles completed"
+        );
+        describe_histogram!(
+            "vacs_vatsim_sync_duration_seconds",
+            Unit::Seconds,
+            "Duration of VATSIM data sync cycles in seconds"
+        );
+        describe_histogram!(
+            "vacs_vatsim_sync_phase_duration_seconds",
+            Unit::Seconds,
+            "Duration of individual VATSIM sync phases in seconds, labeled by phase (fetch, sync, unregister)"
+        );
+        describe_gauge!(
+            "vacs_vatsim_controllers_total",
+            Unit::Count,
+            "Number of VATSIM controllers seen in the last sync cycle"
+        );
+        describe_counter!(
+            "vacs_vatsim_position_matches_total",
+            Unit::Count,
+            "Position matching outcomes during login, labeled by result (exact, prefix, ambiguous, ambiguous_invalid, ambiguous_resolved, none)"
+        );
+    }
+}
+
+pub struct NetworkDatasetMetrics;
+
+impl NetworkDatasetMetrics {
+    pub fn set_dataset_size(positions: usize, stations: usize, profiles: usize) {
+        gauge!("vacs_network_positions_total").set(positions as f64);
+        gauge!("vacs_network_stations_total").set(stations as f64);
+        gauge!("vacs_network_profiles_total").set(profiles as f64);
+    }
+
+    fn register() {
+        describe_gauge!(
+            "vacs_network_positions_total",
+            Unit::Count,
+            "Total number of positions defined in the loaded network dataset"
+        );
+        describe_gauge!(
+            "vacs_network_stations_total",
+            Unit::Count,
+            "Total number of stations defined in the loaded network dataset"
+        );
+        describe_gauge!(
+            "vacs_network_profiles_total",
+            Unit::Count,
+            "Total number of profiles defined in the loaded network dataset"
         );
     }
 }
