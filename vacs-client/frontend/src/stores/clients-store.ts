@@ -13,7 +13,11 @@ type ClientsState = {
 export const useClientsStore = create<ClientsState>()((set, get) => ({
     clients: [],
     setClients: clients => set({clients}),
-    addClient: client => set({clients: [...get().clients, client]}),
+    addClient: client => {
+        const clients = get().clients.filter(c => c.id !== client.id);
+        clients.push(client);
+        set({clients});
+    },
     getClientInfo: cid => {
         const client = get().clients.find(c => c.id === cid);
         if (client === undefined) {
