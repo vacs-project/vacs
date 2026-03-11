@@ -4025,10 +4025,8 @@ controlled_by = ["LOWW_DEL"]
                     }
                     Step::AssertVatsimOnlyPositions(s) => {
                         let vatsim_only = ctx.manager.vatsim_only_positions.read().await;
-                        let mut actual: Vec<String> = vatsim_only
-                            .iter()
-                            .map(|(p, _)| p.as_str().to_string())
-                            .collect();
+                        let mut actual: Vec<String> =
+                            vatsim_only.keys().map(|p| p.as_str().to_string()).collect();
                         actual.sort();
                         drop(vatsim_only);
 
