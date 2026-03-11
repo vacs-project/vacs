@@ -1,6 +1,7 @@
 use crate::metrics::guards::ClientConnectionGuard;
 use crate::state::clients::session::ClientSession;
 use crate::state::clients::{ClientManagerError, Result};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::broadcast::error::SendError;
 use tokio::sync::{RwLock, broadcast, mpsc};
@@ -359,49 +360,74 @@ impl ClientManager {
         self.clients.read().await.is_empty()
     }
 
-    /// Returns the controlling position for a station and (if VATSIM-only)
-    /// the CIDs of the VATSIM controllers covering it.
-    pub async fn debug_station_controller(
-        &self,
-        station_id: &StationId,
-    ) -> Option<(PositionId, HashSet<ClientId>)> {
+    /// Returns coverage info for a single station, or `None` if the station
+    /// is not currently online.
+    pub async fn station_coverage(&self, station_id: &StationId) -> Option<StationCoverage> {
         let online_stations = self.online_stations.read().await;
-        let position_id = online_stations.get(station_id)?;
+        let pid = online_stations.get(station_id)?.clone();
+        drop(online_stations);
+
+        let online_positions = self.online_positions.read().await;
         let vatsim_only = self.vatsim_only_positions.read().await;
-        let vatsim_cids = vatsim_only.get(position_id).cloned().unwrap_or_default();
-        Some((position_id.clone(), vatsim_cids))
+
+        let (controller_ids, is_vatsim_only) = vatsim_only
+            .get(&pid)
+            .map(|cids| (cids.clone(), true))
+            .unwrap_or_else(|| {
+                let cids = online_positions.get(&pid).cloned().unwrap_or_default();
+                (cids, false)
+            });
+
+        Some(StationCoverage {
+            station_id: station_id.clone(),
+            controlling_position_id: pid,
+            controller_ids,
+            vatsim_only: is_vatsim_only,
+        })
     }
 
-    /// Returns the full internal state for debugging: online stations (with
-    /// controlling position and VATSIM controller CIDs), online positions
-    /// (with connected client IDs), and the map of vatsim-only positions to
-    /// their VATSIM controller CIDs.
-    pub async fn debug_state(
-        &self,
-    ) -> (
-        Vec<(StationId, PositionId, HashSet<ClientId>)>,
-        HashMap<PositionId, HashSet<ClientId>>,
-        HashMap<PositionId, HashSet<ClientId>>,
-    ) {
+    /// Returns a merged snapshot of the current coverage state.
+    pub async fn coverage_snapshot(&self) -> CoverageSnapshot {
         let online_stations = self.online_stations.read().await;
         let online_positions = self.online_positions.read().await;
         let vatsim_only = self.vatsim_only_positions.read().await;
 
-        let stations: Vec<(StationId, PositionId, HashSet<ClientId>)> = {
-            let mut v: Vec<_> = online_stations
-                .iter()
-                .map(|(sid, pid)| {
-                    let vcids = vatsim_only.get(pid).cloned().unwrap_or_default();
-                    (sid.clone(), pid.clone(), vcids)
-                })
-                .collect();
-            v.sort_by(|a, b| a.0.cmp(&b.0));
-            v
-        };
-        let positions = online_positions.clone();
-        let vatsim_only_map = vatsim_only.clone();
+        let mut positions: Vec<PositionCoverage> = online_positions
+            .iter()
+            .map(|(pid, cids)| (pid, cids, false))
+            .chain(vatsim_only.iter().map(|(pid, cids)| (pid, cids, true)))
+            .map(|(pid, cids, vatsim_only)| PositionCoverage {
+                position_id: pid.clone(),
+                controller_ids: cids.clone(),
+                vatsim_only,
+            })
+            .collect();
+        positions.sort_unstable_by(|a, b| a.position_id.cmp(&b.position_id));
 
-        (stations, positions, vatsim_only_map)
+        let mut stations: Vec<StationCoverage> = online_stations
+            .iter()
+            .map(|(sid, pid)| {
+                let (controller_ids, vatsim_only) = vatsim_only
+                    .get(pid)
+                    .map(|cids| (cids.clone(), true))
+                    .unwrap_or_else(|| {
+                        let cids = online_positions.get(pid).cloned().unwrap_or_default();
+                        (cids, false)
+                    });
+                StationCoverage {
+                    station_id: sid.clone(),
+                    controlling_position_id: pid.clone(),
+                    controller_ids,
+                    vatsim_only,
+                }
+            })
+            .collect();
+        stations.sort_unstable_by(|a, b| a.station_id.cmp(&b.station_id));
+
+        CoverageSnapshot {
+            positions,
+            stations,
+        }
     }
 
     #[allow(clippy::result_large_err)]
@@ -1026,6 +1052,30 @@ impl ClientManager {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageSnapshot {
+    pub positions: Vec<PositionCoverage>,
+    pub stations: Vec<StationCoverage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionCoverage {
+    pub position_id: PositionId,
+    pub controller_ids: HashSet<ClientId>,
+    pub vatsim_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StationCoverage {
+    pub station_id: StationId,
+    pub controlling_position_id: PositionId,
+    pub controller_ids: HashSet<ClientId>,
+    pub vatsim_only: bool,
 }
 
 #[cfg(test)]
