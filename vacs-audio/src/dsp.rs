@@ -50,11 +50,11 @@ const GATE_OPEN_DB: f32 = -45.0f32;
 const GATE_CLOSE_DB: f32 = -50.0f32;
 
 /// Noise gate attack time (seconds). Faster = quicker unmute on speech start.
-/// Range: 0.002..=0.020 (2–20 ms).
+/// Range: 0.002..=0.020 (2-20 ms).
 const GATE_ATTACK_S: f32 = 0.008f32; // 8 ms
 
 /// Noise gate release time (seconds). Longer = smoother tails, fewer chops.
-/// Range: 0.050..=0.200 (50–200 ms).
+/// Range: 0.050..=0.200 (50-200 ms).
 const GATE_RELEASE_S: f32 = 0.090f32; // 90 ms
 
 /// Soft limiter ceiling in dBFS. Set just below 0 dBFS to avoid clipping.

@@ -192,7 +192,7 @@ _SPDX_NAMES: dict[str, str] = {
 
 def _normalize_spdx_id(raw: str) -> str:
     """Normalize variations like 'Apache-2.0 OR MIT' into a stable SPDX key."""
-    # license-checker sometimes returns compound expressions — keep as-is
+    # license-checker sometimes returns compound expressions - keep as-is
     return raw.strip()
 
 
@@ -230,7 +230,7 @@ def render_html(
     Mirrors cargo-about's output style:
     - Overview: one row per SPDX license ID with total crate count.
     - Detail: one block per text variant, each with its own "Used by"
-      list and license text — so it's clear which dependency uses which
+      list and license text - so it's clear which dependency uses which
       variant.
     """
 
@@ -277,7 +277,7 @@ def render_html(
             )
 
             # The first block for each SPDX ID gets the anchor for the overview link.
-            # Use the raw ID (HTML-escaped) for the id attribute — browsers
+            # Use the raw ID (HTML-escaped) for the id attribute - browsers
             # URL-decode href fragments before matching against id values.
             anchor = f' id="{html.escape(g["id"])}"' if first else ""
             first = False

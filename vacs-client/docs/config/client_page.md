@@ -39,9 +39,9 @@ grouping = "FirAndIcao"
 
 Configs allow you to define multiple filtering configurations and switch between them in the UI. Each config controls which clients are shown and how they're ordered using three main settings:
 
-- **`include`** – Allowlist patterns for clients to show
-- **`exclude`** – Blocklist patterns for clients to hide
-- **`priority`** – Ordered patterns that determine display order
+- **`include`** - Allowlist patterns for clients to show
+- **`exclude`** - Blocklist patterns for clients to hide
+- **`priority`** - Ordered patterns that determine display order
 
 ### Config structure
 
@@ -145,7 +145,7 @@ exclude = ["*_FPM"]
 **Default:** `["*_FMP", "*_CTR", "*_APP", "*_TWR", "*_GND"]`  
 **Optional:** Yes
 
-Determines the display order of clients. The first matching pattern assigns the client's priority bucket – earlier patterns = higher priority.
+Determines the display order of clients. The first matching pattern assigns the client's priority bucket - earlier patterns = higher priority.
 
 Clients are grouped by their priority bucket and then sorted within each bucket. Clients that don't match any priority pattern appear last. After grouping, clients are sorted in alphabetical order (ascending) within their respective buckets.
 
@@ -290,8 +290,8 @@ All patterns use glob-like syntax, which provides flexible matching with wildcar
 
 #### Wildcards
 
-- **`*`** – Matches zero or more characters
-- **`?`** – Matches exactly one character
+- **`*`** - Matches zero or more characters
+- **`?`** - Matches exactly one character
 
 #### Matching rules
 
@@ -371,10 +371,10 @@ Client processing:
 | -------------- | -------------- | -------------- | -------------- | ----------------------- |
 | `LOVV_CTR`     | ✓ (`LO*`)      | ✗              | 1 (`LOVV*`)    | **Shown, rank 1**       |
 | `LOWW_APP`     | ✓ (`LO*`)      | ✗              | 3 (`*_APP`)    | **Shown, rank 3**       |
-| `LOWW_GND`     | ✓ (`LO*`)      | ✓ (`*_GND`)    | –              | Hidden                  |
+| `LOWW_GND`     | ✓ (`LO*`)      | ✓ (`*_GND`)    | -              | Hidden                  |
 | `EDMM_ALB_CTR` | ✓ (`*_CTR`)    | ✗              | 2 (`*_CTR`)    | **Shown, rank 2**       |
 | `EDDM_TWR`     | ✓ (`EDDM_*`)   | ✗              | 4 (`*_TWR`)    | **Shown, rank 4**       |
-| `EDDF_APP`     | ✗              | ✗              | –              | Hidden (not in include) |
+| `EDDF_APP`     | ✗              | ✗              | -              | Hidden (not in include) |
 | `LON_S_FMP`    | ✓ (`LO*`)      | ✗              | 6 (no pattern) | **Shown, rank 5**       |
 
 ### Complete Examples

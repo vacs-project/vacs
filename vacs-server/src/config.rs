@@ -177,7 +177,7 @@ pub struct VatsimConfig {
     pub data_feed_timeout: Duration,
     pub controller_update_interval: Duration,
     /// Path to the dataset coverage directory. Must be a **subdirectory** of
-    /// the volume mount — not the volume root itself — so that the dataset
+    /// the volume mount - not the volume root itself - so that the dataset
     /// manager can create temporary and backup directories as siblings on the
     /// same filesystem for atomic renames.
     ///

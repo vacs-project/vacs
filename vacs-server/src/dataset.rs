@@ -235,7 +235,7 @@ impl DatasetManager {
         let temp_dir = self.download_and_extract(ref_name).await?;
         let dataset_dir = Self::find_dataset_dir(temp_dir.path())?;
 
-        // Validate by loading — this catches any schema / parse errors before
+        // Validate by loading - this catches any schema / parse errors before
         // we touch the on-disk copy.
         let dataset_path = dataset_dir.to_string_lossy().to_string();
         tracing::info!(%dataset_path, "Validating downloaded dataset");
@@ -345,7 +345,7 @@ fn atomic_replace_dir(src: &Path, dst: &Path) -> Result<()> {
             });
         }
     } else {
-        // No existing directory — just move into place.
+        // No existing directory - just move into place.
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create parent of {}", dst.display()))?;
@@ -372,7 +372,7 @@ fn atomic_replace_dir(src: &Path, dst: &Path) -> Result<()> {
 impl DatasetManager {
     /// Create a dummy `DatasetManager` for use in tests.
     ///
-    /// The octocrab client is unauthenticated and points at a fake repo —
+    /// The octocrab client is unauthenticated and points at a fake repo -
     /// none of the fetch methods will succeed, but the struct can be stored
     /// in [`AppState`](crate::state::AppState).
     pub fn new_test(coverage_dir: impl Into<PathBuf>) -> Self {

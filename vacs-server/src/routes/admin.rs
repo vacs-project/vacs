@@ -54,7 +54,7 @@ mod post {
     ///
     /// The token is expected as a Bearer token in the Authorization header.
     /// Verification checks:
-    /// 1. JWT signature against GitHub's JWKS (fetched on each request — this
+    /// 1. JWT signature against GitHub's JWKS (fetched on each request - this
     ///    endpoint is called infrequently so caching is unnecessary)
     /// 2. Issuer matches GitHub's OIDC issuer
     /// 3. Audience matches the configured expected audience
@@ -120,7 +120,7 @@ mod post {
             AppError::InternalServerError(anyhow::anyhow!("Failed to construct decoding key"))
         })?;
 
-        // Validate the token — always require RS256;
+        // Validate the token - always require RS256;
         // never trust the algorithm from the JWT header to prevent algorithm
         // confusion attacks (e.g. "none").
         let mut validation = Validation::new(GITHUB_OIDC_JWT_ALGORITHM);

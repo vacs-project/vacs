@@ -1535,7 +1535,7 @@ mod tests {
         drop(internal_stations);
 
         // Client should receive Offline for the stations that became vatsim-only
-        // (LOWW_APP stays online — still covered by vacs LOWW_APP position)
+        // (LOWW_APP stays online - still covered by vacs LOWW_APP position)
         let changes = drain_messages(&mut rx).station_changes;
         assert_eq!(
             changes,
@@ -1791,7 +1791,7 @@ mod tests {
             .remove_client(cid("client0"), Some(DisconnectReason::Terminated))
             .await;
 
-        // Station should be gone — no vacs position to take over
+        // Station should be gone - no vacs position to take over
         assert!(
             manager.online_stations.read().await.is_empty(),
             "All stations should be offline after last position is removed"
@@ -1903,7 +1903,7 @@ mod tests {
 
     /// Removal: vacs → vacs (multiple clients on same position). When multiple
     /// vacs clients share a position, removing one should NOT produce any
-    /// station changes — the position stays online.
+    /// station changes - the position stays online.
     #[tokio::test]
     async fn remove_client_vacs_to_vacs_multiple_on_same_position() {
         let (_dir, network) = create_lovv_network();
@@ -1945,7 +1945,7 @@ mod tests {
             .remove_client(cid("client1"), Some(DisconnectReason::Terminated))
             .await;
 
-        // No station changes — position is still online
+        // No station changes - position is still online
         let changes = drain_messages(&mut rx0).station_changes;
         assert!(
             changes.is_empty(),
@@ -2420,7 +2420,7 @@ mod tests {
             Some(&pos("LOWW_APP"))
         );
 
-        // Replace with same network structure — controllers should remain
+        // Replace with same network structure - controllers should remain
         let new_network = Network::load_from_dir(dir.path()).unwrap();
         manager.replace_network(new_network).await;
 
@@ -3167,7 +3167,7 @@ controlled_by = ["LOWW_DEL"]
             .sync_vatsim_state(&vatsim_controllers, &mut HashSet::new(), false)
             .await;
 
-        // No station changes — LOVV_CTR is VATSIM-only but controls nothing
+        // No station changes - LOVV_CTR is VATSIM-only but controls nothing
         // (all stations already covered by higher-priority LOWW_APP)
         let changes_after_sync = drain_messages(&mut rx_app).station_changes;
         assert_eq!(changes_after_sync, vec![], "No station changes expected");
@@ -3188,7 +3188,7 @@ controlled_by = ["LOWW_DEL"]
         assert_eq!(
             changes_after_connect,
             vec![],
-            "No Online events expected — LOVV_CTR controls no stations while LOWW_APP is online"
+            "No Online events expected - LOVV_CTR controls no stations while LOWW_APP is online"
         );
 
         // LOVV_CTR should no longer be in vatsim_only
@@ -3441,7 +3441,7 @@ controlled_by = ["LOWW_DEL"]
     }
 
     /// LOVV with LOWW_APP's profile reassigned to CTR_PROFILE.
-    /// Only rewrites positions.toml — stations and profiles remain from a
+    /// Only rewrites positions.toml - stations and profiles remain from a
     /// previous `create_lovv_network_with_profiles` call.
     fn create_lovv_network_with_reassigned_profile(dir: &std::path::Path) -> Network {
         TestFirBuilder::new("LOVV")
@@ -3523,7 +3523,7 @@ controlled_by = ["LOWW_DEL"]
             .build(dir)
     }
 
-    // ─── Scenario-based sync tests ──────────────────────────────────
+    // Scenario-based sync tests
     //
     // Place JSON scenario files in:
     //   vacs-server/tests/fixtures/scenarios/
@@ -3537,7 +3537,7 @@ controlled_by = ["LOWW_DEL"]
     // # Network sources
     //
     // Use `"network": "lovv"` for the built-in synthetic test network,
-    // or `"dataset": "tests/fixtures/scenarios/datasets/my_fir"`
+    // or `"dataset": "tests/fixtures/scenarios/datasets/LO"`
     // to load a committed dataset directory (relative to CARGO_MANIFEST_DIR).
     //
     // See existing files for the full format.
@@ -3549,8 +3549,6 @@ controlled_by = ["LOWW_DEL"]
         use std::collections::{HashMap, HashSet};
         use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
         use std::path::{Path, PathBuf};
-
-        // ── JSON schema types ────────────────────────────────────
 
         #[derive(Debug, Deserialize)]
         #[allow(dead_code)]
@@ -3582,7 +3580,7 @@ controlled_by = ["LOWW_DEL"]
             AssertOnlineStations(AssertOnlineStationsStep),
             AssertOnlinePositions(AssertOnlinePositionsStep),
             AssertClientCount(usize),
-            /// Ignored by the runner — use for inline documentation.
+            /// Ignored by the runner - use for inline documentation.
             #[serde(rename = "_comment")]
             #[allow(dead_code)]
             Comment(serde_json::Value),
@@ -3611,7 +3609,7 @@ controlled_by = ["LOWW_DEL"]
         }
 
         /// Mirrors the VATSIM V3 datafeed format.
-        /// `facility` is optional — when absent the facility type is
+        /// `facility` is optional - when absent the facility type is
         /// inferred from the callsign suffix, just like production.
         #[derive(Debug, Deserialize)]
         pub struct DatafeedController {
@@ -3743,8 +3741,6 @@ controlled_by = ["LOWW_DEL"]
             pub not_online: Vec<String>,
         }
 
-        // ── Runner ───────────────────────────────────────────────
-
         struct ScenarioContext {
             manager: ClientManager,
             receivers: HashMap<String, mpsc::Receiver<ServerMessage>>,
@@ -3788,7 +3784,7 @@ controlled_by = ["LOWW_DEL"]
                     (None, net)
                 }
                 (Some(_), Some(_)) => {
-                    panic!("Scenario specifies both 'network' and 'dataset' — use exactly one.")
+                    panic!("Scenario specifies both 'network' and 'dataset' - use exactly one.")
                 }
                 (None, None) => panic!("Scenario must specify either 'network' or 'dataset'."),
             };
