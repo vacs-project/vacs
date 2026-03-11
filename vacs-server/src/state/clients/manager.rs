@@ -18,14 +18,25 @@ use vacs_vatsim::coverage::position::Position;
 use vacs_vatsim::coverage::profile::Profile;
 use vacs_vatsim::{ControllerInfo, FacilityType};
 
+/// # Lock ordering
+///
+/// To prevent deadlocks, locks must always be acquired in this order:
+///   1. `clients`
+///   2. `online_positions`
+///   3. `vatsim_only_positions`
+///   4. `online_stations`
+///
+/// Read-only methods that only need a subset may skip unused locks but
+/// must never invert this order. Note that this strict order does not
+/// apply if a lock is dropped immediately again.
 #[derive(Debug)]
 pub struct ClientManager {
     broadcast_tx: broadcast::Sender<ServerMessage>,
     network: parking_lot::RwLock<Network>,
     clients: RwLock<HashMap<ClientId, ClientSession>>,
     online_positions: RwLock<HashMap<PositionId, HashSet<ClientId>>>,
-    online_stations: RwLock<HashMap<StationId, PositionId>>,
     vatsim_only_positions: RwLock<HashMap<PositionId, HashSet<ClientId>>>,
+    online_stations: RwLock<HashMap<StationId, PositionId>>,
 }
 
 /// Intermediate results from syncing vacs client positions against the VATSIM datafeed.
@@ -51,8 +62,8 @@ impl ClientManager {
             network: parking_lot::RwLock::new(network),
             clients: RwLock::new(HashMap::new()),
             online_positions: RwLock::new(HashMap::new()),
-            online_stations: RwLock::new(HashMap::new()),
             vatsim_only_positions: RwLock::new(HashMap::new()),
+            online_stations: RwLock::new(HashMap::new()),
         }
     }
 
@@ -257,6 +268,10 @@ impl ClientManager {
                     ));
 
                     online_positions.remove(position_id);
+                    // If a VATSIM-only controller covers this position,
+                    // vatsim_only_positions will be stale until the next
+                    // sync cycle corrects as we don't have an up-to-date
+                    // datafeed snapshot here.
                 } else {
                     tracing::trace!(
                         ?position_id,
@@ -332,8 +347,8 @@ impl ClientManager {
                 RelevantStations::None => return Vec::new(),
             }
         };
-        let online_stations = self.online_stations.read().await;
         let online_positions = self.online_positions.read().await;
+        let online_stations = self.online_stations.read().await;
 
         let mut stations: Vec<StationInfo> = match relevant_station_ids {
             None => online_stations
@@ -386,9 +401,7 @@ impl ClientManager {
     /// Returns coverage info for a single station, or `None` if the station
     /// is not currently online.
     pub async fn station_coverage(&self, station_id: &StationId) -> Option<StationCoverage> {
-        let online_stations = self.online_stations.read().await;
-        let pid = online_stations.get(station_id)?.clone();
-        drop(online_stations);
+        let pid = self.online_stations.read().await.get(station_id)?.clone();
 
         let online_positions = self.online_positions.read().await;
         let vatsim_only = self.vatsim_only_positions.read().await;
@@ -411,9 +424,9 @@ impl ClientManager {
 
     /// Returns a merged snapshot of the current coverage state.
     pub async fn coverage_snapshot(&self) -> CoverageSnapshot {
-        let online_stations = self.online_stations.read().await;
         let online_positions = self.online_positions.read().await;
         let vatsim_only = self.vatsim_only_positions.read().await;
+        let online_stations = self.online_stations.read().await;
 
         let mut positions: Vec<PositionCoverage> = online_positions
             .iter()
@@ -961,14 +974,13 @@ impl ClientManager {
         online_positions: &HashMap<PositionId, HashSet<ClientId>>,
     ) -> HashMap<PositionId, HashSet<ClientId>> {
         let mut new_vatsim_only: HashMap<PositionId, HashSet<ClientId>> = HashMap::new();
+        let network = self.network.read();
 
         for (cid, controller) in controllers {
             if controller.facility_type == FacilityType::Unknown || vacs_client_ids.contains(cid) {
                 continue;
             }
-            let positions: Vec<Position> = self
-                .network
-                .read()
+            let positions: Vec<Position> = network
                 .find_positions(
                     &controller.callsign,
                     &controller.frequency,
@@ -3521,6 +3533,138 @@ controlled_by = ["LOWW_DEL"]
                 &[("LOWW TWR", "LOWW_TWR"), ("LOWW GND", "LOWW_GND")],
             )
             .build(dir)
+    }
+
+    #[tokio::test]
+    async fn vatsim_only_round_trip_in_single_sync() {
+        let (_dir, network) = create_lovv_network();
+        let manager = client_manager(network);
+
+        // client0 connects as LOWW_APP (vacs)
+        let (_client, mut rx) = manager
+            .add_client(
+                client_info("client0", "LOWW_APP", "134.675"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+        drain_messages(&mut rx);
+
+        // First sync: establish LOWW_TWR as vatsim-only
+        let controllers1 = HashMap::from([
+            (
+                cid("client0"),
+                controller("client0", "LOWW_APP", "134.675", FacilityType::Approach),
+            ),
+            (
+                cid("vatsim1"),
+                controller("vatsim1", "LOWW_TWR", "119.400", FacilityType::Tower),
+            ),
+        ]);
+        manager
+            .sync_vatsim_state(&controllers1, &mut HashSet::new(), false)
+            .await;
+        drain_messages(&mut rx);
+
+        let vatsim_only = manager.vatsim_only_positions.read().await;
+        assert!(
+            vatsim_only.contains_key(&pos("LOWW_TWR")),
+            "LOWW_TWR should be vatsim-only"
+        );
+        assert!(
+            !vatsim_only.contains_key(&pos("LOWW_APP")),
+            "LOWW_APP should not be vatsim-only"
+        );
+        drop(vatsim_only);
+
+        // Second sync: client0 moves from LOWW_APP to LOWW_TWR, and a new
+        // VATSIM controller takes LOWW_APP. In one sync cycle LOWW_TWR goes
+        // from VATSIM-only → vacs and LOWW_APP goes from vacs → VATSIM-only.
+        let controllers2 = HashMap::from([
+            (
+                cid("client0"),
+                controller("client0", "LOWW_TWR", "119.400", FacilityType::Tower),
+            ),
+            (
+                cid("vatsim1"),
+                controller("vatsim1", "LOWW_TWR", "119.400", FacilityType::Tower),
+            ),
+            (
+                cid("vatsim2"),
+                controller("vatsim2", "LOWW_APP", "134.675", FacilityType::Approach),
+            ),
+        ]);
+        let disconnected = manager
+            .sync_vatsim_state(&controllers2, &mut HashSet::new(), false)
+            .await;
+        assert!(disconnected.is_empty());
+
+        // LOWW_TWR should now be a vacs position
+        let online_positions = manager.online_positions.read().await;
+        assert!(
+            online_positions.contains_key(&pos("LOWW_TWR")),
+            "LOWW_TWR should be a vacs position"
+        );
+        assert!(
+            !online_positions.contains_key(&pos("LOWW_APP")),
+            "LOWW_APP should no longer be a vacs position"
+        );
+        drop(online_positions);
+
+        // LOWW_APP should now be vatsim-only
+        let vatsim_only = manager.vatsim_only_positions.read().await;
+        assert!(
+            vatsim_only.contains_key(&pos("LOWW_APP")),
+            "LOWW_APP should be vatsim-only"
+        );
+        assert!(
+            !vatsim_only.contains_key(&pos("LOWW_TWR")),
+            "LOWW_TWR should not be vatsim-only (it's vacs)"
+        );
+        drop(vatsim_only);
+    }
+
+    #[tokio::test]
+    async fn concurrent_add_client_and_sync_does_not_deadlock() {
+        let (_dir, network) = create_lovv_network();
+        let manager = std::sync::Arc::new(client_manager(network));
+
+        // Pre-connect one client so the manager isn't empty during sync
+        let (_client, _rx) = manager
+            .add_client(
+                client_info("client0", "LOVV_CTR", "132.600"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        let m1 = manager.clone();
+        let m2 = manager.clone();
+
+        // Run add_client and sync_vatsim_state concurrently via tokio::join!.
+        // The test passes if neither side deadlocks and no panic occurs.
+        let (add_result, _disconnected) = tokio::join!(
+            async move {
+                m1.add_client(
+                    client_info("client1", "LOWW_APP", "134.675"),
+                    ActiveProfile::Custom,
+                    ClientConnectionGuard::default(),
+                )
+                .await
+            },
+            async move {
+                let controllers = HashMap::from([(
+                    cid("client0"),
+                    controller("client0", "LOVV_CTR", "132.600", FacilityType::Enroute),
+                )]);
+                m2.sync_vatsim_state(&controllers, &mut HashSet::new(), false)
+                    .await
+            }
+        );
+
+        assert!(add_result.is_ok());
     }
 
     // Scenario-based sync tests
