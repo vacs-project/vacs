@@ -6,7 +6,8 @@ use crate::release::catalog::BundleType;
 use axum_prometheus::metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use axum_prometheus::utils::SECONDS_DURATION_BUCKETS;
 use axum_prometheus::{
-    AXUM_HTTP_REQUESTS_DURATION_SECONDS, PrometheusMetricLayer, PrometheusMetricLayerBuilder,
+    AXUM_HTTP_REQUESTS_DURATION_SECONDS, EndpointLabel, PrometheusMetricLayer,
+    PrometheusMetricLayerBuilder,
 };
 use metrics::{
     Unit, counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram,
@@ -23,6 +24,9 @@ pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, Prome
 
     PrometheusMetricLayerBuilder::new()
         .with_ignore_patterns(&["/health", "/favicon.ico"])
+        .with_endpoint_label_type(EndpointLabel::MatchedPathWithFallbackFn(|_| {
+            "404".to_string()
+        }))
         .with_metrics_from_fn(|| {
             PrometheusBuilder::new()
                 .set_buckets_for_metric(
