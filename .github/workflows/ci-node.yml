@@ -40,5 +40,8 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      - name: Test
+        run: npm test --workspaces
+
       - name: Summary
-        run: echo "### ✅ Node CI - typecheck, lint & format passed" >> $GITHUB_STEP_SUMMARY
+        run: echo "### ✅ Node CI - typecheck, lint, format & tests passed" >> $GITHUB_STEP_SUMMARY
