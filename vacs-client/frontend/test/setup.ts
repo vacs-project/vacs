@@ -1,13 +1,16 @@
 import "@testing-library/jest-dom/vitest";
 import {mockIPC, clearMocks} from "@tauri-apps/api/mocks";
-import {randomFillSync} from "crypto";
 import {afterEach, beforeAll, beforeEach, vi} from "vitest";
+
+// @ts-expect-error crypto is a nodejs built-in module
+import {randomFillSync} from "crypto";
 
 // jsdom doesn't come with a WebCrypto implementation
 beforeAll(() => {
     Object.defineProperty(window, "crypto", {
         value: {
-            getRandomValues: (buffer: NodeJS.ArrayBufferView) => randomFillSync(buffer),
+            // @ts-expect-error polyfilling required crypto functions for jsdom
+            getRandomValues: buffer => randomFillSync(buffer),
         },
     });
 });
