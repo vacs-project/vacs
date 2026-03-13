@@ -1,4 +1,4 @@
-import Button from "../components/ui/Button.tsx";
+import Button, {ButtonColor, ButtonHighlightColor} from "../components/ui/Button.tsx";
 import {
     GeoPageButton as GeoPageButtonModel,
     GeoPageContainer as GeoPageContainerModel,
@@ -7,12 +7,14 @@ import {
     isGeoPageContainer,
     isGeoPageDivider,
 } from "../types/profile.ts";
+import {StationId} from "../types/generic.ts";
 import {CSSProperties} from "preact";
 import {useProfileStore} from "../stores/profile-store.ts";
 import DirectAccessPage from "../components/DirectAccessPage.tsx";
 import {clsx} from "clsx";
 import ButtonLabel from "../components/ui/ButtonLabel.tsx";
 import {useCallState} from "../hooks/call-state-hook.ts";
+import {useStationKeyInteraction} from "../hooks/station-key-interaction-hook.ts";
 
 type GeoPageProps = {
     page: GeoPageContainerModel;
@@ -91,26 +93,74 @@ function GeoPageContainer({
     );
 }
 
-type GeoPageButtonProps = {
-    button: GeoPageButtonModel;
-};
+function GeoPageButton({button}: {button: GeoPageButtonModel}) {
+    if (button.stationId !== undefined) {
+        return <GeoStationButton button={button} stationId={button.stationId} />;
+    }
+    return <GeoDirectAccessPageButton button={button} />;
+}
 
-function GeoPageButton({button}: GeoPageButtonProps) {
+function GeoDirectAccessPageButton({button}: {button: GeoPageButtonModel}) {
     const {color, highlight} = useCallState(button.page);
     const setSelectedPage = useProfileStore(state => state.setPage);
 
     return (
+        <GeoButton
+            color={color}
+            highlight={highlight}
+            size={button.size}
+            label={button.label}
+            onClick={() => setSelectedPage(button.page)}
+        />
+    );
+}
+
+type GeoStationButtonProps = {
+    button: GeoPageButtonModel;
+    stationId: StationId;
+};
+
+function GeoStationButton({button, stationId}: GeoStationButtonProps) {
+    const {color, highlight, disabled, own, handleClick} = useStationKeyInteraction(stationId);
+
+    return (
+        <GeoButton
+            color={color}
+            highlight={highlight}
+            disabled={disabled}
+            size={button.size}
+            label={button.label}
+            className={own ? "text-gray-500" : undefined}
+            onClick={handleClick}
+        />
+    );
+}
+
+type GeoButtonProps = {
+    color: ButtonColor;
+    highlight?: ButtonHighlightColor;
+    disabled?: boolean;
+    size: number;
+    label: string[];
+    className?: string;
+    onClick: () => void;
+};
+
+function GeoButton({color, highlight, disabled, size, label, className, onClick}: GeoButtonProps) {
+    return (
         <Button
             color={color}
             highlight={highlight}
+            disabled={disabled}
             className={clsx(
                 "aspect-square w-auto! rounded-none! overflow-hidden",
                 color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
+                className,
             )}
-            style={{height: `${button.size}rem`}}
-            onClick={() => setSelectedPage(button.page)}
+            style={{height: `${size}rem`}}
+            onClick={onClick}
         >
-            <ButtonLabel label={button.label} />
+            <ButtonLabel label={label} />
         </Button>
     );
 }

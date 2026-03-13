@@ -96,7 +96,11 @@ function geoPageContainerToKeys(container: GeoPageContainer): DirectAccessKey[] 
         if (isGeoPageContainer(c)) {
             return geoPageContainerToKeys(c);
         } else if (isGeoPageButton(c)) {
-            return directAccessPageToStationKeys(c.page);
+            const keys = directAccessPageToStationKeys(c.page);
+            if (c.stationId) {
+                keys.push(c);
+            }
+            return keys;
         }
         return [];
     });

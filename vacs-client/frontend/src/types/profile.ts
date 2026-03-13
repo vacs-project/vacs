@@ -41,6 +41,7 @@ export type GeoPageButton = {
     label: string[];
     size: number; // size in rem, > 0
     page?: DirectAccessPage;
+    stationId?: StationId;
 };
 
 export type GeoPageDivider = {
