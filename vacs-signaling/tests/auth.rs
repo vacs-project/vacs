@@ -30,6 +30,7 @@ async fn login_without_self() {
         false,
         Duration::from_millis(100),
         8,
+        None,
         &tokio::runtime::Handle::current(),
     );
 
@@ -65,6 +66,7 @@ async fn login() {
         false,
         Duration::from_millis(100),
         8,
+        None,
         &tokio::runtime::Handle::current(),
     );
 
@@ -91,6 +93,7 @@ async fn login() {
         false,
         Duration::from_millis(100),
         8,
+        None,
         &tokio::runtime::Handle::current(),
     );
 
@@ -128,6 +131,7 @@ async fn login_timeout() {
         false,
         Duration::from_millis(100),
         8,
+        None,
         &tokio::runtime::Handle::current(),
     );
 
@@ -156,6 +160,7 @@ async fn login_invalid_credentials() {
         false,
         Duration::from_millis(100),
         8,
+        None,
         &tokio::runtime::Handle::current(),
     );
 
@@ -187,6 +192,7 @@ async fn login_duplicate_id() {
         false,
         Duration::from_millis(100),
         8,
+        None,
         &tokio::runtime::Handle::current(),
     );
 

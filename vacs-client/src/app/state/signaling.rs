@@ -7,6 +7,7 @@ use crate::error::{Error, FrontendError};
 use crate::signaling::auth::TauriTokenProvider;
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
@@ -222,6 +223,8 @@ impl AppStateSignalingExt for AppStateInner {
         shutdown_token: CancellationToken,
         max_reconnect_attempts: u8,
     ) -> SignalingClient<TokioTransport, TauriTokenProvider> {
+        let on_terminate_session = Self::on_terminate_session(app.clone());
+
         SignalingClient::new(
             TokioTransport::new(ws_url),
             TauriTokenProvider::new(app.clone()),
@@ -235,6 +238,7 @@ impl AppStateSignalingExt for AppStateInner {
             false,
             WS_LOGIN_TIMEOUT,
             max_reconnect_attempts,
+            Some(on_terminate_session),
             tauri::async_runtime::handle().inner(),
         )
     }
@@ -389,6 +393,24 @@ impl AppStateSignalingExt for AppStateInner {
 }
 
 impl AppStateInner {
+    /// Returns a callback that terminates the current WebSocket session via the HTTP API.
+    /// Called by the signaling client before each reconnect attempt when the original
+    /// disconnect was caused by a connection loss (heartbeat timeout, transport error).
+    fn on_terminate_session(app: AppHandle) -> vacs_signaling::client::OnTerminateSessionCb {
+        Arc::new(move || {
+            let app = app.clone();
+            Box::pin(async move {
+                if let Err(err) = app
+                    .state::<HttpState>()
+                    .http_delete::<()>(BackendEndpoint::TerminateWsSession, None)
+                    .await
+                {
+                    log::warn!("Failed to terminate session before reconnect: {err:?}");
+                }
+            })
+        })
+    }
+
     async fn handle_signaling_event(app: &AppHandle, event: SignalingEvent) {
         match event {
             SignalingEvent::Connected {
