@@ -1050,7 +1050,8 @@ mod tests {
         };
         assert_matches!(
             mutually_exclusive.validate(),
-            Err(CoverageError::Validation(ValidationError::MutuallyExclusive { fields })) if fields.len() == 3
+            Err(CoverageError::Validation(ValidationError::MutuallyExclusive { fields }))
+                if fields.contains(&"station_id".to_string()) && fields.contains(&"page".to_string())
         );
 
         let station_id_only = GeoPageButtonRaw {
