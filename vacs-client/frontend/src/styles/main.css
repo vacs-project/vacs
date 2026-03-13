@@ -8,6 +8,12 @@
     src: url("../assets/fonts/NotoSansMono-VariableFont_wdth,wght.ttf") format("truetype");
 }
 
+html,
+body,
+#root {
+    height: 100%;
+}
+
 body {
     @apply bg-gray-500 select-none overscroll-none;
     font-family: "Noto Sans Mono", monospace;
