@@ -41,7 +41,7 @@ function App() {
     const testing = useConnectionStore(state => state.connectionState === "test");
     const authStatus = useAuthStore(state => state.status);
     const profileType = useProfileType();
-    useZoomHotkey();
+    const zoomStyle = useZoomHotkey();
 
     useEffect(() => {
         void invoke("app_frontend_ready");
@@ -66,7 +66,7 @@ function App() {
     }, []);
 
     return (
-        <div className="h-screen flex flex-col">
+        <div style={zoomStyle} className="h-full flex flex-col">
             <div className="w-full h-12 bg-gray-300 flex flex-row border-gray-700 border-b">
                 <Clock />
                 <InfoGrid />
