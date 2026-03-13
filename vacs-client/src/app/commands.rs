@@ -56,6 +56,17 @@ pub async fn app_frontend_ready(
         }
     }
 
+    if (state.config.client.zoom_level - 1.0f64).abs() > f64::EPSILON {
+        if let Err(err) = window.set_zoom(state.config.client.zoom_level) {
+            log::warn!("Failed to restore window zoom level: {err}");
+        } else {
+            log::debug!(
+                "Restored window zoom level to {}",
+                state.config.client.zoom_level
+            );
+        }
+    }
+
     if let Err(err) = window.show() {
         log::error!("Failed to show window: {err}");
 
@@ -278,6 +289,7 @@ pub async fn app_reset_window_size(
         window
             .set_zoom(1.0)
             .context("Failed to reset window zoom")?;
+        state.config.client.zoom_level = 1.0f64;
 
         #[cfg(target_os = "linux")]
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -298,6 +310,38 @@ pub async fn app_reset_window_size(
     persisted_client_config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
 
     Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn app_set_zoom_level(
+    app: AppHandle,
+    app_state: State<'_, AppState>,
+    window: WebviewWindow,
+    zoom_level: f64,
+) -> Result<f64, Error> {
+    let persisted_client_config: PersistedClientConfig = {
+        window
+            .set_zoom(zoom_level)
+            .context("Failed to set window zoom")?;
+
+        let mut state = app_state.lock().await;
+        state.config.client.zoom_level = zoom_level;
+        state.config.client.clone().into()
+    };
+
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("Cannot get config directory");
+    persisted_client_config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
+
+    Ok(zoom_level)
+}
+
+#[tauri::command]
+pub async fn app_get_zoom_level(app_state: State<'_, AppState>) -> Result<f64, Error> {
+    Ok(app_state.lock().await.config.client.zoom_level)
 }
 
 #[tauri::command]
