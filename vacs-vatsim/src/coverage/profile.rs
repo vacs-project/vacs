@@ -85,7 +85,10 @@ pub(super) struct GeoPageButtonRaw {
     #[serde(deserialize_with = "vacs_protocol::profile::string_or_vec")]
     pub label: Vec<String>,
     pub size: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<DirectAccessPageRaw>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_id: Option<StationId>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -293,6 +296,15 @@ impl ReferenceValidator<StationId> for GeoPageButton {
         if let Some(page) = &self.page {
             page.validate_references(stations)?;
         }
+        if let Some(station_id) = &self.station_id
+            && !stations.contains(station_id)
+        {
+            return Err(ValidationError::MissingReference {
+                field: "station_id".to_string(),
+                ref_id: station_id.to_string(),
+            }
+            .into());
+        }
         Ok(())
     }
 }
@@ -301,6 +313,9 @@ impl StationIdCollector for GeoPageButton {
     fn collect_station_ids(&self, ids: &mut HashSet<StationId>) {
         if let Some(page) = &self.page {
             page.collect_station_ids(ids);
+        }
+        if let Some(station_id) = &self.station_id {
+            ids.insert(station_id.clone());
         }
     }
 }
@@ -448,6 +463,7 @@ impl FromRaw<GeoPageButtonRaw> for GeoPageButton {
             label: raw.label,
             size: raw.size,
             page: raw.page.map(DirectAccessPage::from_raw).transpose()?,
+            station_id: raw.station_id,
         })
     }
 }
@@ -670,6 +686,17 @@ impl Validator for GeoPageButtonRaw {
             }
             .into());
         }
+
+        if self.station_id.is_some() && self.page.is_some() {
+            return Err(ValidationError::MutuallyExclusive {
+                fields: ["station_id", "page"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+            }
+            .into());
+        }
+
         if let Some(page) = &self.page {
             page.validate()?;
         }
@@ -875,6 +902,7 @@ mod tests {
                     label: vec!["L".to_string()],
                     size: 1.0,
                     page: None,
+                    station_id: None,
                 })],
             }),
         };
@@ -960,6 +988,7 @@ mod tests {
                 rows: 1,
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
+            station_id: None,
         };
         assert!(valid.validate().is_ok());
 
@@ -970,6 +999,7 @@ mod tests {
                 rows: 1,
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
+            station_id: None,
         };
         assert_matches!(
             empty_label.validate(),
@@ -988,6 +1018,7 @@ mod tests {
                 rows: 1,
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
+            station_id: None,
         };
         assert_matches!(
             long_label.validate(),
@@ -1001,11 +1032,34 @@ mod tests {
                 rows: 1,
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
+            station_id: None,
         };
         assert_matches!(
             negative_size.validate(),
             Err(CoverageError::Validation(ValidationError::OutOfRange { field, .. })) if field == "size"
         );
+
+        let mutually_exclusive = GeoPageButtonRaw {
+            label: vec!["L".to_string()],
+            size: 10.0f64,
+            page: Some(DirectAccessPageRaw {
+                rows: 1,
+                content: DirectAccessPageContentRaw::Keys { keys: vec![] },
+            }),
+            station_id: Some(StationId::from("S1")),
+        };
+        assert_matches!(
+            mutually_exclusive.validate(),
+            Err(CoverageError::Validation(ValidationError::MutuallyExclusive { fields })) if fields.len() == 3
+        );
+
+        let station_id_only = GeoPageButtonRaw {
+            label: vec!["L".to_string()],
+            size: 10.0f64,
+            page: None,
+            station_id: Some(StationId::from("S1")),
+        };
+        assert!(station_id_only.validate().is_ok());
     }
 
     #[test]
@@ -1102,6 +1156,7 @@ mod tests {
                                 }],
                             },
                         }),
+                        station_id: None,
                     }),
                     GeoNodeRaw::Button(GeoPageButtonRaw {
                         label: vec!["B2".to_string()],
@@ -1128,6 +1183,7 @@ mod tests {
                                 ],
                             },
                         }),
+                        station_id: None,
                     }),
                 ],
             }),
@@ -1171,6 +1227,7 @@ mod tests {
                             }],
                         },
                     }),
+                    station_id: None,
                 })],
             }),
         };
@@ -1204,6 +1261,7 @@ mod tests {
                             }],
                         },
                     }),
+                    station_id: None,
                 })],
             }),
         };
@@ -1241,6 +1299,7 @@ mod tests {
                             }],
                         },
                     }),
+                    station_id: None,
                 })],
             }),
         };

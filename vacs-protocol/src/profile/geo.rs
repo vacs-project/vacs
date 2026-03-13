@@ -1,4 +1,5 @@
 use crate::profile::DirectAccessPage;
+use crate::vatsim::StationId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -112,6 +113,7 @@ pub enum GeoNode {
 
 /// A button on a GEO profile page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GeoPageButton {
     /// The text label displayed on the button.
     ///
@@ -122,10 +124,19 @@ pub struct GeoPageButton {
     /// The size of the button (> 0, in rem).
     pub size: f64,
 
-    /// The direct access page that opens when this button is clicked.
-    /// If `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
+    /// The optional direct access page that opens when this button is clicked.
+    ///
+    /// If [`GeoPageButton::page`] and [`GeoPageButton::station_id`] are `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
+    /// This field is mutually exclusive with [`GeoPageButton::station_id`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<DirectAccessPage>,
+
+    /// The optional station ID associated with this button.
+    ///
+    /// If [`GeoPageButton::page`] and [`GeoPageButton::station_id`] are `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
+    /// This field is mutually exclusive with [`GeoPageButton::page`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_id: Option<StationId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
