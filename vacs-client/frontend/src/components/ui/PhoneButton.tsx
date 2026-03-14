@@ -21,15 +21,14 @@ function PhoneButton() {
 
     const isTabbedProfile = useProfileType() === "tabbed";
 
-    const beingCalled = callDisplayType === "outgoing";
     const {color, highlight} = getCallStateColors({
         inCall: callDisplayType === "accepted",
-        isCalling: !beingCalled && incoming,
-        beingCalled,
+        isCalling: incoming && callDisplayType === undefined,
+        beingCalled: callDisplayType === "outgoing",
         isRejected: callDisplayType === "rejected",
         isError: callDisplayType === "error",
         outgoingPrio,
-        incomingPrio: !beingCalled && incomingPrio,
+        incomingPrio,
         blink,
     });
 

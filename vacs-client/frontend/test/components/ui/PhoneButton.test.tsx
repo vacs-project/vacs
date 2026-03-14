@@ -1,10 +1,16 @@
 import {describe, expect, it, afterEach} from "vitest";
-import {render, screen, act} from "@testing-library/preact";
-import PhoneButton from "./PhoneButton.tsx";
-import {ButtonColor, ButtonColors, ButtonHighlightColor, ButtonHighlightColors} from "./Button.tsx";
-import {useCallStore} from "../../stores/call-store.ts";
-import {Call} from "../../types/call.ts";
-import {CallId, ClientId, StationId} from "../../types/generic.ts";
+import {render, screen} from "@testing-library/preact";
+import PhoneButton from "../../../src/components/ui/PhoneButton.tsx";
+import {
+    ButtonColor,
+    ButtonColors,
+    ButtonHighlightColor,
+    ButtonHighlightColors,
+} from "../../../src/components/ui/Button.tsx";
+import {useCallStore} from "../../../src/stores/call-store.ts";
+import {Call} from "../../../src/types/call.ts";
+import {CallId, ClientId, StationId} from "../../../src/types/generic.ts";
+import {flipBlink} from "../../util.ts";
 
 const makeCall = (overrides: Partial<Call> = {}): Call => ({
     callId: "call0" as CallId,
@@ -55,14 +61,10 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("yellow", "green");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray", "green");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("yellow", "green");
         });
 
@@ -75,14 +77,10 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("gray", "green");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray", "green");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("gray", "green");
         });
 
@@ -95,15 +93,59 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("gray", "green");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray", "green");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("gray", "green");
+        });
+
+        it("shows rejected state when both rejected and incoming calls exist", () => {
+            useCallStore.setState({
+                blink: true,
+                callDisplay: {type: "rejected", call: makeCall()},
+                incomingCalls: [makeCall({callId: "call1" as CallId})],
+            });
+            render(<PhoneButton />);
+            expectButton("green", "green");
+
+            flipBlink();
+            expectButton("gray", "green");
+
+            flipBlink();
+            expectButton("green", "green");
+        });
+
+        it("shows error state when both error and incoming calls exist", () => {
+            useCallStore.setState({
+                blink: true,
+                callDisplay: {type: "error", call: makeCall()},
+                incomingCalls: [makeCall({callId: "call1" as CallId})],
+            });
+            render(<PhoneButton />);
+            expectButton("red");
+
+            flipBlink();
+            expectButton("gray");
+
+            flipBlink();
+            expectButton("red");
+        });
+
+        it("shows accepted state when both accepted and incoming calls exist", () => {
+            useCallStore.setState({
+                blink: true,
+                callDisplay: {type: "accepted", call: makeCall()},
+                incomingCalls: [makeCall({callId: "call1" as CallId})],
+            });
+            render(<PhoneButton />);
+            expectButton("green");
+
+            flipBlink();
+            expectButton("green");
+
+            flipBlink();
+            expectButton("green");
         });
     });
 
@@ -116,14 +158,10 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("green");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("green");
         });
 
@@ -135,14 +173,10 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("yellow", "green");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray", "gray");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("yellow", "green");
         });
     });
@@ -184,14 +218,10 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("green", "green");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray", "green");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("green", "green");
         });
     });
@@ -205,14 +235,10 @@ describe("PhoneButton", () => {
             render(<PhoneButton />);
             expectButton("red");
 
-            act(() => {
-                useCallStore.setState({blink: false});
-            });
+            flipBlink();
             expectButton("gray");
 
-            act(() => {
-                useCallStore.setState({blink: true});
-            });
+            flipBlink();
             expectButton("red");
         });
     });

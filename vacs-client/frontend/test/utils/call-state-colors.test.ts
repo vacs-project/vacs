@@ -1,5 +1,9 @@
 import {describe, expect, it} from "vitest";
-import {getCallStateColors, CallStateColorParams, CallStateColors} from "./call-state-colors.ts";
+import {
+    getCallStateColors,
+    CallStateColorParams,
+    CallStateColors,
+} from "../../src/utils/call-state-colors.ts";
 
 const defaults: CallStateColorParams = {
     inCall: false,
