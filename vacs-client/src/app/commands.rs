@@ -11,6 +11,7 @@ use crate::platform::Capabilities;
 use anyhow::Context;
 use notify_debouncer_full::notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, new_debouncer};
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
@@ -317,20 +318,38 @@ pub async fn app_reset_window_size(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ZoomLevelChange {
+    Increase,
+    Decrease,
+    Reset,
+}
+
+pub const ZOOM_FACTOR: f64 = 0.05f64;
+
 #[tauri::command]
 #[vacs_macros::log_err]
-pub async fn app_set_zoom_level(
+pub async fn app_change_zoom_level(
     app: AppHandle,
     app_state: State<'_, AppState>,
     window: WebviewWindow,
-    zoom_level: f64,
-) -> Result<f64, Error> {
+    change: ZoomLevelChange,
+) -> Result<(), Error> {
     let persisted_client_config: PersistedClientConfig = {
+        let mut state = app_state.lock().await;
+
+        let zoom_level = match change {
+            ZoomLevelChange::Increase => state.config.client.zoom_level + ZOOM_FACTOR,
+            ZoomLevelChange::Decrease => {
+                (state.config.client.zoom_level - ZOOM_FACTOR).max(ZOOM_FACTOR)
+            }
+            ZoomLevelChange::Reset => 1.0f64,
+        };
         window
             .set_zoom(zoom_level)
             .context("Failed to set window zoom")?;
 
-        let mut state = app_state.lock().await;
         state.config.client.zoom_level = zoom_level;
         state.config.client.clone().into()
     };
@@ -341,12 +360,7 @@ pub async fn app_set_zoom_level(
         .expect("Cannot get config directory");
     persisted_client_config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
 
-    Ok(zoom_level)
-}
-
-#[tauri::command]
-pub async fn app_get_zoom_level(app_state: State<'_, AppState>) -> Result<f64, Error> {
-    Ok(app_state.lock().await.config.client.zoom_level)
+    Ok(())
 }
 
 #[tauri::command]
