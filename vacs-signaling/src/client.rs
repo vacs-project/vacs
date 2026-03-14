@@ -61,6 +61,7 @@ pub enum SignalingEvent {
 
 type BoxFutUnit = Pin<Box<dyn Future<Output = ()> + Send>>;
 type OnEventCb = Arc<dyn Fn(SignalingEvent) -> BoxFutUnit + Send + Sync>;
+pub type OnTerminateSessionCb = Arc<dyn Fn() -> BoxFutUnit + Send + Sync>;
 
 #[derive(Clone)]
 pub struct SignalingClient<ST: SignalingTransport, TP: TokenProvider> {
@@ -78,6 +79,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClient<ST, TP> {
         custom_profile: bool,
         login_timeout: Duration,
         reconnect_max_tries: u8,
+        on_terminate_session: Option<OnTerminateSessionCb>,
         handle: &tokio::runtime::Handle,
     ) -> Self
     where
@@ -92,6 +94,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClient<ST, TP> {
             custom_profile,
             login_timeout,
             reconnect_max_tries,
+            on_terminate_session,
         ));
 
         let inner_clone = inner.clone();
@@ -179,11 +182,13 @@ struct SignalingClientInner<ST: SignalingTransport, TP: TokenProvider> {
     login_timeout: Duration,
     reconnect_max_tries: u8,
     reconnect_gate: Arc<Mutex<ReconnectGate>>,
+    on_terminate_session: Option<OnTerminateSessionCb>,
 
     worker_tasks: Arc<Mutex<JoinSet<()>>>,
 }
 
 impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
+    #[allow(clippy::too_many_arguments)]
     #[instrument(level = "debug", skip_all)]
     fn new(
         transport: ST,
@@ -193,6 +198,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
         custom_profile: bool,
         login_timeout: Duration,
         reconnect_max_tries: u8,
+        on_terminate_session: Option<OnTerminateSessionCb>,
     ) -> Self {
         let (state_tx, state_rx) = watch::channel(State::Disconnected);
         Self {
@@ -218,6 +224,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
             login_timeout,
             reconnect_max_tries,
             reconnect_gate: Arc::new(Mutex::new(ReconnectGate::default())),
+            on_terminate_session,
 
             worker_tasks: Arc::new(Mutex::new(JoinSet::new())),
         }
@@ -526,8 +533,9 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                                         gate.on_reconnect(Instant::now());
                                     }
 
-                                    tracing::info!("Reconnecting after error");
-                                    if let Err(err) = self.reconnect().await {
+                                    let terminate = err.needs_session_terminate();
+                                    tracing::info!(?terminate, "Reconnecting after error");
+                                    if let Err(err) = self.reconnect(terminate).await {
                                         tracing::warn!(?err, "Received error while reconnecting");
                                         if let Err(err) = self.broadcast_tx.send(SignalingEvent::Error(err)) {
                                             tracing::warn!(?err, "Failed to broadcast reconnect error event");
@@ -558,7 +566,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
     }
 
     #[instrument(level = "debug", skip(self), err)]
-    async fn reconnect(&self) -> Result<(), SignalingRuntimeError> {
+    async fn reconnect(&self, terminate: bool) -> Result<(), SignalingRuntimeError> {
         if self.reconnect_max_tries == 0 {
             tracing::debug!("Reconnecting disabled");
             return Ok(());
@@ -568,6 +576,11 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
         let mut reconnect_error = SignalingError::Other("Unknown".to_string());
         for attempt in 1..=self.reconnect_max_tries {
+            if terminate && let Some(ref cb) = self.on_terminate_session {
+                tracing::debug!(?attempt, "Terminating session before reconnect");
+                cb().await;
+            }
+
             tracing::trace!(?attempt, "Reconnecting");
             match self.connect().await {
                 Ok(()) => return Ok(()),
@@ -890,6 +903,7 @@ mod tests {
             custom_profile,
             Duration::from_millis(100),
             reconnect_max_tries,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -965,6 +979,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             8,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -999,6 +1014,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             8,
+            None,
             &tokio::runtime::Handle::current(),
         ));
 
@@ -1251,6 +1267,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -1277,6 +1294,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         ));
 
@@ -1314,6 +1332,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -1355,6 +1374,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -1396,6 +1416,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -1442,6 +1463,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -1482,6 +1504,7 @@ mod tests {
             false,
             Duration::from_millis(100),
             0,
+            None,
             &tokio::runtime::Handle::current(),
         );
 
@@ -1489,6 +1512,168 @@ mod tests {
         assert!(res.is_err());
         assert_matches!(res.unwrap_err(), SignalingError::Runtime(SignalingRuntimeError::ServerError(ErrorReason::Internal(reason))) if reason == "something failed");
         assert_matches!(client.state(), State::Disconnected);
+    }
+
+    #[test(tokio::test)]
+    async fn on_terminate_session_called_on_disconnect() {
+        let transport = MockTransport::default();
+        let incoming_tx = transport.incoming_tx.clone();
+        let outgoing_tx = transport.outgoing_tx.clone();
+
+        let shutdown_token = CancellationToken::new();
+        let token_provider = MockTokenProvider::new(1, None);
+
+        let mock_tx = transport.incoming_tx.clone();
+        let ready = transport.ready.clone();
+
+        let session_info_msg = || {
+            tungstenite::Message::Text(
+                ServerMessage::serialize(&ServerMessage::SessionInfo(server::SessionInfo {
+                    client: ClientInfo {
+                        id: ClientId::from("client1"),
+                        position_id: Some(PositionId::from("position1")),
+                        display_name: "Client 1".into(),
+                        frequency: "100.000".into(),
+                    },
+                    profile: SessionProfile::Changed(ActiveProfile::Specific(Profile {
+                        id: vacs_protocol::profile::ProfileId::from("1"),
+                        profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
+                    })),
+                }))
+                .unwrap()
+                .into(),
+            )
+        };
+
+        let session_info = session_info_msg();
+        tokio::spawn(async move {
+            ready.notified().await;
+            let _ = mock_tx.send(session_info);
+        });
+
+        let hook_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_called_clone = hook_called.clone();
+
+        let on_terminate_session: OnTerminateSessionCb = Arc::new(move || {
+            let called = hook_called_clone.clone();
+            Box::pin(async move {
+                called.store(true, std::sync::atomic::Ordering::SeqCst);
+            })
+        });
+
+        let client = SignalingClient::new(
+            transport,
+            token_provider,
+            |_| async {},
+            shutdown_token.clone(),
+            false,
+            Duration::from_millis(500),
+            1,
+            Some(on_terminate_session),
+            &tokio::runtime::Handle::current(),
+        );
+
+        let res = client.connect(None).await;
+        assert!(res.is_ok());
+        assert_matches!(client.state(), State::LoggedIn);
+
+        let session_info = session_info_msg();
+        let reconnect_incoming_tx = incoming_tx.clone();
+        let mut outgoing_rx = outgoing_tx.subscribe();
+        tokio::spawn(async move {
+            loop {
+                if let Ok(tungstenite::Message::Text(text)) = outgoing_rx.recv().await
+                    && text.contains("\"login\"")
+                {
+                    let _ = reconnect_incoming_tx.send(session_info);
+                    break;
+                }
+            }
+        });
+
+        // Simulate a transport disconnection by sending a Close frame
+        let _ = incoming_tx.send(tungstenite::Message::Close(None));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        assert!(
+            hook_called.load(std::sync::atomic::Ordering::SeqCst),
+            "on_terminate_session hook should have been called"
+        );
+        assert_matches!(client.state(), State::LoggedIn);
+
+        shutdown_token.cancel();
+    }
+
+    #[test(tokio::test)]
+    async fn on_terminate_session_called_on_transport_disconnect() {
+        let transport = MockTransport::default();
+        let transport_disconnect_token = transport.disconnect_token();
+
+        let shutdown_token = CancellationToken::new();
+        let token_provider = MockTokenProvider::new(1, None);
+
+        let mock_tx = transport.incoming_tx.clone();
+        let ready = transport.ready.clone();
+
+        tokio::spawn(async move {
+            ready.notified().await;
+            let msg = tungstenite::Message::Text(
+                ServerMessage::serialize(&ServerMessage::SessionInfo(server::SessionInfo {
+                    client: ClientInfo {
+                        id: ClientId::from("client1"),
+                        position_id: Some(PositionId::from("position1")),
+                        display_name: "Client 1".into(),
+                        frequency: "100.000".into(),
+                    },
+                    profile: SessionProfile::Changed(ActiveProfile::Specific(Profile {
+                        id: vacs_protocol::profile::ProfileId::from("1"),
+                        profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
+                    })),
+                }))
+                .unwrap()
+                .into(),
+            );
+            let _ = mock_tx.send(msg);
+        });
+
+        let hook_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_called_clone = hook_called.clone();
+
+        let on_terminate_session: OnTerminateSessionCb = Arc::new(move || {
+            let called = hook_called_clone.clone();
+            Box::pin(async move {
+                called.store(true, std::sync::atomic::Ordering::SeqCst);
+            })
+        });
+
+        let client = SignalingClient::new(
+            transport,
+            token_provider,
+            |_| async {},
+            shutdown_token.clone(),
+            false,
+            Duration::from_millis(100),
+            1,
+            Some(on_terminate_session),
+            &tokio::runtime::Handle::current(),
+        );
+
+        let res = client.connect(None).await;
+        assert!(res.is_ok());
+        assert_matches!(client.state(), State::LoggedIn);
+
+        // Simulate a full transport disconnection (e.g. network loss).
+        // This also poisons new connections from the same MockTransport, so
+        // the reconnect attempt will fail - but the hook must still fire.
+        transport_disconnect_token.cancel();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        assert!(
+            hook_called.load(std::sync::atomic::Ordering::SeqCst),
+            "on_terminate_session hook should have been called"
+        );
+
+        shutdown_token.cancel();
     }
 
     mod reconnect_gate {

@@ -51,6 +51,16 @@ impl SignalingRuntimeError {
             )
     }
 
+    /// Whether this error indicates a connection loss where the server may not have detected
+    /// the disconnect yet. In such cases, the existing session should be terminated before
+    /// reconnecting to avoid a duplicate client ID rejection.
+    pub fn needs_session_terminate(&self) -> bool {
+        matches!(
+            self,
+            SignalingRuntimeError::Disconnected(None) | SignalingRuntimeError::Transport(_)
+        )
+    }
+
     pub fn is_fatal(&self) -> bool {
         matches!(
             self,

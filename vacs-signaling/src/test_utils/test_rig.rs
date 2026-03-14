@@ -59,6 +59,7 @@ impl TestRig {
                 false,
                 Duration::from_millis(100),
                 8,
+                None,
                 &tokio::runtime::Handle::current(),
             );
 
