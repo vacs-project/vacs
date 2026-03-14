@@ -5,17 +5,8 @@ import {invokeSafe, invokeStrict} from "../error.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
-import {ButtonColor, ButtonHighlightColor} from "../components/ui/Button.tsx";
 
-export type StationKeyInteraction = {
-    color: ButtonColor;
-    highlight: ButtonHighlightColor | undefined;
-    disabled: boolean;
-    own: boolean;
-    handleClick: () => Promise<void>;
-};
-
-export function useStationKeyInteraction(stationId: StationId | undefined): StationKeyInteraction {
+export function useStationKeyInteraction(stationId: StationId | undefined) {
     const blink = useCallStore(state => state.blink);
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
