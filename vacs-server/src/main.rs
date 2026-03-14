@@ -128,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         auth_layer,
         Some(prom_layer),
         config.server.client_ip_source.clone(),
+        config.server.debug_endpoints,
     );
     let listener = tokio::net::TcpListener::bind(config.server.bind_addr).await?;
     tracing::info!(bind_addr = ?listener.local_addr(), "Started main listener");

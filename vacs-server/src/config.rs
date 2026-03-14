@@ -70,6 +70,8 @@ pub struct ServerConfig {
     pub bind_addr: String,
     pub metrics_bind_addr: String,
     pub client_ip_source: ClientIpSource,
+    #[serde(default)]
+    pub debug_endpoints: bool,
 }
 
 impl Default for ServerConfig {
@@ -78,6 +80,7 @@ impl Default for ServerConfig {
             bind_addr: "0.0.0.0:3000".to_string(),
             metrics_bind_addr: "0.0.0.0:9200".to_string(),
             client_ip_source: ClientIpSource::ConnectInfo,
+            debug_endpoints: false,
         }
     }
 }
@@ -118,6 +121,7 @@ impl Default for SessionConfig {
 pub struct AuthConfig {
     pub login_flow_timeout_millis: u64,
     pub oauth: OAuthConfig,
+    pub api_token: ApiTokenConfig,
 }
 
 impl Default for AuthConfig {
@@ -125,6 +129,20 @@ impl Default for AuthConfig {
         Self {
             login_flow_timeout_millis: 10000,
             oauth: OAuthConfig::default(),
+            api_token: ApiTokenConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ApiTokenConfig {
+    pub expiry_secs: u64,
+}
+
+impl Default for ApiTokenConfig {
+    fn default() -> Self {
+        Self {
+            expiry_secs: 86400, // 24 hours
         }
     }
 }

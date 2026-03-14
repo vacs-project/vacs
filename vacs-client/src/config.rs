@@ -123,13 +123,13 @@ pub struct BackendConfig {
 impl Default for BackendConfig {
     fn default() -> Self {
         Self {
-            base_url: if cfg!(debug_assertions) {
+            base_url: if cfg!(debug_assertions) || cfg!(feature = "rc") {
                 "https://dev.vacs.network"
             } else {
                 "https://vacs.network"
             }
             .to_string(),
-            ws_url: if cfg!(debug_assertions) {
+            ws_url: if cfg!(debug_assertions) || cfg!(feature = "rc") {
                 "wss://dev.vacs.network/ws"
             } else {
                 "wss://vacs.network/ws"

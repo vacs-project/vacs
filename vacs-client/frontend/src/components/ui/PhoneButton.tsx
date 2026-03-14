@@ -23,7 +23,7 @@ function PhoneButton() {
 
     const {color, highlight} = getCallStateColors({
         inCall: callDisplayType === "accepted",
-        isCalling: incoming,
+        isCalling: incoming && callDisplayType === undefined,
         beingCalled: callDisplayType === "outgoing",
         isRejected: callDisplayType === "rejected",
         isError: callDisplayType === "error",

@@ -16,3 +16,9 @@ pub struct AuthExchangeToken {
 pub struct UserInfo {
     pub cid: ClientId,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AuthTokenResponse {
+    pub cid: ClientId,
+    pub token: String,
+}

@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
 use tracing::instrument;
+use uuid::Uuid;
 
 #[derive(Debug)]
 struct StoredValue {
@@ -19,14 +20,28 @@ pub struct MemoryStore {
     map: DashMap<String, StoredValue>,
 }
 
+impl MemoryStore {
+    /// Returns a deterministic test API token (valid UUID) for the given index.
+    pub fn test_api_token(index: u128) -> String {
+        Uuid::from_u128(index).to_string()
+    }
+}
+
 impl Default for MemoryStore {
     fn default() -> Self {
         let map = DashMap::new();
-        for i in 0..=5 {
+        for i in 0..=5u128 {
             map.insert(
                 format!("ws.token.token{i}"),
                 StoredValue {
                     value: Bytes::from(format!("\"client{i}\"")),
+                    expires_at: None,
+                },
+            );
+            map.insert(
+                format!("api.token.{}", Uuid::from_u128(i)),
+                StoredValue {
+                    value: Bytes::from(format!("\"cid{i}\"")),
                     expires_at: None,
                 },
             );
@@ -91,6 +106,15 @@ impl StoreBackend for MemoryStore {
         self.map.remove(key);
 
         tracing::trace!("Successfully removed value from memory store");
+        Ok(())
+    }
+
+    #[instrument(level = "trace", skip(self), err)]
+    async fn expire(&self, key: &str, duration: Duration) -> anyhow::Result<()> {
+        tracing::trace!("Setting expiry on memory store key");
+        if let Some(mut entry) = self.map.get_mut(key) {
+            entry.expires_at = Some(Instant::now() + duration);
+        }
         Ok(())
     }
 

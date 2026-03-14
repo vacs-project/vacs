@@ -110,6 +110,16 @@ impl StoreBackend for RedisStore {
         Ok(())
     }
 
+    #[instrument(level = "trace", skip(self), err)]
+    async fn expire(&self, key: &str, duration: Duration) -> anyhow::Result<()> {
+        tracing::trace!("Setting expiry on redis key");
+        self.pool
+            .expire::<bool, _>(key, duration.as_secs() as i64, None)
+            .await
+            .context("Failed to set expiry on redis key")?;
+        Ok(())
+    }
+
     async fn is_healthy(&self) -> anyhow::Result<()> {
         self.pool.ping(None).await.context("Failed to ping redis")
     }

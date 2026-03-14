@@ -30,7 +30,7 @@ export type ButtonProps = {
     style?: CSSProperties;
 };
 
-const ButtonColors: Record<ButtonColor, string> = {
+export const ButtonColors: Record<ButtonColor, string> = {
     cyan: "bg-[#92e1fe] border-t-cyan-100 border-l-cyan-100 border-r-cyan-950 border-b-cyan-950",
     green: "bg-[#4b8747] border-t-green-200 border-l-green-200 border-r-green-950 border-b-green-950",
     gray: "bg-gray-300 border-t-gray-100 border-l-gray-100 border-r-gray-700 border-b-gray-700 border-3 outline outline-gray-700 -outline-offset-1",
@@ -79,7 +79,7 @@ export const ForceDisabledButtonColors: Record<ButtonColor, string> = {
     yellow: "border-[#958e1a]! border!",
 };
 
-const ButtonHighlightColors: Record<ButtonHighlightColor, string> = {
+export const ButtonHighlightColors: Record<ButtonHighlightColor, string> = {
     green: "bg-[#4b8747]",
     gray: "bg-gray-300",
 };

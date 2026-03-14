@@ -16,7 +16,7 @@ pub struct FileCatalog {
     path: PathBuf,
     stable: RwLock<Vec<ReleaseMeta>>,
     beta: RwLock<Vec<ReleaseMeta>>,
-    dev: RwLock<Vec<ReleaseMeta>>,
+    rc: RwLock<Vec<ReleaseMeta>>,
 }
 impl FileCatalog {
     #[instrument(level = "info", skip_all, err)]
@@ -25,7 +25,7 @@ impl FileCatalog {
             path: path.into(),
             stable: Default::default(),
             beta: Default::default(),
-            dev: Default::default(),
+            rc: Default::default(),
         };
         catalog.reload()?;
         Ok(catalog)
@@ -47,23 +47,23 @@ impl FileCatalog {
 
         let mut stable = assign_channel(ReleaseChannel::Stable, manifest.stable);
         let mut beta = assign_channel(ReleaseChannel::Beta, manifest.beta);
-        let mut dev = assign_channel(ReleaseChannel::Dev, manifest.dev);
+        let mut rc = assign_channel(ReleaseChannel::Rc, manifest.rc);
 
         validate_and_sort(&mut stable).context("stable channel")?;
         validate_and_sort(&mut beta).context("beta channel")?;
-        validate_and_sort(&mut dev).context("dev channel")?;
+        validate_and_sort(&mut rc).context("rc channel")?;
 
         {
             *self.stable.write() = stable;
             *self.beta.write() = beta;
-            *self.dev.write() = dev;
+            *self.rc.write() = rc;
         }
 
         tracing::info!(
             manifest_path = ?self.path,
             stable = self.stable.read().len(),
             beta = self.beta.read().len(),
-            dev = self.dev.read().len(),
+            rc = self.rc.read().len(),
             "FileCatalog reloaded"
         );
 
@@ -78,7 +78,7 @@ impl Catalog for FileCatalog {
         Ok(match channel {
             ReleaseChannel::Stable => self.stable.read().clone(),
             ReleaseChannel::Beta => self.beta.read().clone(),
-            ReleaseChannel::Dev => self.dev.read().clone(),
+            ReleaseChannel::Rc => self.rc.read().clone(),
         })
     }
 
@@ -116,8 +116,8 @@ struct ManifestPerChannel {
     stable: Vec<ManifestRelease>,
     #[serde(default)]
     beta: Vec<ManifestRelease>,
-    #[serde(default)]
-    dev: Vec<ManifestRelease>,
+    #[serde(default, alias = "dev")]
+    rc: Vec<ManifestRelease>,
 }
 
 fn assign_channel(ch: ReleaseChannel, items: Vec<ManifestRelease>) -> Vec<ReleaseMeta> {

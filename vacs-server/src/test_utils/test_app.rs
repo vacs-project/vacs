@@ -19,6 +19,7 @@ pub struct TestApp {
     state: Arc<AppState>,
     pub mock_data_feed: Arc<MockDataFeed>,
     addr: String,
+    http_base_url: String,
     shutdown_tx: watch::Sender<()>,
     handle: JoinHandle<()>,
 }
@@ -63,7 +64,12 @@ impl TestApp {
         ));
 
         let auth_layer = setup_mock_auth_layer(&config).await.unwrap();
-        let app = create_app(auth_layer, None, config.server.client_ip_source.clone());
+        let app = create_app(
+            auth_layer,
+            None,
+            config.server.client_ip_source.clone(),
+            config.server.debug_endpoints,
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
@@ -81,6 +87,7 @@ impl TestApp {
         Self {
             state,
             mock_data_feed,
+            http_base_url: format!("http://{addr}"),
             addr: format!("ws://{addr}/ws"),
             shutdown_tx,
             handle,
@@ -89,6 +96,10 @@ impl TestApp {
 
     pub fn addr(&self) -> &str {
         &self.addr
+    }
+
+    pub fn http_base_url(&self) -> &str {
+        &self.http_base_url
     }
 
     pub fn state(&self) -> Arc<AppState> {

@@ -1,5 +1,6 @@
 mod admin;
 mod auth;
+mod debug;
 mod root;
 mod version;
 mod webrtc;
@@ -26,18 +27,24 @@ pub fn create_app<B, S>(
     auth_layer: AuthManagerLayer<B, S, SignedCookie>,
     prom_layer: Option<PrometheusMetricLayer<'static>>,
     client_ip_source: ClientIpSource,
+    debug_endpoints: bool,
 ) -> Router<Arc<AppState>>
 where
     B: AuthnBackend + Send + Sync + 'static + Clone,
     S: SessionStore + Send + Sync + 'static + Clone,
 {
-    let app = Router::new()
+    let mut app = Router::new()
         .nest("/admin", admin::routes())
         .nest("/auth", auth::routes())
         .nest("/ws", ws::routes().merge(crate::ws::routes()))
         .nest("/version", version::routes())
         .nest("/webrtc", webrtc::routes())
-        .merge(root::routes())
+        .merge(root::routes());
+
+    if debug_endpoints {
+        app = app.nest("/debug", debug::routes());
+    }
+    let app = app
         .layer(middleware::from_fn(
             async |request: extract::Request, next: Next| {
                 let (mut parts, body) = request.into_parts();
