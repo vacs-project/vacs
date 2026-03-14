@@ -1,5 +1,5 @@
 import {create} from "zustand/react";
-import {invoke} from "@tauri-apps/api/core";
+import {invoke} from "../transport";
 import {isError, openErrorOverlayFromUnknown} from "../error.ts";
 import {ClientInfo} from "../types/client.ts";
 import {PositionId} from "../types/generic.ts";
@@ -42,7 +42,7 @@ export const connect = async (position?: PositionId) => {
         // Suppress error overlay on ambiguous position login error -> signaling:ambiguous-position
         if (
             isError(e) &&
-            e.message ===
+            e.detail ===
                 "Login failed: Multiple VATSIM positions matched your current position. Please select the correct position manually."
         ) {
             return;
@@ -52,8 +52,8 @@ export const connect = async (position?: PositionId) => {
 
         if (
             isError(e) &&
-            (e.message === "Login failed: Another client with your CID is already connected." ||
-                e.message === "Already connected")
+            (e.detail === "Login failed: Another client with your CID is already connected." ||
+                e.detail === "Already connected")
         ) {
             setTerminateOverlayVisible(true);
             return;

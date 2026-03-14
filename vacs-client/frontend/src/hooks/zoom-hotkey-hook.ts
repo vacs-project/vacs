@@ -1,34 +1,64 @@
-import {useEffect, useRef} from "preact/hooks";
-import {getCurrentWebviewWindow} from "@tauri-apps/api/webviewWindow";
+import {useEffect} from "preact/hooks";
+import {invoke, isTauri} from "../transport";
 
 const ZoomFactor = 0.05;
+const BrowserZoomStorageKey = "vacs-remote-zoom-level";
+
+type ZoomChange = "increase" | "decrease" | "reset";
 
 export function useZoomHotkey() {
-    const zoomRef = useRef<number>(1);
-
-    const handleZoomKeyDown = async (event: KeyboardEvent) => {
-        if (!(event.ctrlKey || event.metaKey) || event.shiftKey) return;
+    async function handleZoomKeyDown(event: KeyboardEvent) {
+        if (!(event.ctrlKey || event.metaKey)) return;
 
         const key = event.key;
         const code = event.code;
 
+        let change: ZoomChange | undefined;
         if (key === "+" || code === "NumpadAdd") {
-            await getCurrentWebviewWindow().setZoom(zoomRef.current + ZoomFactor);
-            zoomRef.current += ZoomFactor;
+            change = "increase";
         } else if (key === "-" || code === "NumpadSubtract") {
-            await getCurrentWebviewWindow().setZoom(zoomRef.current - ZoomFactor);
-            zoomRef.current -= ZoomFactor;
+            change = "decrease";
         } else if (key === "0" || code === "Digit0") {
-            await getCurrentWebviewWindow().setZoom(1);
-            zoomRef.current = 1;
+            change = "reset";
         }
-    };
+
+        if (change !== undefined) {
+            event.preventDefault();
+
+            if (isTauri) {
+                void invoke("app_change_zoom_level", {change});
+            } else {
+                const stored = localStorage.getItem(BrowserZoomStorageKey);
+                let current = stored !== null ? parseFloat(stored) : 1.0;
+
+                switch (change) {
+                    case "increase":
+                        current += ZoomFactor;
+                        break;
+                    case "decrease":
+                        current = Math.max(current - ZoomFactor, ZoomFactor);
+                        break;
+                    case "reset":
+                        current = 1.0;
+                        break;
+                }
+
+                const s = current.toString();
+                localStorage.setItem(BrowserZoomStorageKey, s);
+                document.documentElement.style.zoom = s;
+            }
+        }
+    }
 
     useEffect(() => {
-        document.addEventListener("keydown", handleZoomKeyDown);
+        if (!isTauri) {
+            const stored = localStorage.getItem(BrowserZoomStorageKey);
+            if (stored) {
+                document.documentElement.style.zoom = stored;
+            }
+        }
 
-        return () => {
-            document.removeEventListener("keydown", handleZoomKeyDown);
-        };
+        document.addEventListener("keydown", handleZoomKeyDown);
+        return () => document.removeEventListener("keydown", handleZoomKeyDown);
     }, []);
 }

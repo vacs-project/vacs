@@ -3,6 +3,7 @@ use crate::error::Error;
 use crate::radio::push_to_talk::PushToTalkRadio;
 use crate::radio::track_audio::TrackAudioRadio;
 use crate::radio::{DynRadio, RadioIntegration};
+use crate::remote::RemoteConfig;
 use anyhow::Context;
 use config::{Config, Environment, File};
 use keyboard_types::Code;
@@ -274,6 +275,14 @@ pub struct ClientConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_client_page_config: Option<String>,
     pub test_profile_watcher_delay_ms: u64,
+    #[serde(default)]
+    pub remote: RemoteConfig,
+    #[serde(default = "default_zoom_level")]
+    pub zoom_level: f64,
+}
+
+fn default_zoom_level() -> f64 {
+    1.0f64
 }
 
 impl Default for ClientConfig {
@@ -294,6 +303,8 @@ impl Default for ClientConfig {
             selected_client_page_config: None,
             extra_client_page_config: None,
             test_profile_watcher_delay_ms: 500,
+            remote: RemoteConfig::default(),
+            zoom_level: 1.0f64,
         }
     }
 }

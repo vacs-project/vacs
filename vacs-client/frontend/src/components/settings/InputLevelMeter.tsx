@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from "preact/hooks";
-import {listen, UnlistenFn} from "@tauri-apps/api/event";
+import {listen, UnlistenFn} from "../../transport";
 import {InputLevel} from "../../types/audio.ts";
 import {clsx} from "clsx";
 import {invokeSafe, invokeStrict} from "../../error.ts";

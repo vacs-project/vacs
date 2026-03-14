@@ -14,16 +14,29 @@ use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::{SignalingClient, SignalingEvent, State};
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
 use vacs_signaling::protocol::http::webrtc::IceConfig;
-use vacs_signaling::protocol::vatsim::{ClientId, PositionId};
+use vacs_signaling::protocol::vatsim::{ClientId, PositionId, StationChange};
 use vacs_signaling::protocol::ws::client::{CallRejectReason, ClientMessage};
 use vacs_signaling::protocol::ws::server::{
     CallCancelReason, DisconnectReason, LoginFailureReason, ServerMessage, SessionProfile,
 };
-use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, CallSource, ErrorReason};
+use vacs_signaling::protocol::ws::shared::{
+    CallErrorReason, CallId, CallInvite, CallSource, ErrorReason,
+};
 use vacs_signaling::protocol::ws::{client, server, shared};
 use vacs_signaling::transport::tokio::TokioTransport;
 
 const INCOMING_CALLS_LIMIT: usize = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConnectionState {
+    #[default]
+    Disconnected,
+    Connecting,
+    Connected,
+    #[allow(dead_code)]
+    Test,
+}
 
 pub trait AppStateSignalingExt: sealed::Sealed {
     async fn connect_signaling(
@@ -36,11 +49,11 @@ pub trait AppStateSignalingExt: sealed::Sealed {
     async fn send_signaling_message(&mut self, msg: impl Into<ClientMessage>) -> Result<(), Error>;
     fn set_client_id(&mut self, client_id: Option<ClientId>);
     fn outgoing_call_id(&self) -> Option<&CallId>;
-    fn set_outgoing_call_id(&mut self, call_id: Option<CallId>);
-    fn remove_outgoing_call_id(&mut self, call_id: &CallId) -> bool;
-    fn incoming_call_ids_len(&self) -> usize;
-    fn add_incoming_call_id(&mut self, call_id: &CallId);
-    fn remove_incoming_call_id(&mut self, call_id: &CallId) -> bool;
+    fn set_outgoing_call(&mut self, invite: Option<CallInvite>);
+    fn remove_outgoing_call(&mut self, call_id: &CallId) -> bool;
+    fn incoming_calls_len(&self) -> usize;
+    fn add_incoming_call(&mut self, invite: CallInvite);
+    fn remove_incoming_call(&mut self, call_id: &CallId) -> bool;
     fn add_incoming_call_to_call_list(
         &mut self,
         app: &AppHandle,
@@ -67,6 +80,7 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         call_id: Option<CallId>,
     ) -> Result<bool, Error>;
     async fn end_call(&mut self, app: &AppHandle, call_id: Option<CallId>) -> Result<bool, Error>;
+    fn clear_session_cache(&mut self);
 }
 
 impl AppStateSignalingExt for AppStateInner {
@@ -141,18 +155,20 @@ impl AppStateSignalingExt for AppStateInner {
     }
 
     fn outgoing_call_id(&self) -> Option<&CallId> {
-        self.outgoing_call_id.as_ref()
+        self.outgoing_call.as_ref().map(|c| &c.call_id)
     }
 
-    fn set_outgoing_call_id(&mut self, call_id: Option<CallId>) {
-        self.outgoing_call_id = call_id;
+    fn set_outgoing_call(&mut self, invite: Option<CallInvite>) {
+        self.outgoing_call = invite;
     }
 
-    fn remove_outgoing_call_id(&mut self, call_id: &CallId) -> bool {
-        if let Some(id) = &self.outgoing_call_id
-            && id == call_id
+    fn remove_outgoing_call(&mut self, call_id: &CallId) -> bool {
+        if self
+            .outgoing_call
+            .as_ref()
+            .is_some_and(|c| c.call_id == *call_id)
         {
-            self.outgoing_call_id = None;
+            self.outgoing_call = None;
             self.audio_manager.read().stop(SourceType::Ringback);
             true
         } else {
@@ -160,17 +176,17 @@ impl AppStateSignalingExt for AppStateInner {
         }
     }
 
-    fn incoming_call_ids_len(&self) -> usize {
-        self.incoming_call_ids.len()
+    fn incoming_calls_len(&self) -> usize {
+        self.incoming_calls.len()
     }
 
-    fn add_incoming_call_id(&mut self, call_id: &CallId) {
-        self.incoming_call_ids.insert(*call_id);
+    fn add_incoming_call(&mut self, invite: CallInvite) {
+        self.incoming_calls.insert(invite.call_id, invite);
     }
 
-    fn remove_incoming_call_id(&mut self, call_id: &CallId) -> bool {
-        let found = self.incoming_call_ids.remove(call_id);
-        if self.incoming_call_ids.is_empty() {
+    fn remove_incoming_call(&mut self, call_id: &CallId) -> bool {
+        let found = self.incoming_calls.remove(call_id).is_some();
+        if self.incoming_calls.is_empty() {
             self.audio_manager.read().stop(SourceType::Ring);
             self.audio_manager.read().stop(SourceType::PriorityRing);
         }
@@ -280,7 +296,7 @@ impl AppStateSignalingExt for AppStateInner {
                         }
 
                         state.cleanup_call(&call_id).await;
-                        state.set_outgoing_call_id(None);
+                        state.set_outgoing_call(None);
 
                         let audio_manager = app.state::<AudioManagerHandle>();
                         audio_manager.read().stop(SourceType::Ringback);
@@ -322,7 +338,7 @@ impl AppStateSignalingExt for AppStateInner {
             return Err(Error::Unauthorized);
         };
 
-        let call_id = match call_id.or_else(|| self.incoming_call_ids.iter().next().cloned()) {
+        let call_id = match call_id.or_else(|| self.incoming_calls.keys().next().copied()) {
             Some(id) => id,
             None => return Ok(false),
         };
@@ -348,7 +364,7 @@ impl AppStateSignalingExt for AppStateInner {
             accepting_client_id: own_client_id,
         })
         .await?;
-        self.remove_incoming_call_id(&call_id);
+        self.remove_incoming_call(&call_id);
 
         self.audio_manager.read().stop(SourceType::Ring);
         self.audio_manager.read().stop(SourceType::PriorityRing);
@@ -364,11 +380,9 @@ impl AppStateSignalingExt for AppStateInner {
             return Err(Error::Unauthorized);
         };
 
-        let Some(call_id) = call_id.or_else(|| {
-            self.active_call_id()
-                .or(self.outgoing_call_id.as_ref())
-                .cloned()
-        }) else {
+        let Some(call_id) =
+            call_id.or_else(|| self.active_call_id().or(self.outgoing_call_id()).cloned())
+        else {
             return Ok(false);
         };
         log::debug!("Ending call {call_id}");
@@ -382,13 +396,20 @@ impl AppStateSignalingExt for AppStateInner {
         self.cleanup_call(&call_id).await;
 
         self.cancel_unanswered_call_timer(&call_id);
-        self.set_outgoing_call_id(None);
+        self.set_outgoing_call(None);
 
         self.audio_manager.read().stop(SourceType::Ringback);
 
         app.emit("signaling:force-call-end", call_id).ok();
 
         Ok(true)
+    }
+
+    fn clear_session_cache(&mut self) {
+        self.connection_state = ConnectionState::Disconnected;
+        self.session_info = None;
+        self.stations.clear();
+        self.clients.clear();
     }
 }
 
@@ -423,14 +444,19 @@ impl AppStateInner {
                     &client_info.frequency,
                 );
 
-                app.emit(
-                    "signaling:connected",
-                    server::SessionInfo {
-                        client: client_info,
-                        profile: SessionProfile::Changed(profile),
-                    },
-                )
-                .ok();
+                let session_info = server::SessionInfo {
+                    client: client_info,
+                    profile: SessionProfile::Changed(profile),
+                };
+
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.connection_state = ConnectionState::Connected;
+                    state.session_info = Some(session_info.clone());
+                }
+
+                app.emit("signaling:connected", session_info).ok();
             }
             SignalingEvent::Message(msg) => Self::handle_signaling_message(msg, app).await,
             SignalingEvent::Error(error) => {
@@ -449,6 +475,7 @@ impl AppStateInner {
 
                         app.emit("signaling:ambiguous-position", &positions).ok();
                     } else if error.can_reconnect() {
+                        state.connection_state = ConnectionState::Connecting;
                         app.emit("signaling:reconnecting", Value::Null).ok();
                     } else {
                         app.emit::<FrontendError>("error", Error::from(error).into())
@@ -487,7 +514,7 @@ impl AppStateInner {
 
                 state.add_incoming_call_to_call_list(app, call_id, source);
 
-                if state.incoming_call_ids_len() >= INCOMING_CALLS_LIMIT {
+                if state.incoming_calls_len() >= INCOMING_CALLS_LIMIT {
                     if let Err(err) = state
                         .send_signaling_message(client::CallReject {
                             call_id: *call_id,
@@ -501,7 +528,7 @@ impl AppStateInner {
                     return;
                 }
 
-                state.add_incoming_call_id(call_id);
+                state.add_incoming_call(msg.clone());
                 app.emit("signaling:call-invite", msg).ok();
 
                 if *prio && state.config.client.call.enable_priority_calls {
@@ -527,7 +554,7 @@ impl AppStateInner {
                 };
 
                 state.cancel_unanswered_call_timer(call_id);
-                let res = if state.remove_outgoing_call_id(call_id) {
+                let res = if state.remove_outgoing_call(call_id) {
                     app.emit("signaling:outgoing-call-accepted", msg).ok();
                     state.update_accepted_call_in_call_list(
                         app,
@@ -659,7 +686,7 @@ impl AppStateInner {
                     log::debug!("Received call end message for peer that is not active");
                 }
 
-                state.remove_incoming_call_id(&call_id);
+                state.remove_incoming_call(&call_id);
 
                 app.emit("signaling:call-end", &call_id).ok();
             }
@@ -679,8 +706,8 @@ impl AppStateInner {
                     log::debug!("Received call end message for call that is not active");
                 }
 
-                state.remove_outgoing_call_id(&call_id);
-                state.remove_incoming_call_id(&call_id);
+                state.remove_outgoing_call(&call_id);
+                state.remove_incoming_call(&call_id);
 
                 state.cancel_unanswered_call_timer(&call_id);
 
@@ -696,8 +723,8 @@ impl AppStateInner {
                 state.cleanup_call(&call_id).await;
 
                 // Remove from outgoing and incoming states
-                state.remove_outgoing_call_id(&call_id);
-                state.remove_incoming_call_id(&call_id);
+                state.remove_outgoing_call(&call_id);
+                state.remove_incoming_call(&call_id);
 
                 state.cancel_unanswered_call_timer(&call_id);
 
@@ -732,34 +759,69 @@ impl AppStateInner {
             ServerMessage::ClientConnected(server::ClientConnected { client }) => {
                 log::trace!("Client connected: {client:?}");
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.clients.push(client.clone());
+                }
+
                 app.emit("signaling:client-connected", client).ok();
             }
             ServerMessage::ClientDisconnected(server::ClientDisconnected { client_id }) => {
                 log::trace!("Client disconnected: {client_id:?}");
+
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.clients.retain(|c| c.id != client_id);
+                }
 
                 app.emit("signaling:client-disconnected", client_id).ok();
             }
             ServerMessage::ClientList(server::ClientList { clients }) => {
                 log::trace!("Received client list: {} clients connected", clients.len());
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.clients = clients.clone();
+                }
+
                 app.emit("signaling:client-list", clients).ok();
             }
             ServerMessage::ClientInfo(info) => {
                 log::trace!("Received client info: {info:?}");
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    if let Some(existing) = state.clients.iter_mut().find(|c| c.id == info.id) {
+                        *existing = info.clone();
+                    } else {
+                        state.clients.push(info.clone());
+                    }
+                }
+
                 app.emit("signaling:client-connected", info).ok();
             }
-            ref msg @ ServerMessage::SessionInfo(server::SessionInfo {
-                ref client,
-                ref profile,
-            }) => {
-                log::trace!("Received session info for client {client:?}: {profile}");
+            ServerMessage::SessionInfo(session_info) => {
+                log::trace!(
+                    "Received session info for client {:?}: {}",
+                    &session_info.client,
+                    &session_info.profile
+                );
 
-                if let SessionProfile::Changed(active_profile) = profile {
+                if let SessionProfile::Changed(ref active_profile) = session_info.profile {
                     log::debug!("Active profile changed: {active_profile}");
                 }
 
-                app.emit("signaling:connected", msg).ok();
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.session_info = Some(session_info.clone());
+                }
+
+                app.emit("signaling:connected", session_info).ok();
             }
             ServerMessage::StationList(server::StationList { stations }) => {
                 log::trace!(
@@ -768,10 +830,53 @@ impl AppStateInner {
                     stations.iter().filter(|s| s.own).count()
                 );
 
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    state.stations = stations.clone();
+                }
+
                 app.emit("signaling:station-list", stations).ok();
             }
             ServerMessage::StationChanges(server::StationChanges { changes }) => {
                 log::trace!("Received station changes: {changes:?}");
+
+                {
+                    let state = app.state::<AppState>();
+                    let mut state = state.lock().await;
+                    let own_position_id = state
+                        .session_info
+                        .as_ref()
+                        .and_then(|s| s.client.position_id.clone());
+
+                    for change in &changes {
+                        match change {
+                            StationChange::Online {
+                                station_id,
+                                position_id,
+                            } => {
+                                state.stations.push(server::StationInfo {
+                                    id: station_id.clone(),
+                                    own: own_position_id.as_ref() == Some(position_id),
+                                });
+                            }
+                            StationChange::Handoff {
+                                station_id,
+                                to_position_id,
+                                ..
+                            } => {
+                                if let Some(s) =
+                                    state.stations.iter_mut().find(|s| s.id == *station_id)
+                                {
+                                    s.own = own_position_id.as_ref() == Some(to_position_id);
+                                }
+                            }
+                            StationChange::Offline { station_id } => {
+                                state.stations.retain(|s| s.id != *station_id);
+                            }
+                        }
+                    }
+                }
 
                 app.emit("signaling:station-changes", changes).ok();
             }
@@ -824,8 +929,8 @@ impl AppStateInner {
                         let mut state = state.lock().await;
 
                         state.cleanup_call(&call_id).await;
-                        state.remove_outgoing_call_id(&call_id);
-                        state.remove_incoming_call_id(&call_id);
+                        state.remove_outgoing_call(&call_id);
+                        state.remove_incoming_call(&call_id);
 
                         app.emit("signaling:force-call-end", call_id).ok();
                     }
@@ -865,8 +970,9 @@ impl AppStateInner {
     }
 
     async fn cleanup_signaling(&mut self, app: &AppHandle) {
-        self.incoming_call_ids.clear();
-        self.outgoing_call_id = None;
+        self.incoming_calls.clear();
+        self.outgoing_call = None;
+        self.clear_session_cache();
 
         {
             let mut audio_manager = self.audio_manager.write();

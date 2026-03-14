@@ -7,6 +7,7 @@ mod error;
 mod keybinds;
 mod platform;
 mod radio;
+mod remote;
 mod secrets;
 mod signaling;
 
@@ -24,6 +25,7 @@ use crate::platform::Capabilities;
 use tauri::{App, Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex as TokioMutex;
+use tokio_util::sync::CancellationToken;
 
 pub fn run() {
     tauri::Builder::default()
@@ -87,6 +89,7 @@ pub fn run() {
                 let transmit_config = state.config.client.transmit_config.clone();
                 let call_control_config = state.config.client.keybinds.clone();
                 let keybind_engine = state.keybind_engine_handle();
+                let remote_config = state.config.client.remote.clone();
 
                 app.manage::<HttpState>(HttpState::new(app.handle())?);
                 app.manage::<AudioManagerHandle>(state.audio_manager_handle());
@@ -104,6 +107,27 @@ pub fn run() {
                 }
 
                 app.manage::<KeybindEngineHandle>(keybind_engine);
+
+                if remote_config.enabled {
+                    let shutdown_token = CancellationToken::new();
+                    app.manage(shutdown_token.clone());
+
+                    let app_handle = app.handle().clone();
+                    tokio::spawn(async move {
+                        if let Err(err) = remote::start_server(
+                            app_handle,
+                            remote_config.listen_addr,
+                            remote_config.serve_frontend,
+                            shutdown_token,
+                        )
+                        .await
+                        {
+                            log::error!("Remote control server error: {err}");
+                        }
+                    });
+                } else {
+                    log::info!("Remote control server is disabled");
+                }
 
                 Ok(())
             }
@@ -123,6 +147,7 @@ pub fn run() {
             app::commands::app_frontend_ready,
             app::commands::app_get_call_config,
             app::commands::app_get_client_page_settings,
+            app::commands::app_get_version,
             app::commands::app_load_extra_client_page_config,
             app::commands::app_load_test_profile,
             app::commands::app_open_folder,
@@ -133,6 +158,7 @@ pub fn run() {
             app::commands::app_set_call_config,
             app::commands::app_set_fullscreen,
             app::commands::app_set_selected_client_page_config,
+            app::commands::app_change_zoom_level,
             app::commands::app_unload_test_profile,
             app::commands::app_update,
             audio::commands::audio_get_devices,
@@ -167,6 +193,8 @@ pub fn run() {
             signaling::commands::signaling_remove_ignored_client,
             signaling::commands::signaling_start_call,
             signaling::commands::signaling_terminate,
+            remote::commands::remote_broadcast_store_sync,
+            remote::commands::remote_is_enabled,
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build tauri application")
@@ -196,6 +224,11 @@ pub fn run() {
                     }
 
                     app_handle.state::<KeybindEngineHandle>().write().await.shutdown();
+
+                    if let Some(shutdown_token) = app_handle.try_state::<CancellationToken>() {
+                        log::debug!("Cancelling shutdown token");
+                        shutdown_token.cancel();
+                    }
 
                     app_handle.state::<AppState>().lock().await.shutdown();
                 });

@@ -2,11 +2,16 @@ import {clsx} from "clsx";
 import {useUpdateStore} from "../../stores/update-store.ts";
 import Button from "../ui/Button.tsx";
 import {useEffect, useRef, useState} from "preact/hooks";
-import {getCurrentWindow} from "@tauri-apps/api/window";
 import {useAsyncDebounceState} from "../../hooks/debounce-hook.ts";
-import {listen, UnlistenFn} from "@tauri-apps/api/event";
+import {listen, UnlistenFn, isTauri, invoke} from "../../transport";
 import {invokeStrict} from "../../error.ts";
-import {getVersion} from "@tauri-apps/api/app";
+
+async function closeWindow(): Promise<void> {
+    if (isTauri) {
+        const mod = await import("@tauri-apps/api/window");
+        await mod.getCurrentWindow().close();
+    }
+}
 
 function UpdateOverlay() {
     const overlayVisible = useUpdateStore(state => state.overlayVisible);
@@ -49,7 +54,7 @@ function UpdateOverlay() {
                     closeOverlay();
                 }
             } catch {
-                setUpdateVersions(await getVersion());
+                setUpdateVersions(await invoke("app_get_version"));
                 closeOverlay();
             }
         };
@@ -106,7 +111,7 @@ function UpdateOverlay() {
                             className="px-3 py-1"
                             muted={true}
                             disabled={updating}
-                            onClick={() => getCurrentWindow().close()}
+                            onClick={() => void closeWindow()}
                         >
                             Quit
                         </Button>

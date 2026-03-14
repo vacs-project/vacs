@@ -8,10 +8,11 @@ import {useConnectionStore} from "./connection-store.ts";
 import {useCallListStore} from "./call-list-store.ts";
 import {useStationsStore} from "./stations-store.ts";
 
-type ConnectionState = "connecting" | "connected" | "disconnected";
+export type ConnectionState = "connecting" | "connected" | "disconnected";
+export type CallDisplayType = "outgoing" | "accepted" | "rejected" | "error";
 
-type CallDisplay = {
-    type: "outgoing" | "accepted" | "rejected" | "error";
+export type CallDisplay = {
+    type: CallDisplayType;
     call: Call;
     targetClientId?: ClientId;
     errorReason?: string;
@@ -37,6 +38,8 @@ type CallState = {
         dismissErrorCall: () => void;
         setConnectionState: (id: CallId, connectionState: ConnectionState) => void;
         setPrio: (prio: boolean) => void;
+        startBlink: () => void;
+        stopBlink: () => void;
         reset: () => void;
     };
 };
@@ -51,7 +54,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
     actions: {
         setOutgoingCall: call => {
             if (call.prio && get().blinkTimeoutId === undefined) {
-                startBlink(set);
+                get().actions.startBlink();
             }
 
             set({callDisplay: {type: "outgoing", call, connectionState: undefined}});
@@ -63,8 +66,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== callId);
 
             if (shouldStopBlinking(incomingCalls.length, get().callDisplay)) {
-                clearTimeout(get().blinkTimeoutId);
-                set({blink: false, blinkTimeoutId: undefined});
+                get().actions.stopBlink();
             }
 
             set({
@@ -89,8 +91,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 connectionState: "connecting",
             };
             if (shouldStopBlinking(get().incomingCalls.length, nextCallDisplay)) {
-                clearTimeout(get().blinkTimeoutId);
-                set({blink: false, blinkTimeoutId: undefined});
+                get().actions.stopBlink();
             }
 
             set({
@@ -99,17 +100,14 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
         endCall: () => {
             if (shouldStopBlinking(get().incomingCalls.length, undefined)) {
-                clearTimeout(get().blinkTimeoutId);
-                set({blink: false, blinkTimeoutId: undefined});
+                get().actions.stopBlink();
             }
             set({callDisplay: undefined});
         },
         addIncomingCall: call => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== call.callId);
 
-            if (get().blinkTimeoutId === undefined) {
-                startBlink(set);
-            }
+            get().actions.startBlink();
 
             set({incomingCalls: [...incomingCalls, call]});
         },
@@ -126,8 +124,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
             }
 
             if (shouldStopBlinking(incomingCalls.length, callDisplay)) {
-                clearTimeout(get().blinkTimeoutId);
-                set({blink: false, blinkTimeoutId: undefined, incomingCalls: [], callDisplay});
+                get().actions.stopBlink();
+                set({incomingCalls: [], callDisplay});
             } else {
                 set({incomingCalls, callDisplay});
             }
@@ -148,16 +146,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 callDisplay: {type: "rejected", call: callDisplay.call, connectionState: undefined},
             });
 
-            if (get().blinkTimeoutId === undefined) {
-                startBlink(set);
-            }
+            get().actions.startBlink();
         },
         dismissRejectedCall: () => {
             set({callDisplay: undefined});
 
             if (shouldStopBlinking(get().incomingCalls.length, undefined)) {
-                clearTimeout(get().blinkTimeoutId);
-                set({blink: false, blinkTimeoutId: undefined});
+                get().actions.stopBlink();
             }
         },
         errorCall: (callId, reason) => {
@@ -181,16 +176,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 },
             });
 
-            if (get().blinkTimeoutId === undefined) {
-                startBlink(set);
-            }
+            get().actions.startBlink();
         },
         dismissErrorCall: () => {
             set({callDisplay: undefined});
 
             if (shouldStopBlinking(get().incomingCalls.length, undefined)) {
-                clearTimeout(get().blinkTimeoutId);
-                set({blink: false, blinkTimeoutId: undefined});
+                get().actions.stopBlink();
             }
         },
         setConnectionState: (callId, connectionState) => {
@@ -203,47 +195,40 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({callDisplay: {...callDisplay, connectionState}});
         },
         setPrio: prio => set({prio}),
-        reset: () => {
+        startBlink: () => {
+            if (get().blinkTimeoutId !== undefined) return;
+            const toggleBlink = (blink: boolean) => {
+                const timeoutId = setTimeout(() => {
+                    toggleBlink(!blink);
+                }, 500);
+                set({blinkTimeoutId: timeoutId, blink: blink});
+            };
+            toggleBlink(true);
+        },
+        stopBlink: () => {
+            if (get().blinkTimeoutId === undefined) return;
             clearTimeout(get().blinkTimeoutId);
+            set({blink: false, blinkTimeoutId: undefined});
+        },
+        reset: () => {
+            get().actions.stopBlink();
             set({
                 callDisplay: undefined,
                 incomingCalls: [],
-                blink: false,
-                blinkTimeoutId: undefined,
             });
         },
     },
 }));
 
-const shouldStopBlinking = (incomingCallsLength: number, callDisplay?: CallDisplay) => {
+export const shouldStopBlinking = (incomingCallsLength: number, callDisplay?: CallDisplay) => {
     return (
         incomingCallsLength === 0 &&
         (callDisplay === undefined ||
             (callDisplay.type !== "rejected" &&
                 callDisplay.type !== "error" &&
-                callDisplay.type === "accepted"))
+                callDisplay.type === "accepted") ||
+            (callDisplay.type === "outgoing" && !callDisplay.call.prio))
     );
-};
-
-const startBlink = (set: StateSetter) => {
-    const toggleBlink = (blink: boolean) => {
-        const timeoutId = setTimeout(() => {
-            toggleBlink(!blink);
-        }, 500);
-        set({blinkTimeoutId: timeoutId, blink: blink});
-    };
-    toggleBlink(true);
-};
-
-type StateSetter = {
-    (
-        partial:
-            | CallState
-            | Partial<CallState>
-            | ((state: CallState) => CallState | Partial<CallState>),
-        replace?: false,
-    ): void;
-    (state: CallState | ((state: CallState) => CallState), replace: true): void;
 };
 
 export const startCall = async (target: CallTarget) => {

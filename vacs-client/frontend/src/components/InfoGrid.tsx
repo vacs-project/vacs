@@ -5,8 +5,17 @@ import {useUpdateStore} from "../stores/update-store.ts";
 import {navigate} from "wouter/use-browser-location";
 import {invokeSafe} from "../error.ts";
 import {clsx} from "clsx";
-import {openUrl} from "@tauri-apps/plugin-opener";
+import {isTauri} from "../transport";
 import {useConnectionStore} from "../stores/connection-store.ts";
+
+async function openUrl(url: string): Promise<void> {
+    if (isTauri) {
+        const mod = await import("@tauri-apps/plugin-opener");
+        await mod.openUrl(url);
+    } else {
+        window.open(url, "_blank");
+    }
+}
 
 function InfoGrid() {
     const cid = useAuthStore(state => state.cid);

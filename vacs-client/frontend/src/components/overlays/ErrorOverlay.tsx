@@ -4,13 +4,14 @@ import {clsx} from "clsx";
 function ErrorOverlay() {
     const visible = useErrorOverlayStore(state => state.visible);
     const title = useErrorOverlayStore(state => state.title);
-    const message = useErrorOverlayStore(state => state.message);
+    const detail = useErrorOverlayStore(state => state.detail);
     const isNonCritical = useErrorOverlayStore(state => state.isNonCritical);
+    const dismissable = useErrorOverlayStore(state => state.dismissable);
 
     const close = useErrorOverlayStore(state => state.close);
 
     const handleClick = () => {
-        close();
+        if (dismissable) close();
     };
 
     return visible ? (
@@ -27,7 +28,7 @@ function ErrorOverlay() {
                 )}
             >
                 <p className="w-full text-center text-lg font-semibold wrap-break-word">{title}</p>
-                <p className="w-full text-center wrap-break-word">{message}</p>
+                <p className="w-full text-center wrap-break-word">{detail}</p>
             </div>
         </div>
     ) : (

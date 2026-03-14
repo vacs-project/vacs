@@ -3,7 +3,7 @@ import InfoGrid from "./components/InfoGrid.tsx";
 import FunctionKeys from "./components/FunctionKeys.tsx";
 import CallQueue from "./components/CallQueue.tsx";
 import {useEffect} from "preact/hooks";
-import {invoke} from "@tauri-apps/api/core";
+import {invoke} from "./transport";
 import {Route, Switch} from "wouter";
 import LoginPage from "./pages/LoginPage.tsx";
 import {useAuthStore} from "./stores/auth-store.ts";
@@ -22,6 +22,7 @@ import PhoneButton from "./components/ui/PhoneButton.tsx";
 import RadioPrioButton from "./components/ui/RadioPrioButton.tsx";
 import EndButton from "./components/ui/EndButton.tsx";
 import {setupWebrtcListeners} from "./listeners/webrtc-listener.ts";
+import {setupStoreSync} from "./transport/store-sync.ts";
 import UpdateOverlay from "./components/overlays/UpdateOverlay.tsx";
 import {fetchCapabilities} from "./stores/capabilities-store.ts";
 import RadioButton from "./components/ui/RadioButton.tsx";
@@ -51,6 +52,7 @@ function App() {
         cleanups.push(setupAuthListeners());
         cleanups.push(setupSignalingListeners());
         cleanups.push(setupWebrtcListeners());
+        cleanups.push(setupStoreSync());
 
         void invokeSafe("auth_check_session");
 
@@ -64,7 +66,7 @@ function App() {
     }, []);
 
     return (
-        <div className="h-screen flex flex-col">
+        <div className="h-full flex flex-col">
             <div className="w-full h-12 bg-gray-300 flex flex-row border-gray-700 border-b">
                 <Clock />
                 <InfoGrid />
