@@ -35,9 +35,9 @@ export const useErrorOverlayStore = create<ErrorOverlayState>()((set, get) => ({
     dismissable: true,
     timeoutId: undefined,
     open: (title, detail, isNonCritical, timeoutMs, dismissable = true) => {
-        const previous_timeout_id = get().timeoutId;
-        if (previous_timeout_id !== undefined) {
-            clearTimeout(previous_timeout_id);
+        const previousTimeoutId = get().timeoutId;
+        if (previousTimeoutId !== undefined) {
+            clearTimeout(previousTimeoutId);
         }
 
         const timeout_id =

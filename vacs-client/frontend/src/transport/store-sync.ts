@@ -1,10 +1,9 @@
-import {invoke, isRemote, listen} from "./index.ts";
+import {invoke, isRemote, isTauri, listen} from "./index.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
-import {type CallDisplayType, useCallStore} from "../stores/call-store.ts";
+import {CallDisplay, shouldStopBlinking, useCallStore} from "../stores/call-store.ts";
 import {type CallListItem, useCallListStore} from "../stores/call-list-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import type {CallId, StationId} from "../types/generic.ts";
-import type {UnlistenFn} from "./types.ts";
 import type {ClientPageConfig} from "../types/client.ts";
 import type {CallConfig} from "../types/settings.ts";
 
@@ -15,7 +14,7 @@ type StationsSync = {
 
 type CallSync = {
     prio: boolean;
-    callDisplay: {type: CallDisplayType; call: {prio: boolean}} | null;
+    callDisplay: CallDisplay | undefined | null;
 };
 
 type CallListSync = {
@@ -67,36 +66,21 @@ function applySync(payload: SyncPayload) {
             break;
         }
         case "call": {
+            const {
+                incomingCalls,
+                actions: {setPrio, startBlink, stopBlink},
+            } = useCallStore.getState();
             const {prio, callDisplay} = payload.state;
-            const actions = useCallStore.getState().actions;
-            actions.setPrio(prio);
+            setPrio(prio);
 
-            const current = useCallStore.getState().callDisplay;
+            if (callDisplay !== null) {
+                useCallStore.setState({callDisplay});
 
-            if (callDisplay == null) {
-                if (current != null) actions.endCall();
-            } else {
-                useCallStore.setState({callDisplay: callDisplay as never});
-
-                const incomingCount = useCallStore.getState().incomingCalls.length;
-                const shouldBlink =
-                    incomingCount > 0 ||
-                    (callDisplay.type === "outgoing" && callDisplay.call.prio) ||
-                    callDisplay.type === "rejected" ||
-                    callDisplay.type === "error";
-
-                const blinkTimeoutId = useCallStore.getState().blinkTimeoutId;
-                if (shouldBlink && blinkTimeoutId === undefined) {
-                    const toggleBlink = (blink: boolean) => {
-                        const timeoutId = setTimeout(() => {
-                            toggleBlink(!blink);
-                        }, 500);
-                        useCallStore.setState({blinkTimeoutId: timeoutId, blink});
-                    };
-                    toggleBlink(true);
-                } else if (!shouldBlink && blinkTimeoutId !== undefined) {
-                    clearTimeout(blinkTimeoutId);
-                    useCallStore.setState({blink: false, blinkTimeoutId: undefined});
+                const shouldStartBlink = !shouldStopBlinking(incomingCalls.length, callDisplay);
+                if (shouldStartBlink) {
+                    startBlink();
+                } else {
+                    stopBlink();
                 }
             }
             break;
@@ -133,37 +117,39 @@ export function setupStoreSync(): () => void {
 }
 
 function startSync(): () => void {
-    const unsubs: (() => void)[] = [];
+    const unlistenFns: (() => void)[] = [];
 
-    unsubs.push(
+    unlistenFns.push(
         subscribeFields(useStationsStore, "stations", s => ({
             defaultSource: s.defaultSource,
             temporarySource: s.temporarySource,
         })),
     );
 
-    unsubs.push(
+    unlistenFns.push(
         subscribeFields(useCallStore, "call", s => ({
             prio: s.prio,
-            callDisplay: s.callDisplay ?? null,
+            callDisplay:
+                s.callDisplay === undefined || s.callDisplay.type === "outgoing"
+                    ? s.callDisplay
+                    : null,
         })),
     );
 
-    unsubs.push(
+    unlistenFns.push(
         subscribeFields(useCallListStore, "callList", s => ({
             callList: Array.from(s.callList.entries()),
         })),
     );
 
-    unsubs.push(
+    unlistenFns.push(
         subscribeFields(useSettingsStore, "settings", s => ({
             callConfig: s.callConfig,
             selectedClientPageConfig: s.selectedClientPageConfig,
         })),
     );
 
-    let unlistenSync: UnlistenFn | undefined;
-    const unlistenPromise = listen<SyncPayload>("store:sync", event => {
+    const unlistenSync = listen<SyncPayload>("store:sync", event => {
         applying = true;
         try {
             applySync(event.payload);
@@ -171,12 +157,45 @@ function startSync(): () => void {
             applying = false;
         }
     });
-    void unlistenPromise.then(fn => {
-        unlistenSync = fn;
-    });
+    unlistenFns.push(() => unlistenSync.then(fn => fn()));
+
+    if (isTauri) {
+        const unlistenSyncRequest = listen("store:sync:request", () => {
+            broadcastAllStoreState();
+        });
+        unlistenFns.push(() => unlistenSyncRequest.then(fn => fn()));
+    }
 
     return () => {
-        unsubs.forEach(fn => fn());
-        unlistenSync?.();
+        unlistenFns.forEach(fn => fn());
     };
+}
+
+function broadcastAllStoreState() {
+    const broadcast = <K extends SyncStoreName>(name: K, state: SyncMap[K]) => {
+        void invoke("remote_broadcast_store_sync", {store: name, state});
+    };
+
+    const stations = useStationsStore.getState();
+    broadcast("stations", {
+        defaultSource: stations.defaultSource,
+        temporarySource: stations.temporarySource,
+    });
+
+    const call = useCallStore.getState();
+    broadcast("call", {
+        prio: call.prio,
+        callDisplay: call.callDisplay,
+    });
+
+    const callList = useCallListStore.getState();
+    broadcast("callList", {
+        callList: Array.from(callList.callList.entries()),
+    });
+
+    const settings = useSettingsStore.getState();
+    broadcast("settings", {
+        callConfig: settings.callConfig,
+        selectedClientPageConfig: settings.selectedClientPageConfig,
+    });
 }
