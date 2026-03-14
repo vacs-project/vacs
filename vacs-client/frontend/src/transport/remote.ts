@@ -157,6 +157,7 @@ class RemoteTransport {
             const snapshot = await this.invoke<SessionStateSnapshot>("remote_get_session_state");
             const {hydrateStores} = await import("./hydrate.ts");
             hydrateStores(snapshot);
+            await this.invoke("remote_request_store_sync");
         } catch (e) {
             console.error("[remote] Failed to hydrate stores from snapshot:", e);
         }

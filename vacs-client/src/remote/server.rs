@@ -525,6 +525,11 @@ async fn dispatch_command(
             DispatchResult::Ok(serde_json::Value::Null)
         }
 
+        RemoteRequestStoreSync => {
+            app.emit("store:sync:request", ()).ok();
+            DispatchResult::Ok(serde_json::Value::Null)
+        }
+
         RemoteGetSessionState => {
             let app_state = app.state::<AppState>();
             let state = app_state.lock().await;

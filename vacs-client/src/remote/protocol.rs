@@ -197,6 +197,7 @@ pub enum RemoteCommand {
 
     RemoteBroadcastStoreSync,
     RemoteGetSessionState,
+    RemoteRequestStoreSync,
 
     SignalingConnect,
     SignalingDisconnect,
@@ -258,6 +259,7 @@ pub enum RemoteEvent {
     SignalingStationList,
     SignalingTestProfile,
     SignalingUpdateCallList,
+    StoreSyncRequest,
     UpdateProgress,
     WebrtcCallConnected,
     WebrtcCallDisconnected,
@@ -297,6 +299,7 @@ impl RemoteEvent {
         Self::SignalingTestProfile,
         Self::SignalingUpdateCallList,
         Self::StoreSync,
+        Self::StoreSyncRequest,
         Self::UpdateProgress,
         Self::WebrtcCallConnected,
         Self::WebrtcCallDisconnected,
@@ -335,6 +338,7 @@ impl RemoteEvent {
             Self::SignalingTestProfile => "signaling:test-profile",
             Self::SignalingUpdateCallList => "signaling:update-call-list",
             Self::StoreSync => "store:sync",
+            Self::StoreSyncRequest => "store:sync:request",
             Self::UpdateProgress => "update:progress",
             Self::WebrtcCallConnected => "webrtc:call-connected",
             Self::WebrtcCallDisconnected => "webrtc:call-disconnected",
