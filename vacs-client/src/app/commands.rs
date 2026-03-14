@@ -129,6 +129,11 @@ pub async fn app_check_for_update(app: AppHandle) -> Result<UpdateInfo, Error> {
 }
 
 #[tauri::command]
+pub fn app_get_version() -> String {
+    VersionInfo::gather().version.to_string()
+}
+
+#[tauri::command]
 pub fn app_quit(app: AppHandle, window: WebviewWindow) {
     log::info!("Quitting");
     if let Err(err) = window.close() {
