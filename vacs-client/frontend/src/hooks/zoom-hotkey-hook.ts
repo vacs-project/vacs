@@ -1,60 +1,64 @@
-import {useEffect, useState} from "preact/hooks";
-import {CSSProperties} from "preact";
+import {useEffect} from "preact/hooks";
 import {invoke, isTauri} from "../transport";
 
 const ZoomFactor = 0.05;
 const BrowserZoomStorageKey = "vacs-remote-zoom-level";
 
-export function useZoomHotkey(): CSSProperties {
-    const [zoomLevel, setZoomLevel] = useState(1);
+type ZoomChange = "increase" | "decrease" | "reset";
 
-    useEffect(() => {
-        if (isTauri) {
-            void invoke<number>("app_get_zoom_level").then(setZoomLevel);
-        } else {
-            const stored = localStorage.getItem(BrowserZoomStorageKey);
-            if (stored) setZoomLevel(parseFloat(stored));
+export function useZoomHotkey() {
+    async function handleZoomKeyDown(event: KeyboardEvent) {
+        if (!(event.ctrlKey || event.metaKey)) return;
+
+        const key = event.key;
+        const code = event.code;
+
+        let change: ZoomChange | undefined;
+        if (key === "+" || code === "NumpadAdd") {
+            change = "increase";
+        } else if (key === "-" || code === "NumpadSubtract") {
+            change = "decrease";
+        } else if (key === "0" || code === "Digit0") {
+            change = "reset";
         }
-    }, []);
+
+        if (change !== undefined) {
+            event.preventDefault();
+
+            if (isTauri) {
+                void invoke("app_change_zoom_level", {change});
+            } else {
+                const stored = localStorage.getItem(BrowserZoomStorageKey);
+                let current = stored !== null ? parseFloat(stored) : 1.0;
+
+                switch (change) {
+                    case "increase":
+                        current += ZoomFactor;
+                        break;
+                    case "decrease":
+                        current = Math.max(current - ZoomFactor, ZoomFactor);
+                        break;
+                    case "reset":
+                        current = 1.0;
+                        break;
+                }
+
+                const s = current.toString();
+                localStorage.setItem(BrowserZoomStorageKey, s);
+                document.documentElement.style.zoom = s;
+            }
+        }
+    }
 
     useEffect(() => {
-        const handleZoomKeyDown = async (event: KeyboardEvent) => {
-            if (!(event.ctrlKey || event.metaKey)) return;
-
-            const key = event.key;
-            const code = event.code;
-
-            let newZoom: number | undefined;
-            if (key === "+" || code === "NumpadAdd") {
-                newZoom = zoomLevel + ZoomFactor;
-            } else if (key === "-" || code === "NumpadSubtract") {
-                newZoom = Math.max(zoomLevel - ZoomFactor, ZoomFactor);
-            } else if (key === "0" || code === "Digit0") {
-                newZoom = 1;
+        if (!isTauri) {
+            const stored = localStorage.getItem(BrowserZoomStorageKey);
+            if (stored) {
+                document.documentElement.style.zoom = stored;
             }
-
-            if (newZoom !== undefined) {
-                event.preventDefault();
-
-                if (isTauri) {
-                    newZoom = await invoke<number>("app_set_zoom_level", {zoomLevel: newZoom});
-                }
-                setZoomLevel(newZoom);
-                if (!isTauri) {
-                    localStorage.setItem(BrowserZoomStorageKey, String(newZoom));
-                }
-            }
-        };
+        }
 
         document.addEventListener("keydown", handleZoomKeyDown);
         return () => document.removeEventListener("keydown", handleZoomKeyDown);
-    }, [zoomLevel]);
-
-    if (isTauri || zoomLevel === 1) return {};
-    return {
-        transform: `scale(${zoomLevel})`,
-        transformOrigin: "top left",
-        width: `${100 / zoomLevel}%`,
-        height: `${100 / zoomLevel}%`,
-    };
+    }, []);
 }
