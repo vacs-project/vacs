@@ -96,6 +96,9 @@ function geoPageContainerToKeys(container: GeoPageContainer): DirectAccessKey[] 
         if (isGeoPageContainer(c)) {
             return geoPageContainerToKeys(c);
         } else if (isGeoPageButton(c)) {
+            if (c.stationId) {
+                return [c];
+            }
             return directAccessPageToStationKeys(c.page);
         }
         return [];
