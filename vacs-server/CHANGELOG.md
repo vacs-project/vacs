@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.1.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.0.0...vacs-server-v2.1.0) (2026-03-14)
+
+
+### Features
+
+* **vacs-server:** add coverage debug endpoints ([#623](https://github.com/vacs-project/vacs/issues/623)) ([b609bb0](https://github.com/vacs-project/vacs/commit/b609bb0dd95a54d5e8883466e2281cd50022156e))
+* **vacs-server:** add token-based authentication ([#615](https://github.com/vacs-project/vacs/issues/615)) ([f79ee01](https://github.com/vacs-project/vacs/commit/f79ee01b6d8b56bf7ed270ff5d9b4f888538527a))
+* **vacs-server:** extend metrics to include call routing and coverage ([#624](https://github.com/vacs-project/vacs/issues/624)) ([e60a0a3](https://github.com/vacs-project/vacs/commit/e60a0a3a3cb5f029dfb6e2a0daf68e28ba28e424))
+
+
+### Bug Fixes
+
+* **vacs-server:** correct station handoff handling in coverage state sync ([#630](https://github.com/vacs-project/vacs/issues/630)) ([5ed1aae](https://github.com/vacs-project/vacs/commit/5ed1aae0782454f001e2374c29a3c8de92442f99))
+
 ## [2.0.0](https://github.com/vacs-project/vacs/compare/vacs-server-v1.1.1...vacs-server-v2.0.0) (2026-03-01)
 
 
