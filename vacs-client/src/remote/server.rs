@@ -327,6 +327,7 @@ async fn dispatch_command(
             let app_state = app.state::<AppState>();
             dispatch(app_set_selected_client_page_config(app.clone(), app_state, config_name).await)
         }
+        AppGetVersion => dispatch(Ok(app_get_version())),
 
         AudioGetHosts => {
             let app_state = app.state::<AppState>();

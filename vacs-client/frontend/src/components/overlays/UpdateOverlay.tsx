@@ -3,16 +3,8 @@ import {useUpdateStore} from "../../stores/update-store.ts";
 import Button from "../ui/Button.tsx";
 import {useEffect, useRef, useState} from "preact/hooks";
 import {useAsyncDebounceState} from "../../hooks/debounce-hook.ts";
-import {listen, UnlistenFn, isTauri} from "../../transport";
+import {listen, UnlistenFn, isTauri, invoke} from "../../transport";
 import {invokeStrict} from "../../error.ts";
-
-async function getVersion(): Promise<string> {
-    if (isTauri) {
-        const mod = await import("@tauri-apps/api/app");
-        return mod.getVersion();
-    }
-    return "unknown";
-}
 
 async function closeWindow(): Promise<void> {
     if (isTauri) {
@@ -62,7 +54,7 @@ function UpdateOverlay() {
                     closeOverlay();
                 }
             } catch {
-                setUpdateVersions(await getVersion());
+                setUpdateVersions(await invoke("app_get_version"));
                 closeOverlay();
             }
         };

@@ -167,6 +167,7 @@ pub enum RemoteCommand {
     AppGetClientPageSettings,
     AppSetSelectedClientPageConfig,
     AppLoadExtraClientPageConfig,
+    AppGetVersion,
 
     AudioGetHosts,
     AudioSetHost,

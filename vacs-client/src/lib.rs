@@ -147,6 +147,7 @@ pub fn run() {
             app::commands::app_frontend_ready,
             app::commands::app_get_call_config,
             app::commands::app_get_client_page_settings,
+            app::commands::app_get_version,
             app::commands::app_get_zoom_level,
             app::commands::app_load_extra_client_page_config,
             app::commands::app_load_test_profile,

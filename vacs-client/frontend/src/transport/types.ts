@@ -20,6 +20,7 @@ export type RemoteCommand =
     | "app_set_zoom_level"
     | "app_unload_test_profile"
     | "app_update"
+    | "app_get_version"
     | "audio_get_devices"
     | "audio_get_hosts"
     | "audio_get_volumes"
