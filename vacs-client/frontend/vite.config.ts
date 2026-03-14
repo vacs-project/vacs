@@ -1,3 +1,5 @@
+/// <reference types="vitest/config" />
+
 import {defineConfig} from "vite";
 import preact from "@preact/preset-vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -27,5 +29,12 @@ export default defineConfig(async () => ({
                   port: 1421,
               }
             : undefined,
+    },
+
+    // https://vitest.dev/config/
+    test: {
+        globals: true,
+        environment: "jsdom",
+        setupFiles: ["./test/setup.ts"],
     },
 }));
