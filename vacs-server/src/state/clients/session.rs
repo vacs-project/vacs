@@ -209,6 +209,11 @@ impl ClientSession {
                     ActiveProfile::Custom => SessionProfile::Changed(ActiveProfile::Custom),
                     ActiveProfile::None => SessionProfile::Changed(ActiveProfile::None),
                 },
+                default_call_sources: app_state
+                    .clients
+                    .get_position(self.position_id())
+                    .map(|p| p.default_call_sources.clone())
+                    .unwrap_or_default(),
             },
         )
         .await

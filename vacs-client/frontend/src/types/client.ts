@@ -1,4 +1,4 @@
-import {ClientId, PositionId} from "./generic.ts";
+import {ClientId, PositionId, StationId} from "./generic.ts";
 import {SessionProfile} from "./profile.ts";
 
 export type ClientInfo = {
@@ -11,6 +11,7 @@ export type ClientInfo = {
 export type SessionInfo = {
     client: ClientInfo;
     profile: SessionProfile;
+    defaultCallSources: StationId[];
 };
 
 export function splitDisplayName(name: string): [string, string] {

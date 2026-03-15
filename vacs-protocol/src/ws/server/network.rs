@@ -25,6 +25,8 @@ pub struct ClientInfo {
 pub struct SessionInfo {
     pub client: ClientInfo,
     pub profile: SessionProfile,
+    #[serde(default)]
+    pub default_call_sources: Vec<StationId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

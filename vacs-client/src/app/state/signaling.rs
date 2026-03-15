@@ -437,6 +437,7 @@ impl AppStateInner {
             SignalingEvent::Connected {
                 client_info,
                 profile,
+                default_call_sources,
             } => {
                 log::debug!(
                     "Successfully connected to signaling server. Display name: {}, frequency: {}, profile: {profile}",
@@ -447,6 +448,7 @@ impl AppStateInner {
                 let session_info = server::SessionInfo {
                     client: client_info,
                     profile: SessionProfile::Changed(profile),
+                    default_call_sources: default_call_sources.clone(),
                 };
 
                 {

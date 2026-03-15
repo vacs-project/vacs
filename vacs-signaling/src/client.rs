@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Instrument, instrument};
 use vacs_protocol::VACS_PROTOCOL_VERSION;
 use vacs_protocol::profile::{ActiveProfile, Profile};
-use vacs_protocol::vatsim::PositionId;
+use vacs_protocol::vatsim::{PositionId, StationId};
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{ClientInfo, ServerMessage, SessionProfile};
 use vacs_protocol::ws::{client, server};
@@ -51,6 +51,8 @@ pub enum SignalingEvent {
         client_info: ClientInfo,
         /// The profile associated with the current session.
         profile: ActiveProfile<Profile>,
+        /// The ordered list of default call sources for the current position.
+        default_call_sources: Vec<StationId>,
     },
     /// Emitted for every [`ServerMessage`] received by a connected and authenticated [`SignalingClient`].
     Message(ServerMessage),
@@ -351,7 +353,9 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
     }
 
     #[instrument(level = "debug", skip(self), err)]
-    async fn login(&self) -> Result<(ClientInfo, ActiveProfile<Profile>), SignalingError> {
+    async fn login(
+        &self,
+    ) -> Result<(ClientInfo, ActiveProfile<Profile>, Vec<StationId>), SignalingError> {
         tracing::trace!("Retrieving auth token from token provider");
         let token = self.token_provider.get_token().await?;
 
@@ -370,10 +374,14 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
         tracing::debug!("Awaiting authentication response from server");
         match self.recv_with_timeout(self.login_timeout).await? {
-            ServerMessage::SessionInfo(server::SessionInfo { client, profile }) => {
+            ServerMessage::SessionInfo(server::SessionInfo {
+                client,
+                profile,
+                default_call_sources,
+            }) => {
                 if let SessionProfile::Changed(profile) = profile {
                     tracing::info!(?client, %profile, "Login successful, received session info");
-                    Ok((client, profile))
+                    Ok((client, profile, default_call_sources))
                 } else {
                     tracing::error!(
                         ?client,
@@ -447,13 +455,14 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
         tracing::trace!("Successfully started worker tasks, logging in");
         match self.login().await {
-            Ok((client_info, profile)) => {
+            Ok((client_info, profile, default_call_sources)) => {
                 tracing::trace!("Successfully logged in to server");
 
                 self.set_state(State::LoggedIn);
                 if let Err(err) = self.broadcast_tx.send(SignalingEvent::Connected {
                     client_info,
                     profile,
+                    default_call_sources,
                 }) {
                     tracing::warn!(?err, "Failed to broadcast connected event");
                 }
@@ -888,6 +897,7 @@ mod tests {
                         id: vacs_protocol::profile::ProfileId::from("1"),
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
+                    default_call_sources: Vec::new(),
                 }))
                 .unwrap()
                 .into(),
@@ -1539,6 +1549,7 @@ mod tests {
                         id: vacs_protocol::profile::ProfileId::from("1"),
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
+                    default_call_sources: Vec::new(),
                 }))
                 .unwrap()
                 .into(),
@@ -1629,6 +1640,7 @@ mod tests {
                         id: vacs_protocol::profile::ProfileId::from("1"),
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
+                    default_call_sources: Vec::new(),
                 }))
                 .unwrap()
                 .into(),
