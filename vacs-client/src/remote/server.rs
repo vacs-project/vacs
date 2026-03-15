@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use vacs_signaling::protocol::vatsim::ClientId;
+use vacs_signaling::protocol::vatsim::{ClientId, StationId};
 use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
 use vacs_signaling::protocol::ws::shared::CallInvite;
 
@@ -262,6 +262,7 @@ macro_rules! args {
 struct SessionStateSnapshot {
     connection_state: ConnectionState,
     session_info: Option<SessionInfo>,
+    default_call_sources: Vec<StationId>,
     stations: Vec<StationInfo>,
     clients: Vec<ClientInfo>,
     client_id: Option<ClientId>,
@@ -537,6 +538,7 @@ async fn dispatch_command(
             let snapshot = SessionStateSnapshot {
                 connection_state: state.connection_state,
                 session_info: state.session_info.clone(),
+                default_call_sources: state.default_call_sources.clone(),
                 stations: state.stations.clone(),
                 clients: state.clients.clone(),
                 client_id: state.client_id.clone(),

@@ -21,7 +21,7 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::SignalingClient;
-use vacs_signaling::protocol::vatsim::ClientId;
+use vacs_signaling::protocol::vatsim::{ClientId, StationId};
 use vacs_signaling::protocol::ws::server;
 use vacs_signaling::protocol::ws::shared::{CallId, CallInvite};
 use vacs_signaling::transport::tokio::TokioTransport;
@@ -41,6 +41,7 @@ pub struct AppStateInner {
     pub(crate) client_id: Option<ClientId>,
     pub(crate) connection_state: ConnectionState,
     pub(crate) session_info: Option<server::SessionInfo>,
+    pub(crate) default_call_sources: Vec<StationId>,
     pub(crate) stations: Vec<server::StationInfo>,
     pub(crate) clients: Vec<server::ClientInfo>,
 }
@@ -86,6 +87,7 @@ impl AppStateInner {
             client_id: None,
             connection_state: ConnectionState::Disconnected,
             session_info: None,
+            default_call_sources: Vec::new(),
             stations: Vec::new(),
             clients: Vec::new(),
         })
