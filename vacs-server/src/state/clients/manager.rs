@@ -527,6 +527,7 @@ impl ClientManager {
                                 server::SessionInfo {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
+                                    default_call_sources: Vec::new(),
                                 },
                             ));
                         }
@@ -554,9 +555,10 @@ impl ClientManager {
             // the profile ID stays the same, and we cannot cheaply detect
             // content changes, so we always send the resolved profile.
             for (pos_id, client_ids) in online_positions.iter() {
-                let new_profile_id = network
+                let (new_profile_id, new_default_call_sources) = network
                     .get_position(pos_id)
-                    .and_then(|p| p.profile_id.clone());
+                    .map(|p| (p.profile_id.clone(), p.default_call_sources.clone()))
+                    .unwrap_or((None, Vec::new()));
 
                 for client_id in client_ids {
                     if let Some(session) = clients.get_mut(client_id) {
@@ -598,6 +600,7 @@ impl ClientManager {
                             server::SessionInfo {
                                 client: session.client_info().clone(),
                                 profile: session_profile,
+                                default_call_sources: new_default_call_sources.clone(),
                             },
                         ));
                     }
@@ -873,7 +876,9 @@ impl ClientManager {
                         } else {
                             None
                         };
-                        let new_position_id = new_position.map(|p| p.id.clone());
+                        let (new_position_id, new_default_call_sources) = new_position
+                            .map(|p| (Some(p.id.clone()), p.default_call_sources.clone()))
+                            .unwrap_or((None, Vec::new()));
 
                         if old_position_id != new_position_id {
                             tracing::debug!(
@@ -949,6 +954,7 @@ impl ClientManager {
                                 server::SessionInfo {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
+                                    default_call_sources: new_default_call_sources.clone(),
                                 },
                             ));
                         }
