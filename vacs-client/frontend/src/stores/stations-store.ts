@@ -7,10 +7,12 @@ type StationsState = {
     stations: Map<StationId, boolean>; // boolean => own
     defaultSource: StationId | undefined;
     temporarySource: StationId | undefined;
+    positionDefaultSources: StationId[];
     setStations: (stations: StationInfo[]) => void;
     addStationChanges: (changes: StationChange[]) => void;
     setDefaultSource: (source: StationId | undefined) => void;
     setTemporarySource: (source: StationId | undefined) => void;
+    setPositionDefaultSources: (sources: StationId[]) => void;
     reset: () => void;
 };
 
@@ -18,6 +20,7 @@ export const useStationsStore = create<StationsState>()((set, get, store) => ({
     stations: new Map(),
     defaultSource: undefined,
     temporarySource: undefined,
+    positionDefaultSources: [],
     setStations: stationsList => {
         const stations = new Map(stationsList.map(s => [s.id, s.own]));
 
@@ -48,6 +51,14 @@ export const useStationsStore = create<StationsState>()((set, get, store) => ({
     },
     setDefaultSource: source => set({defaultSource: source}),
     setTemporarySource: source => set({temporarySource: source}),
+    setPositionDefaultSources: sources => {
+        if (get().defaultSource === undefined) {
+            const matched = sources.find(s => get().stations.get(s));
+            set({positionDefaultSources: sources, defaultSource: matched});
+        } else {
+            set({positionDefaultSources: sources});
+        }
+    },
     reset: () => set(store.getInitialState()),
 }));
 
@@ -57,7 +68,7 @@ function checkStationSourcesAreOwn(
 ): [StationId | undefined, StationId | undefined] {
     let defaultSource = get().defaultSource;
     if (defaultSource !== undefined && !stations.get(defaultSource)) {
-        defaultSource = undefined;
+        defaultSource = get().positionDefaultSources.find(s => stations.get(s));
     }
 
     let temporarySource = get().temporarySource;
