@@ -335,6 +335,7 @@ mod tests {
                 frequency: "119.400".to_string(),
                 facility_type: crate::FacilityType::Tower,
                 profile_id: Some(ProfileId::from("LOWW")),
+                default_call_sources: Vec::new(),
             }],
             profiles: HashMap::new(),
         };
@@ -356,6 +357,7 @@ mod tests {
                 frequency: "119.400".to_string(),
                 facility_type: crate::FacilityType::Tower,
                 profile_id: Some(ProfileId::from("LOWW")),
+                default_call_sources: Vec::new(),
             }],
             profiles: HashMap::new(),
         };
@@ -376,6 +378,7 @@ mod tests {
                 frequency: "119.400".to_string(),
                 facility_type: crate::FacilityType::Tower,
                 profile_id: Some(ProfileId::from("LOWW")),
+                default_call_sources: Vec::new(),
             }],
             profiles: HashMap::new(),
         };
@@ -418,6 +421,7 @@ mod tests {
                 frequency: "119.400".to_string(),
                 facility_type: crate::FacilityType::Tower,
                 profile_id: Some(ProfileId::from("LOWW")),
+                default_call_sources: Vec::new(),
             }],
             profiles: HashMap::new(),
         };

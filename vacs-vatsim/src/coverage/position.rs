@@ -17,6 +17,7 @@ pub struct Position {
     pub frequency: String,
     pub facility_type: FacilityType,
     pub profile_id: Option<ProfileId>,
+    pub default_call_sources: Vec<StationId>,
     pub fir_id: FlightInformationRegionId,
     pub controlled_stations: HashSet<StationId>,
 }
@@ -29,6 +30,8 @@ pub struct PositionRaw {
     pub facility_type: FacilityType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<ProfileId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub default_call_sources: Vec<StationId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +47,7 @@ impl std::fmt::Debug for Position {
             .field("frequency", &self.frequency)
             .field("facility_type", &self.facility_type)
             .field("profile_id", &self.profile_id)
+            .field("default_call_sources", &self.default_call_sources.len())
             .field("fir_id", &self.fir_id)
             .field("controlled_stations", &self.controlled_stations.len())
             .finish()
@@ -75,6 +79,7 @@ impl Position {
             frequency: position_raw.frequency,
             facility_type: position_raw.facility_type,
             profile_id: position_raw.profile_id,
+            default_call_sources: position_raw.default_call_sources,
             fir_id: fir_id.into(),
             controlled_stations: HashSet::new(),
         })
@@ -89,6 +94,7 @@ impl std::fmt::Debug for PositionRaw {
             .field("frequency", &self.frequency)
             .field("facility_type", &self.facility_type)
             .field("profile_id", &self.profile_id)
+            .field("default_call_sources", &self.default_call_sources.len())
             .finish()
     }
 }
@@ -148,6 +154,19 @@ impl Validator for PositionRaw {
             }
             .into());
         }
+
+        let mut seen_default_call_sources = HashSet::new();
+        for station_id in &self.default_call_sources {
+            if !seen_default_call_sources.insert(station_id) {
+                return Err(ValidationError::InvalidValue {
+                    field: "default_call_sources".to_string(),
+                    value: station_id.to_string(),
+                    reason: "duplicate entry".to_string(),
+                }
+                .into());
+            }
+        }
+
         Ok(())
     }
 }
@@ -167,6 +186,21 @@ impl ReferenceValidator<ProfileId> for PositionRaw {
     }
 }
 
+impl ReferenceValidator<StationId> for PositionRaw {
+    fn validate_references(&self, stations: &HashSet<&StationId>) -> Result<(), CoverageError> {
+        for station_id in &self.default_call_sources {
+            if !stations.contains(station_id) {
+                return Err(ValidationError::MissingReference {
+                    field: "default_call_sources".to_string(),
+                    ref_id: station_id.to_string(),
+                }
+                .into());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +214,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert!(raw.validate().is_ok());
     }
@@ -192,6 +227,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -208,6 +244,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -221,6 +258,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -237,6 +275,7 @@ mod tests {
             frequency: "".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -254,6 +293,7 @@ mod tests {
                 frequency: freq.to_string(),
                 facility_type: FacilityType::Tower,
                 profile_id: Some(ProfileId::from("LOWW")),
+                default_call_sources: Vec::new(),
             };
             assert_matches!(
                 raw.validate(),
@@ -271,6 +311,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Unknown,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -287,6 +328,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -302,6 +344,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         let pos = Position::from_raw(raw, "LOVV").unwrap();
         assert_eq!(pos.id.as_str(), "LOWW_TWR");
@@ -320,6 +363,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
             fir_id: FlightInformationRegionId::from("LOVV"),
             controlled_stations: HashSet::new(),
         };
@@ -329,6 +373,7 @@ mod tests {
             frequency: "119.000".to_string(),          // Different content
             facility_type: FacilityType::Ground,       // Different content
             profile_id: Some(ProfileId::from("LOVV")), // Different content
+            default_call_sources: Vec::from(["LOVV_N1".into()]), // Different content
             fir_id: FlightInformationRegionId::from("LOVV"),
             controlled_stations: HashSet::new(),
         };
@@ -340,6 +385,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
             fir_id: FlightInformationRegionId::from("LOVV"),
             controlled_stations: HashSet::new(),
         };
@@ -347,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_references() {
+    fn validate_profile_references() {
         let profile_id = ProfileId::from("LOWW");
         let other_profile_id = ProfileId::from("EDMM");
         let valid_profiles = HashSet::from([&profile_id, &other_profile_id]);
@@ -358,6 +404,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(profile_id.clone()),
+            default_call_sources: Vec::new(),
         };
         assert!(raw.validate_references(&valid_profiles).is_ok());
 
@@ -367,6 +414,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("UNKNOWN")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw_missing.validate_references(&valid_profiles),
@@ -380,8 +428,50 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: None,
+            default_call_sources: Vec::new(),
         };
         assert!(raw_none.validate_references(&valid_profiles).is_ok());
+    }
+
+    #[test]
+    fn validate_default_call_source_references() {
+        let station_id = StationId::from("LOVV_N1");
+        let other_station_id = StationId::from("LOVV_S1");
+        let valid_stations = HashSet::from([&station_id, &other_station_id]);
+
+        let raw = PositionRaw {
+            id: "LOVV_CTR".into(),
+            prefixes: HashSet::from(["LOVV".to_string()]),
+            frequency: "132.600".to_string(),
+            facility_type: FacilityType::Enroute,
+            profile_id: Some(ProfileId::from("LOVV")),
+            default_call_sources: valid_stations.iter().cloned().cloned().collect(),
+        };
+        assert!(raw.validate_references(&valid_stations).is_ok());
+
+        let raw_missing = PositionRaw {
+            id: "LOVV_CTR".into(),
+            prefixes: HashSet::from(["LOVV".to_string()]),
+            frequency: "132.600".to_string(),
+            facility_type: FacilityType::Enroute,
+            profile_id: Some(ProfileId::from("LOVV")),
+            default_call_sources: Vec::from([StationId::from("UNKNOWN")]),
+        };
+        assert_matches!(
+            raw_missing.validate_references(&valid_stations),
+            Err(CoverageError::Validation(ValidationError::MissingReference { field, ref_id }))
+            if field == "default_call_sources" && ref_id == "UNKNOWN"
+        );
+
+        let raw_none = PositionRaw {
+            id: "LOVV_CTR".into(),
+            prefixes: HashSet::from(["LOVV".to_string()]),
+            frequency: "132.600".to_string(),
+            facility_type: FacilityType::Enroute,
+            profile_id: Some(ProfileId::from("LOVV")),
+            default_call_sources: Vec::new(),
+        };
+        assert!(raw_none.validate_references(&valid_stations).is_ok());
     }
 
     #[test]
@@ -392,6 +482,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Ground,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert_matches!(
             raw.validate(),
@@ -408,6 +499,7 @@ mod tests {
             frequency: "119.400".to_string(),
             facility_type: FacilityType::Tower,
             profile_id: Some(ProfileId::from("LOWW")),
+            default_call_sources: Vec::new(),
         };
         assert!(raw.validate().is_ok());
     }
@@ -420,6 +512,7 @@ mod tests {
             frequency: "122.955".to_string(),
             facility_type: FacilityType::Approach,
             profile_id: None,
+            default_call_sources: Vec::new(),
         };
         assert!(raw.validate().is_ok());
 
@@ -429,7 +522,28 @@ mod tests {
             frequency: "132.605".to_string(),
             facility_type: FacilityType::Enroute,
             profile_id: None,
+            default_call_sources: Vec::new(),
         };
         assert!(raw.validate().is_ok());
+    }
+
+    #[test]
+    fn position_raw_duplicate_default_call_source() {
+        let raw = PositionRaw {
+            id: "LOVV_CTR".into(),
+            prefixes: HashSet::from(["LOVV".to_string()]),
+            frequency: "132.600".to_string(),
+            facility_type: FacilityType::Enroute,
+            profile_id: Some(ProfileId::from("LOVV")),
+            default_call_sources: Vec::from([
+                StationId::from("LOVV_N1"),
+                StationId::from("LOVV_B1"),
+                StationId::from("LOVV_N1"),
+            ]),
+        };
+        assert_matches!(
+            raw.validate(),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, value, reason })) if field == "default_call_sources" && value == "LOVV_N1" && reason == "duplicate entry"
+        );
     }
 }
