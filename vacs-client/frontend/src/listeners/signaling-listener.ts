@@ -21,7 +21,12 @@ import {useFilterStore} from "../stores/filter-store.ts";
 
 export function setupSignalingListeners() {
     const {setClients, addClient, removeClient} = useClientsStore.getState();
-    const {setStations, addStationChanges, reset: resetStationsStore} = useStationsStore.getState();
+    const {
+        setStations,
+        addStationChanges,
+        setPositionDefaultSources,
+        reset: resetStationsStore,
+    } = useStationsStore.getState();
     const {
         addIncomingCall,
         removeCall,
@@ -57,6 +62,7 @@ export function setupSignalingListeners() {
                 ) {
                     setProfile(event.payload.profile.activeProfile.profile);
                 }
+                setPositionDefaultSources(event.payload.defaultCallSources);
             }),
             listen("signaling:reconnecting", () => {
                 setConnectionState("connecting");
