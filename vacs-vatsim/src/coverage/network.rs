@@ -128,6 +128,14 @@ impl Network {
                             .context(fir_raw.id.as_str()),
                     );
                 }
+
+                if let Err(err) = position.validate_references(&all_station_ids) {
+                    tracing::warn!(?err, ?position.id, ?fir_raw.id, "Invalid default call source reference in position");
+                    errors.push(
+                        err.context(position.id.as_str())
+                            .context(fir_raw.id.as_str()),
+                    );
+                }
             }
             for profile in fir_raw.profiles.values() {
                 if let Err(err) = profile.validate_references(&all_station_ids) {
