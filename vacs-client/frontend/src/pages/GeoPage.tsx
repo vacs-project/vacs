@@ -112,7 +112,7 @@ function GeoPageButton({button}: {button: GeoPageButtonModel}) {
         <Button
             color={color}
             highlight={hasStationId ? stationHighlight : groupHighlight}
-            disabled={disabled}
+            disabled={hasStationId && disabled}
             className={clsx(
                 "aspect-square w-auto! rounded-none! overflow-hidden",
                 color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
