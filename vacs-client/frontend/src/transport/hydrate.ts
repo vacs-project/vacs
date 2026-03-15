@@ -1,4 +1,4 @@
-import type {ClientId} from "../types/generic.ts";
+import type {ClientId, StationId} from "../types/generic.ts";
 import type {ClientInfo, ClientPageSettings, SessionInfo} from "../types/client.ts";
 import type {StationInfo} from "../types/station.ts";
 import type {CallConfig} from "../types/settings.ts";
@@ -16,6 +16,7 @@ import {useProfileStore} from "../stores/profile-store.ts";
 export type SessionStateSnapshot = {
     connectionState: ConnectionState;
     sessionInfo: SessionInfo | null;
+    defaultCallSources: StationId[];
     stations: StationInfo[];
     clients: ClientInfo[];
     clientId: ClientId | null;
@@ -30,7 +31,7 @@ export function hydrateStores(snapshot: SessionStateSnapshot) {
     const {setConnectionInfo, setConnectionState} = useConnectionStore.getState();
     const {setAuthenticated, setUnauthenticated} = useAuthStore.getState();
     const {setClients} = useClientsStore.getState();
-    const {setStations} = useStationsStore.getState();
+    const {setStations, setPositionDefaultSources} = useStationsStore.getState();
     const {setCallConfig, setClientPageSettings} = useSettingsStore.getState();
     const {setCapabilities} = useCapabilitiesStore.getState();
     const {setProfile} = useProfileStore.getState();
@@ -47,6 +48,7 @@ export function hydrateStores(snapshot: SessionStateSnapshot) {
     }
 
     setStations(snapshot.stations);
+    setPositionDefaultSources(snapshot.defaultCallSources);
     setClients(snapshot.clients);
 
     if (
