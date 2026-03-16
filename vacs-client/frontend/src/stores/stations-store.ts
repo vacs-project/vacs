@@ -80,7 +80,9 @@ function checkStationSourcesAreOwn(
 ): [StationId | undefined, StationId | undefined] {
     let defaultSource = get().defaultSource;
     if (defaultSource !== undefined && !stations.get(defaultSource)) {
-        defaultSource = get().getPositionDefaultSource(get().positionDefaultSources, stations);
+        defaultSource = useSettingsStore.getState().callConfig.useDefaultCallSources
+            ? get().positionDefaultSources.find(s => stations.get(s))
+            : undefined;
     }
 
     let temporarySource = get().temporarySource;
