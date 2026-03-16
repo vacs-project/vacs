@@ -8,17 +8,8 @@ import {
     ButtonHighlightColors,
 } from "../../../src/components/ui/Button.tsx";
 import {useCallStore} from "../../../src/stores/call-store.ts";
-import {Call} from "../../../src/types/call.ts";
-import {CallId, ClientId, StationId} from "../../../src/types/generic.ts";
-import {flipBlink} from "../../util.ts";
-
-const makeCall = (overrides: Partial<Call> = {}): Call => ({
-    callId: "call0" as CallId,
-    source: {clientId: "client0" as ClientId},
-    target: {station: "station0" as StationId},
-    prio: false,
-    ...overrides,
-});
+import {CallId} from "../../../src/types/generic.ts";
+import {flipBlink, makeTestCall} from "../../util.ts";
 
 afterEach(() => {
     useCallStore.getState().actions.reset();
@@ -47,7 +38,7 @@ describe("PhoneButton", () => {
     describe("outgoing call", () => {
         it("renders gray with green highlight", () => {
             useCallStore.setState({
-                callDisplay: {type: "outgoing", call: makeCall()},
+                callDisplay: {type: "outgoing", call: makeTestCall()},
             });
             render(<PhoneButton />);
             expectButton("gray", "green");
@@ -55,7 +46,7 @@ describe("PhoneButton", () => {
 
         it("blinks between yellow with green highlight and gray with green highlight for priority call", () => {
             useCallStore.setState({
-                callDisplay: {type: "outgoing", call: makeCall({prio: true})},
+                callDisplay: {type: "outgoing", call: makeTestCall({prio: true})},
                 blink: true,
             });
             render(<PhoneButton />);
@@ -71,8 +62,8 @@ describe("PhoneButton", () => {
         it("shows outgoing state when both outgoing and incoming calls exist", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "outgoing", call: makeCall()},
-                incomingCalls: [makeCall({callId: "call1" as CallId})],
+                callDisplay: {type: "outgoing", call: makeTestCall()},
+                incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
             expectButton("gray", "green");
@@ -87,8 +78,8 @@ describe("PhoneButton", () => {
         it("ignores incoming prio when outgoing call exists", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "outgoing", call: makeCall()},
-                incomingCalls: [makeCall({callId: "call1" as CallId, prio: true})],
+                callDisplay: {type: "outgoing", call: makeTestCall()},
+                incomingCalls: [makeTestCall({callId: "call1" as CallId, prio: true})],
             });
             render(<PhoneButton />);
             expectButton("gray", "green");
@@ -103,8 +94,8 @@ describe("PhoneButton", () => {
         it("shows rejected state when both rejected and incoming calls exist", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "rejected", call: makeCall()},
-                incomingCalls: [makeCall({callId: "call1" as CallId})],
+                callDisplay: {type: "rejected", call: makeTestCall()},
+                incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
             expectButton("green", "green");
@@ -119,8 +110,8 @@ describe("PhoneButton", () => {
         it("shows error state when both error and incoming calls exist", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "error", call: makeCall()},
-                incomingCalls: [makeCall({callId: "call1" as CallId})],
+                callDisplay: {type: "error", call: makeTestCall()},
+                incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
             expectButton("red");
@@ -135,8 +126,8 @@ describe("PhoneButton", () => {
         it("shows accepted state when both accepted and incoming calls exist", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "accepted", call: makeCall()},
-                incomingCalls: [makeCall({callId: "call1" as CallId})],
+                callDisplay: {type: "accepted", call: makeTestCall()},
+                incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
             expectButton("green");
@@ -153,7 +144,7 @@ describe("PhoneButton", () => {
         it("blinks between green and gray for incoming call", () => {
             useCallStore.setState({
                 blink: true,
-                incomingCalls: [makeCall()],
+                incomingCalls: [makeTestCall()],
             });
             render(<PhoneButton />);
             expectButton("green");
@@ -168,7 +159,7 @@ describe("PhoneButton", () => {
         it("blinks between yellow with green highlight and gray for priority call", () => {
             useCallStore.setState({
                 blink: true,
-                incomingCalls: [makeCall({prio: true})],
+                incomingCalls: [makeTestCall({prio: true})],
             });
             render(<PhoneButton />);
             expectButton("yellow", "green");
@@ -184,7 +175,7 @@ describe("PhoneButton", () => {
     describe("accepted call", () => {
         it("renders green", () => {
             useCallStore.setState({
-                callDisplay: {type: "accepted", call: makeCall()},
+                callDisplay: {type: "accepted", call: makeTestCall()},
             });
             render(<PhoneButton />);
             expectButton("green");
@@ -192,7 +183,7 @@ describe("PhoneButton", () => {
 
         it("renders yellow with green highlight for priority call", () => {
             useCallStore.setState({
-                callDisplay: {type: "accepted", call: makeCall({prio: true})},
+                callDisplay: {type: "accepted", call: makeTestCall({prio: true})},
             });
             render(<PhoneButton />);
             expectButton("yellow", "green");
@@ -201,8 +192,8 @@ describe("PhoneButton", () => {
         it("shows accepted state when incoming calls exist", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "accepted", call: makeCall()},
-                incomingCalls: [makeCall({callId: "call1" as CallId})],
+                callDisplay: {type: "accepted", call: makeTestCall()},
+                incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
             expectButton("green");
@@ -213,7 +204,7 @@ describe("PhoneButton", () => {
         it("blinks between green and gray with green highlight", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "rejected", call: makeCall()},
+                callDisplay: {type: "rejected", call: makeTestCall()},
             });
             render(<PhoneButton />);
             expectButton("green", "green");
@@ -230,7 +221,7 @@ describe("PhoneButton", () => {
         it("blinks between red and gray", () => {
             useCallStore.setState({
                 blink: true,
-                callDisplay: {type: "error", call: makeCall()},
+                callDisplay: {type: "error", call: makeTestCall()},
             });
             render(<PhoneButton />);
             expectButton("red");
