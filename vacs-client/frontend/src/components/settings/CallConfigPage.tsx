@@ -1,7 +1,7 @@
-import Checkbox from "../ui/Checkbox.tsx";
-import {useSettingsStore} from "../../stores/settings-store.ts";
 import {invokeStrict} from "../../error.ts";
+import {useSettingsStore} from "../../stores/settings-store.ts";
 import {CallConfig} from "../../types/settings.ts";
+import Checkbox from "../ui/Checkbox.tsx";
 import SettingsSubPage from "./SettingsSubPage.tsx";
 
 function CallConfigPage() {
@@ -39,6 +39,13 @@ function CallConfigPage() {
                 label="Play call end sound"
                 name="enable-call-end-sound"
                 property="enableCallEndSound"
+                callConfig={callConfig}
+                setCallConfig={setCallConfig}
+            />
+            <CallConfigEntry
+                label="Use default call sources"
+                name="use-default-call-sources"
+                property="useDefaultCallSources"
                 callConfig={callConfig}
                 setCallConfig={setCallConfig}
             />

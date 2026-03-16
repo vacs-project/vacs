@@ -2,6 +2,7 @@ import {create} from "zustand/react";
 import {invokeStrict} from "../error.ts";
 import {CallConfig} from "../types/settings.ts";
 import {ClientPageConfig, ClientPageSettings} from "../types/client.ts";
+import {useStationsStore} from "./stations-store.ts";
 
 type SettingsState = {
     callConfig: CallConfig;
@@ -26,10 +27,28 @@ export const useSettingsStore = create<SettingsState>()(set => ({
         enablePriorityCalls: true,
         enableCallStartSound: true,
         enableCallEndSound: true,
+        useDefaultCallSources: true,
     },
     selectedClientPageConfig: {...emptyClientPageConfig, name: "None"},
     clientPageConfigs: {},
-    setCallConfig: config => set({callConfig: config}),
+    setCallConfig: config => {
+        const defaultCallSourcesChanged =
+            config.useDefaultCallSources !==
+            useSettingsStore.getState().callConfig.useDefaultCallSources;
+        set({callConfig: config});
+        if (defaultCallSourcesChanged) {
+            const {
+                stations,
+                positionDefaultSources,
+                temporarySource: currentTemporarySource,
+                getPositionDefaultSource,
+            } = useStationsStore.getState();
+            const defaultSource = getPositionDefaultSource(positionDefaultSources, stations);
+            const temporarySource =
+                defaultSource === currentTemporarySource ? undefined : currentTemporarySource;
+            useStationsStore.setState({defaultSource, temporarySource});
+        }
+    },
     setClientPageConfig: config => {
         set({selectedClientPageConfig: config});
     },

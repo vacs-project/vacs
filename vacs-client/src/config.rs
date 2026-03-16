@@ -734,13 +734,24 @@ impl TryFrom<FrontendKeybindsConfig> for KeybindsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallConfig {
     /// Toggles highlighting of incoming call target DA keys.
+    #[serde(default = "default_true")]
     pub highlight_incoming_call_target: bool,
     /// Enables the priority call ringtone and visual highlighting. If disabled, Priority calls will still be received, but not handled differently.
+    #[serde(default = "default_true")]
     pub enable_priority_calls: bool,
     /// Enables sound effect when a call is established
+    #[serde(default = "default_true")]
     pub enable_call_start_sound: bool,
     /// Enables sound effect when the call is ended
+    #[serde(default = "default_true")]
     pub enable_call_end_sound: bool,
+    /// Enables default call source selection based on the dataset position
+    #[serde(default = "default_true")]
+    pub use_default_call_sources: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -750,6 +761,7 @@ pub struct FrontendCallConfig {
     pub enable_priority_calls: bool,
     pub enable_call_start_sound: bool,
     pub enable_call_end_sound: bool,
+    pub use_default_call_sources: bool,
 }
 
 impl Default for CallConfig {
@@ -759,6 +771,7 @@ impl Default for CallConfig {
             enable_priority_calls: true,
             enable_call_start_sound: true,
             enable_call_end_sound: true,
+            use_default_call_sources: true,
         }
     }
 }
@@ -770,6 +783,7 @@ impl Default for FrontendCallConfig {
             enable_priority_calls: true,
             enable_call_start_sound: true,
             enable_call_end_sound: true,
+            use_default_call_sources: true,
         }
     }
 }
@@ -781,6 +795,7 @@ impl From<CallConfig> for FrontendCallConfig {
             enable_priority_calls: call_config.enable_priority_calls,
             enable_call_start_sound: call_config.enable_call_start_sound,
             enable_call_end_sound: call_config.enable_call_end_sound,
+            use_default_call_sources: call_config.use_default_call_sources,
         }
     }
 }
@@ -792,6 +807,7 @@ impl From<FrontendCallConfig> for CallConfig {
             enable_priority_calls: frontend_call_config.enable_priority_calls,
             enable_call_start_sound: frontend_call_config.enable_call_start_sound,
             enable_call_end_sound: frontend_call_config.enable_call_end_sound,
+            use_default_call_sources: frontend_call_config.use_default_call_sources,
         }
     }
 }

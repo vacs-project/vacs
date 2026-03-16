@@ -2,6 +2,7 @@ import {create} from "zustand/react";
 import {StationChange, StationInfo} from "../types/station.ts";
 import {useConnectionStore} from "./connection-store.ts";
 import {StationId} from "../types/generic.ts";
+import {useSettingsStore} from "./settings-store.ts";
 
 type StationsState = {
     stations: Map<StationId, boolean>; // boolean => own
@@ -13,6 +14,10 @@ type StationsState = {
     setDefaultSource: (source: StationId | undefined) => void;
     setTemporarySource: (source: StationId | undefined) => void;
     setPositionDefaultSources: (sources: StationId[]) => void;
+    getPositionDefaultSource: (
+        sources: StationId[],
+        stations: Map<StationId, boolean>,
+    ) => StationId | undefined;
     reset: () => void;
 };
 
@@ -52,12 +57,19 @@ export const useStationsStore = create<StationsState>()((set, get, store) => ({
     setDefaultSource: source => set({defaultSource: source}),
     setTemporarySource: source => set({temporarySource: source}),
     setPositionDefaultSources: sources => {
-        if (get().defaultSource === undefined) {
-            const matched = sources.find(s => get().stations.get(s));
-            set({positionDefaultSources: sources, defaultSource: matched});
-        } else {
-            set({positionDefaultSources: sources});
+        const defaultSource = get().getPositionDefaultSource(sources, get().stations);
+        const temporarySource =
+            get().temporarySource === defaultSource ? undefined : get().temporarySource;
+        set({positionDefaultSources: sources, defaultSource, temporarySource});
+    },
+    getPositionDefaultSource: (sources: StationId[], stations: Map<StationId, boolean>) => {
+        if (
+            !useSettingsStore.getState().callConfig.useDefaultCallSources ||
+            get().defaultSource !== undefined
+        ) {
+            return get().defaultSource;
         }
+        return sources.find(s => stations.get(s));
     },
     reset: () => set(store.getInitialState()),
 }));
@@ -68,11 +80,14 @@ function checkStationSourcesAreOwn(
 ): [StationId | undefined, StationId | undefined] {
     let defaultSource = get().defaultSource;
     if (defaultSource !== undefined && !stations.get(defaultSource)) {
-        defaultSource = get().positionDefaultSources.find(s => stations.get(s));
+        defaultSource = get().getPositionDefaultSource(get().positionDefaultSources, stations);
     }
 
     let temporarySource = get().temporarySource;
-    if (temporarySource !== undefined && !stations.get(temporarySource)) {
+    if (
+        (temporarySource !== undefined && !stations.get(temporarySource)) ||
+        defaultSource === temporarySource
+    ) {
         temporarySource = undefined;
     }
 

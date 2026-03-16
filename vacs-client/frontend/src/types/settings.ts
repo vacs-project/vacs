@@ -3,6 +3,7 @@ export type CallConfig = {
     enablePriorityCalls: boolean;
     enableCallStartSound: boolean;
     enableCallEndSound: boolean;
+    useDefaultCallSources: boolean;
 };
 
 export type RemoteConfig = {
