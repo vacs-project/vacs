@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@preact/preset-vite": "^2.10.3",
+    "@preact/preset-vite": "^2.10.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
     "eslint": "^9.39.2",
