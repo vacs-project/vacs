@@ -91,7 +91,7 @@ toml = "1.0.6"
 tower-http = "0.6.8"
 tower-sessions = { version = "0.14.0", features = ["signed"] }
 tower-sessions-redis-store = "0.16.0"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tracing = { version = "0.1.44", features = ["log"] }
 trackaudio = "0.2.1"
 url = "2.5.8"
