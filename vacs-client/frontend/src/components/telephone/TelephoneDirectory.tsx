@@ -32,7 +32,9 @@ function TelephoneDirectory() {
             result.set(client.positionId, existing);
         }
 
-        return Array.from(result.entries()).map(([positionId, clients]) => ({positionId, clients}));
+        return Array.from(result.entries())
+            .map(([positionId, clients]) => ({positionId, clients}))
+            .sort((a, b) => a.positionId.localeCompare(b.positionId));
     }, [clients, filter]);
 
     const [selectedEntry, setSelectedEntry] = useState<number>(0);
