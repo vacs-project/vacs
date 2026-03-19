@@ -3,7 +3,7 @@ pub mod protocol;
 pub mod server;
 
 use serde::{Deserialize, Serialize};
-pub use server::start_server;
+pub use server::{RemoteServer, RemoteServerHandle};
 use std::net::SocketAddr;
 
 /// Configuration for the embedded remote-control server.
@@ -61,4 +61,11 @@ impl From<FrontendRemoteConfig> for RemoteConfig {
             serve_frontend: config.serve_frontend,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteStatus {
+    pub listening: bool,
+    pub connected_clients: usize,
 }

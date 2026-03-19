@@ -22,10 +22,10 @@ use crate::config::{CLIENT_SETTINGS_FILE_NAME, Persistable, PersistedClientConfi
 use crate::error::{StartupError, StartupErrorExt};
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
+use crate::remote::{RemoteServer, RemoteServerHandle};
 use tauri::{App, Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex as TokioMutex;
-use tokio_util::sync::CancellationToken;
 
 pub fn run() {
     tauri::Builder::default()
@@ -108,26 +108,13 @@ pub fn run() {
 
                 app.manage::<KeybindEngineHandle>(keybind_engine);
 
+                let mut remote_handle = RemoteServer::new(app.handle().clone());
                 if remote_config.enabled {
-                    let shutdown_token = CancellationToken::new();
-                    app.manage(shutdown_token.clone());
-
-                    let app_handle = app.handle().clone();
-                    tokio::spawn(async move {
-                        if let Err(err) = remote::start_server(
-                            app_handle,
-                            remote_config.listen_addr,
-                            remote_config.serve_frontend,
-                            shutdown_token,
-                        )
-                        .await
-                        {
-                            log::error!("Remote control server error: {err}");
-                        }
-                    });
+                    remote_handle.start(remote_config.listen_addr, remote_config.serve_frontend);
                 } else {
                     log::info!("Remote control server is disabled");
                 }
+                app.manage::<RemoteServerHandle>(TokioMutex::new(remote_handle));
 
                 Ok(())
             }
@@ -194,7 +181,9 @@ pub fn run() {
             signaling::commands::signaling_start_call,
             signaling::commands::signaling_terminate,
             remote::commands::remote_broadcast_store_sync,
+            remote::commands::remote_get_config,
             remote::commands::remote_is_enabled,
+            remote::commands::remote_set_config,
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build tauri application")
@@ -225,10 +214,11 @@ pub fn run() {
 
                     app_handle.state::<KeybindEngineHandle>().write().await.shutdown();
 
-                    if let Some(shutdown_token) = app_handle.try_state::<CancellationToken>() {
-                        log::debug!("Cancelling shutdown token");
-                        shutdown_token.cancel();
-                    }
+                    app_handle
+                        .state::<TokioMutex<RemoteServer>>()
+                        .lock()
+                        .await
+                        .stop();
 
                     app_handle.state::<AppState>().lock().await.shutdown();
                 });

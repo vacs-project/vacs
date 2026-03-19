@@ -44,9 +44,11 @@ export type RemoteCommand =
     | "keybinds_set_radio_config"
     | "keybinds_set_transmit_config"
     | "remote_broadcast_store_sync"
+    | "remote_get_config"
     | "remote_get_session_state"
     | "remote_is_enabled"
     | "remote_request_store_sync"
+    | "remote_set_config"
     | "signaling_accept_call"
     | "signaling_add_ignored_client"
     | "signaling_connect"
@@ -92,7 +94,8 @@ export type RemoteEvent =
     | "webrtc:call-connected"
     | "webrtc:call-disconnected"
     | "webrtc:call-error"
-    | "update:progress";
+    | "update:progress"
+    | "remote:status";
 
 export type InvokeArgs = Record<string, unknown>;
 

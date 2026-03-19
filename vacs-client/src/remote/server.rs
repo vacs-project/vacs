@@ -6,6 +6,7 @@ use crate::config::{FrontendCallConfig, FrontendClientPageSettings};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
+use crate::remote::RemoteStatus;
 use crate::remote::protocol::{
     ClientMessage, ProblemDetails, RemoteCommand, RemoteEvent, ServerMessage,
 };
@@ -22,6 +23,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -37,13 +39,115 @@ pub struct RemoteServerState {
     pub app_handle: AppHandle,
     pub event_tx: broadcast::Sender<ServerMessage>,
     pub shutdown: CancellationToken,
+    pub client_count: Arc<AtomicUsize>,
 }
+
+impl RemoteServerState {
+    fn emit_status(&self) {
+        let status = RemoteStatus {
+            // Always true if we're emitting from a remote server state.
+            // The handle is responsible for emitting the correct status on shutdown.
+            listening: true,
+            connected_clients: self.client_count.load(Ordering::Relaxed),
+        };
+        self.app_handle.emit("remote:status", &status).ok();
+    }
+}
+
+pub struct RemoteServer {
+    shutdown: Option<CancellationToken>,
+    app_handle: AppHandle,
+    client_count: Arc<AtomicUsize>,
+}
+
+impl RemoteServer {
+    pub fn new(app_handle: AppHandle) -> Self {
+        Self {
+            shutdown: None,
+            app_handle,
+            client_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub fn start(&mut self, listen_addr: SocketAddr, serve_frontend: bool) {
+        if self.is_listening() {
+            log::warn!("Remote server already running, ignoring start request");
+            return;
+        }
+
+        let shutdown_token = CancellationToken::new();
+        self.shutdown = Some(shutdown_token.clone());
+        self.client_count = Arc::new(AtomicUsize::new(0));
+
+        let app_handle = self.app_handle.clone();
+        let client_count = self.client_count.clone();
+        tokio::spawn(async move {
+            if let Err(err) = start_server(
+                app_handle.clone(),
+                listen_addr,
+                serve_frontend,
+                shutdown_token.clone(),
+                client_count,
+            )
+            .await
+            {
+                log::error!("Remote control server error: {err}");
+                shutdown_token.cancel();
+                let status = RemoteStatus {
+                    listening: false,
+                    connected_clients: 0,
+                };
+                app_handle.emit("remote:status", &status).ok();
+            }
+        });
+
+        self.emit_status();
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(token) = self.shutdown.take() {
+            log::info!("Stopping remote control server");
+            token.cancel();
+            self.client_count.store(0, Ordering::Relaxed);
+            self.emit_status();
+        }
+    }
+
+    pub fn restart(&mut self, listen_addr: SocketAddr, serve_frontend: bool) {
+        self.stop();
+        self.start(listen_addr, serve_frontend);
+    }
+
+    pub fn is_listening(&self) -> bool {
+        self.shutdown
+            .as_ref()
+            .is_some_and(|token| !token.is_cancelled())
+    }
+
+    pub fn connected_clients(&self) -> usize {
+        self.client_count.load(Ordering::Relaxed)
+    }
+
+    pub fn status(&self) -> RemoteStatus {
+        RemoteStatus {
+            listening: self.is_listening(),
+            connected_clients: self.connected_clients(),
+        }
+    }
+
+    pub fn emit_status(&self) {
+        self.app_handle.emit("remote:status", &self.status()).ok();
+    }
+}
+
+pub type RemoteServerHandle = tokio::sync::Mutex<RemoteServer>;
 
 pub async fn start_server(
     app_handle: AppHandle,
     listen_addr: SocketAddr,
     serve_frontend: bool,
     shutdown: CancellationToken,
+    client_count: Arc<AtomicUsize>,
 ) -> anyhow::Result<()> {
     let (event_tx, _) = broadcast::channel::<ServerMessage>(BROADCAST_CHANNEL_SIZE);
 
@@ -51,6 +155,7 @@ pub async fn start_server(
         app_handle: app_handle.clone(),
         event_tx: event_tx.clone(),
         shutdown: shutdown.clone(),
+        client_count,
     };
 
     register_event_forwarders(&app_handle, &event_tx);
@@ -124,6 +229,8 @@ async fn ws_handler(
 
 async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer: SocketAddr) {
     log::info!("[{peer}] Remote client connected");
+    state.client_count.fetch_add(1, Ordering::Relaxed);
+    state.emit_status();
     let (mut ws_tx, mut ws_rx) = socket.split();
     let mut event_rx = state.event_tx.subscribe();
     let subscribed_events = Arc::new(parking_lot::Mutex::new(HashSet::<RemoteEvent>::new()));
@@ -210,6 +317,10 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
     }
 
     forward_task.abort();
+    state.client_count.fetch_sub(1, Ordering::Relaxed);
+    if !state.shutdown.is_cancelled() {
+        state.emit_status();
+    }
     log::info!("[{peer}] Remote client disconnected");
 }
 
