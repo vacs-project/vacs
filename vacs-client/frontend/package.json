@@ -35,7 +35,7 @@
     "@preact/preset-vite": "^2.10.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
-    "eslint": "^9.39.2",
+    "eslint": "^10.0.3",
     "eslint-config-preact": "^2.0.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
