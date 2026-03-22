@@ -196,6 +196,7 @@ pub enum RemoteCommand {
     KeybindsReconnectRadio,
 
     RemoteBroadcastStoreSync,
+    RemoteGetConfig,
     RemoteGetSessionState,
     RemoteRequestStoreSync,
 

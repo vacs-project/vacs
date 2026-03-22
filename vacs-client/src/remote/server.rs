@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
 use crate::remote::RemoteStatus;
+use crate::remote::commands::FrontendRemoteConfigWithStatus;
 use crate::remote::protocol::{
     ClientMessage, ProblemDetails, RemoteCommand, RemoteEvent, ServerMessage,
 };
@@ -639,6 +640,16 @@ async fn dispatch_command(
         RemoteRequestStoreSync => {
             app.emit("store:sync:request", ()).ok();
             DispatchResult::Ok(serde_json::Value::Null)
+        }
+
+        RemoteGetConfig => {
+            let app_state = app.state::<AppState>();
+            let remote_server = app.state::<RemoteServerHandle>();
+            let result = FrontendRemoteConfigWithStatus {
+                config: app_state.lock().await.config.client.remote.clone().into(),
+                status: remote_server.lock().await.status(),
+            };
+            DispatchResult::Ok(serde_json::to_value(result).unwrap_or_default())
         }
 
         RemoteGetSessionState => {

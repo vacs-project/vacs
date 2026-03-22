@@ -2,9 +2,9 @@ import Checkbox from "../ui/Checkbox.tsx";
 import {StatusColors} from "../ui/StatusIndicator.tsx";
 import {useEffect, useState} from "preact/hooks";
 import {invokeStrict, invokeSafe} from "../../error.ts";
-import {listen} from "../../transport";
+import {isTauri, listen} from "../../transport";
 import {clsx} from "clsx";
-import {parseSocketAddress} from "../../utils/socket-address.ts";
+import {parseSocketAddress} from "../../utils/network-address.ts";
 import {RemoteConfig, RemoteStatus} from "../../types/settings.ts";
 import {TargetedEvent} from "preact";
 
@@ -85,6 +85,7 @@ function RemoteControlSettings() {
                     name="remote-enabled"
                     checked={config.enabled}
                     onChange={handleToggleEnabled}
+                    disabled={!isTauri}
                 />
             </div>
             <div className="w-full flex justify-between items-center gap-3">
@@ -114,7 +115,7 @@ function RemoteControlSettings() {
                         onKeyDown={e => {
                             if (e.key === "Enter") e.currentTarget.blur();
                         }}
-                        disabled={!config.enabled}
+                        disabled={!isTauri || !config.enabled}
                     />
                     <RemoteStatusIndicator status={status} enabled={config.enabled} />
                 </div>
