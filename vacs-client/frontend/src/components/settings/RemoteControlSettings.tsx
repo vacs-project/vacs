@@ -92,7 +92,7 @@ function RemoteControlSettings() {
                 <label htmlFor="remote-listen-addr" className="shrink-0">
                     Listen address
                 </label>
-                <div className="flex flex-row gap-2 items-center">
+                <div className="grow flex flex-row gap-2 items-center">
                     <input
                         type="text"
                         id="remote-listen-addr"
