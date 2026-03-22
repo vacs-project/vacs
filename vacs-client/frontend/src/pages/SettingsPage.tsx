@@ -7,14 +7,15 @@ import DeviceSelector from "../components/settings/DeviceSelector.tsx";
 import VolumeSettings from "../components/settings/VolumeSettings.tsx";
 import AudioHostSelector from "../components/settings/AudioHostSelector.tsx";
 import {useEffect, useState} from "preact/hooks";
-import {isTauri} from "../transport";
 import {useUpdateStore} from "../stores/update-store.ts";
+import {useCapabilitiesStore} from "../stores/capabilities-store.ts";
+import {isTauri} from "../transport";
 import {Route, Switch} from "wouter";
 import TransmitModePage from "../components/settings/TransmitModePage.tsx";
-import {useCapabilitiesStore} from "../stores/capabilities-store.ts";
 import HotkeysConfigPage from "../components/settings/HotkeysConfigPage.tsx";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import CallConfigPage from "../components/settings/CallConfigPage.tsx";
+import AdvancedPage from "../components/settings/AdvancedPage.tsx";
 
 function SettingsPage() {
     return (
@@ -90,6 +91,13 @@ function SettingsPage() {
                             >
                                 Call
                             </Button>
+                            <Button
+                                color="gray"
+                                className="w-22 h-full text-sm"
+                                onClick={() => navigate("/settings/advanced")}
+                            >
+                                Advanced
+                            </Button>
                         </div>
                         <AppControlButtons />
                     </div>
@@ -99,6 +107,7 @@ function SettingsPage() {
                 <Route path="/transmit" component={TransmitModePage} />
                 <Route path="/hotkeys" component={HotkeysConfigPage} />
                 <Route path="/call" component={CallConfigPage} />
+                <Route path="/advanced" component={AdvancedPage} />
             </Switch>
         </>
     );
