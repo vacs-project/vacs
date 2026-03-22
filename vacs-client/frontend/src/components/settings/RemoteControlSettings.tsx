@@ -4,7 +4,7 @@ import {useEffect, useState} from "preact/hooks";
 import {invokeStrict, invokeSafe} from "../../error.ts";
 import {isTauri, listen} from "../../transport";
 import {clsx} from "clsx";
-import {parseSocketAddress} from "../../utils/network-address.ts";
+import {parseSocketAddress} from "../../utils/socket-address.ts";
 import {RemoteConfig, RemoteStatus} from "../../types/settings.ts";
 import {TargetedEvent} from "preact";
 

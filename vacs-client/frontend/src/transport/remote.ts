@@ -106,7 +106,7 @@ class RemoteTransport {
                         try {
                             cb({payload: msg.payload as never});
                         } catch (e) {
-                            console.error(`[remote] Event listener error for ${msg.name}:`, e);
+                            console.error(`[remote] Event listener error for %s:`, msg.name, e);
                         }
                     }
                 }
