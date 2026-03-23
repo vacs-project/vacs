@@ -10,9 +10,13 @@ import StatusIndicator, {Status} from "../ui/StatusIndicator.tsx";
 
 const DEFAULT_IP = "0.0.0.0";
 const DEFAULT_PORT = 9600;
+const DEFAULT_ADDRESS = `${DEFAULT_IP}:${DEFAULT_PORT}`;
 
 function RemoteControlSettings() {
-    const [config, setConfig] = useState<RemoteConfig | undefined>(undefined);
+    const [config, setConfig] = useState<RemoteConfig>({
+        enabled: false,
+        listenAddr: DEFAULT_ADDRESS,
+    });
     const [listenAddr, setListenAddr] = useState<string>("");
     const [addrError, setAddrError] = useState(false);
     const [status, setStatus] = useState<RemoteStatus>({listening: false, connectedClients: 0});
@@ -20,11 +24,11 @@ function RemoteControlSettings() {
     useEffect(() => {
         const fetchConfig = async () => {
             const result = await invokeSafe<RemoteConfig & RemoteStatus>("remote_get_config");
-            if (result) {
-                setConfig(result);
-                setListenAddr(result.listenAddr);
-                setStatus(result);
-            }
+            if (result === undefined) return;
+
+            setConfig(result);
+            setListenAddr(result.listenAddr);
+            setStatus(result);
         };
         void fetchConfig();
 
@@ -55,7 +59,7 @@ function RemoteControlSettings() {
         setAddrError(false);
     };
 
-    const handleAddrCommit = async () => {
+    const handleAddrBlur = async () => {
         const addr = parseSocketAddress(listenAddr, DEFAULT_IP, DEFAULT_PORT);
 
         if (addr === null) {
@@ -90,7 +94,7 @@ function RemoteControlSettings() {
             </div>
             <div className="w-full flex justify-between items-center gap-3">
                 <label htmlFor="remote-listen-addr" className="shrink-0">
-                    Listen address
+                    Listen addr.
                 </label>
                 <div className="grow flex flex-row gap-2 items-center">
                     <input
@@ -103,15 +107,15 @@ function RemoteControlSettings() {
                                 ? "border-red-500 focus:border-red-500"
                                 : "border-gray-700 focus:border-blue-500",
                         )}
-                        placeholder={`${DEFAULT_IP}:${DEFAULT_PORT}`}
+                        placeholder={DEFAULT_ADDRESS}
                         title={
                             addrError
                                 ? `Invalid address. Accepted formats: "1.2.3.4", "1.2.3.4:port", "::1", "[::1]:port"`
-                                : `Address to listen on. Omit port to use the default (${DEFAULT_PORT}). Leave empty to reset to ${DEFAULT_IP}:${DEFAULT_PORT}.`
+                                : `Address to listen on. Omit port to use the default (${DEFAULT_PORT}). Leave empty to reset to ${DEFAULT_ADDRESS}.`
                         }
-                        value={listenAddr}
+                        value={listenAddr !== DEFAULT_ADDRESS ? listenAddr : ""}
                         onInput={handleAddrChange}
-                        onBlur={handleAddrCommit}
+                        onBlur={handleAddrBlur}
                         onKeyDown={e => {
                             if (e.key === "Enter") e.currentTarget.blur();
                         }}
