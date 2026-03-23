@@ -6,7 +6,7 @@
 }
 
 .checkbox:disabled {
-    @apply cursor-not-allowed brightness-90;
+    @apply cursor-not-allowed brightness-80;
 }
 
 .checkbox:enabled:active {
