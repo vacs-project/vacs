@@ -427,5 +427,15 @@ jobs:
           draft: ${{ needs.prep.outputs.draft }}
           prerelease: ${{ needs.prep.outputs.prerelease }}
           make_latest: ${{ needs.prep.outputs.draft == 'false' && needs.prep.outputs.prerelease == 'false' }}
+          append_body: true
+          body: |
+
+            ---
+
+            ## Looking for downloads or missing an installer?
+
+            GitHub collapses the assets section on long release notes. Click the **"Assets"** heading below to expand it, then click **"Show all assets"** at the bottom of the list to see all available downloads. Alternatively, use the download button on [our website](https://vacs.network) for easier access.
+
+            For detailed installation instructions, visit [our documentation](https://docs.vacs.network/getting-started/installation).
           files: |
             dist/**
