@@ -21,7 +21,7 @@ const emptyClientPageConfig: ClientPageConfig = {
     grouping: "FirAndIcao",
 };
 
-export const useSettingsStore = create<SettingsState>()(set => ({
+export const useSettingsStore = create<SettingsState>()((set, get) => ({
     callConfig: {
         highlightIncomingCallTarget: true,
         enablePriorityCalls: true,
@@ -33,20 +33,15 @@ export const useSettingsStore = create<SettingsState>()(set => ({
     clientPageConfigs: {},
     setCallConfig: config => {
         const defaultCallSourcesChanged =
-            config.useDefaultCallSources !==
-            useSettingsStore.getState().callConfig.useDefaultCallSources;
+            config.useDefaultCallSources !== get().callConfig.useDefaultCallSources;
+
         set({callConfig: config});
+
         if (defaultCallSourcesChanged) {
-            const {
-                stations,
-                positionDefaultSources,
-                temporarySource: currentTemporarySource,
-                getPositionDefaultSource,
-            } = useStationsStore.getState();
-            const defaultSource = getPositionDefaultSource(positionDefaultSources, stations);
-            const temporarySource =
-                defaultSource === currentTemporarySource ? undefined : currentTemporarySource;
-            useStationsStore.setState({defaultSource, temporarySource});
+            const {stations, positionDefaultSources, setDefaultSource, getPositionDefaultSource} =
+                useStationsStore.getState();
+
+            setDefaultSource(getPositionDefaultSource(positionDefaultSources, stations));
         }
     },
     setClientPageConfig: config => {

@@ -54,7 +54,11 @@ export const useStationsStore = create<StationsState>()((set, get, store) => ({
 
         set({stations, defaultSource, temporarySource});
     },
-    setDefaultSource: source => set({defaultSource: source}),
+    setDefaultSource: source => {
+        const temporarySource =
+            source === get().temporarySource ? undefined : get().temporarySource;
+        set({defaultSource: source, temporarySource});
+    },
     setTemporarySource: source => set({temporarySource: source}),
     setPositionDefaultSources: sources => {
         const defaultSource = get().getPositionDefaultSource(sources, get().stations);
