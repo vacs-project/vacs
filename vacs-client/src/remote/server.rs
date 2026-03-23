@@ -2,7 +2,7 @@ use crate::app::state::AppState;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::ConnectionState;
 use crate::audio::manager::AudioManagerHandle;
-use crate::config::{FrontendCallConfig, FrontendClientPageSettings};
+use crate::config::{ClockMode, FrontendCallConfig, FrontendClientPageSettings};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
@@ -441,6 +441,15 @@ async fn dispatch_command(
             dispatch(app_set_selected_client_page_config(app.clone(), app_state, config_name).await)
         }
         AppGetVersion => dispatch(Ok(app_get_version())),
+        AppGetClockMode => {
+            let app_state = app.state::<AppState>();
+            dispatch(app_get_clock_mode(app_state).await)
+        }
+        AppSetClockMode => {
+            let clock_mode: ClockMode = args!(args, "clockMode");
+            let app_state = app.state::<AppState>();
+            dispatch(app_set_clock_mode(app.clone(), app_state, clock_mode).await)
+        }
 
         AudioGetHosts => {
             let app_state = app.state::<AppState>();

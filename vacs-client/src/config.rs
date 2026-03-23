@@ -279,6 +279,8 @@ pub struct ClientConfig {
     pub remote: RemoteConfig,
     #[serde(default = "default_zoom_level")]
     pub zoom_level: f64,
+    #[serde(default)]
+    pub clock_mode: ClockMode,
 }
 
 fn default_zoom_level() -> f64 {
@@ -305,8 +307,17 @@ impl Default for ClientConfig {
             test_profile_watcher_delay_ms: 500,
             remote: RemoteConfig::default(),
             zoom_level: 1.0f64,
+            clock_mode: ClockMode::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ClockMode {
+    #[default]
+    Realtime,
+    Relaxed,
+    Day,
 }
 
 impl ClientConfig {

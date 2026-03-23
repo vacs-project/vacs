@@ -20,6 +20,8 @@ export type RemoteCommand =
     | "app_unload_test_profile"
     | "app_update"
     | "app_get_version"
+    | "app_get_clock_mode"
+    | "app_set_clock_mode"
     | "audio_get_devices"
     | "audio_get_hosts"
     | "audio_get_volumes"

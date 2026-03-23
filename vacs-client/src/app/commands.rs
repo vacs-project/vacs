@@ -3,7 +3,7 @@ use crate::app::{AppFolder, UpdateInfo, get_update, open_app_folder, open_fatal_
 use crate::audio::manager::{AudioManagerHandle, SourceType};
 use crate::build::VersionInfo;
 use crate::config::{
-    AppConfig, CLIENT_SETTINGS_FILE_NAME, ClientConfig, FrontendCallConfig,
+    AppConfig, CLIENT_SETTINGS_FILE_NAME, ClientConfig, ClockMode, FrontendCallConfig,
     FrontendClientPageSettings, Persistable, PersistedClientConfig,
 };
 use crate::error::{Error, FrontendError};
@@ -615,4 +615,33 @@ pub async fn app_load_extra_client_page_config(
         .ok();
 
     Ok(Some(path))
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn app_get_clock_mode(app_state: State<'_, AppState>) -> Result<ClockMode, Error> {
+    Ok(app_state.lock().await.config.client.clock_mode)
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn app_set_clock_mode(
+    app: AppHandle,
+    app_state: State<'_, AppState>,
+    clock_mode: ClockMode,
+) -> Result<(), Error> {
+    let config: PersistedClientConfig = {
+        let mut state = app_state.lock().await;
+        state.config.client.clock_mode = clock_mode;
+
+        state.config.client.clone().into()
+    };
+
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("Cannot get config directory");
+    config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
+
+    Ok(())
 }

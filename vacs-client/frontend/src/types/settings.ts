@@ -15,3 +15,5 @@ export type RemoteStatus = {
     listening: boolean;
     connectedClients: number;
 };
+
+export type ClockMode = "Realtime" | "Relaxed" | "Day";

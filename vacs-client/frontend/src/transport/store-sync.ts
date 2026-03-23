@@ -5,7 +5,7 @@ import {type CallListItem, useCallListStore} from "../stores/call-list-store.ts"
 import {useSettingsStore} from "../stores/settings-store.ts";
 import type {CallId, StationId} from "../types/generic.ts";
 import type {ClientPageConfig} from "../types/client.ts";
-import type {CallConfig} from "../types/settings.ts";
+import type {CallConfig, ClockMode} from "../types/settings.ts";
 
 type StationsSync = {
     defaultSource: StationId | undefined;
@@ -24,6 +24,7 @@ type CallListSync = {
 type SettingsSync = {
     callConfig: CallConfig;
     selectedClientPageConfig: ClientPageConfig & {name: string};
+    clockMode: ClockMode;
 };
 
 type SyncMap = {
@@ -93,6 +94,7 @@ function applySync(payload: SyncPayload) {
             useSettingsStore.setState({
                 callConfig: payload.state.callConfig,
                 selectedClientPageConfig: payload.state.selectedClientPageConfig,
+                clockMode: payload.state.clockMode,
             });
             break;
         }
@@ -146,6 +148,7 @@ function startSync(): () => void {
         subscribeFields(useSettingsStore, "settings", s => ({
             callConfig: s.callConfig,
             selectedClientPageConfig: s.selectedClientPageConfig,
+            clockMode: s.clockMode,
         })),
     );
 
@@ -197,5 +200,6 @@ function broadcastAllStoreState() {
     broadcast("settings", {
         callConfig: settings.callConfig,
         selectedClientPageConfig: settings.selectedClientPageConfig,
+        clockMode: settings.clockMode,
     });
 }

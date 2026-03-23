@@ -1,6 +1,6 @@
 import {create} from "zustand/react";
 import {invokeStrict} from "../error.ts";
-import {CallConfig} from "../types/settings.ts";
+import {CallConfig, ClockMode} from "../types/settings.ts";
 import {ClientPageConfig, ClientPageSettings} from "../types/client.ts";
 import {useStationsStore} from "./stations-store.ts";
 
@@ -8,9 +8,11 @@ type SettingsState = {
     callConfig: CallConfig;
     selectedClientPageConfig: ClientPageConfig & {name: string};
     clientPageConfigs: Record<string, ClientPageConfig>;
+    clockMode: ClockMode;
     setCallConfig: (config: CallConfig) => void;
     setClientPageConfig: (config: ClientPageConfig & {name: string}) => void;
     setClientPageSettings: (settings: ClientPageSettings) => void;
+    setClockMode: (mode: ClockMode) => void;
 };
 
 const emptyClientPageConfig: ClientPageConfig = {
@@ -31,6 +33,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     },
     selectedClientPageConfig: {...emptyClientPageConfig, name: "None"},
     clientPageConfigs: {},
+    clockMode: "Realtime",
     setCallConfig: config => {
         const defaultCallSourcesChanged =
             config.useDefaultCallSources !== get().callConfig.useDefaultCallSources;
@@ -59,21 +62,34 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
             }
         }
     },
+    setClockMode: mode => set({clockMode: mode}),
 }));
 
-export async function fetchCallConfig() {
+async function fetchCallConfig() {
     try {
         const callConfig = await invokeStrict<CallConfig>("app_get_call_config");
-
         useSettingsStore.getState().setCallConfig(callConfig);
     } catch {}
 }
 
-export async function fetchClientPageSettings() {
+async function fetchClientPageSettings() {
     try {
         const clientPageSettings = await invokeStrict<ClientPageSettings>(
             "app_get_client_page_settings",
         );
         useSettingsStore.getState().setClientPageSettings(clientPageSettings);
     } catch {}
+}
+
+async function fetchClockMode() {
+    try {
+        const clockMode = await invokeStrict<ClockMode>("app_get_clock_mode");
+        useSettingsStore.getState().setClockMode(clockMode);
+    } catch {}
+}
+
+export async function fetchSettings() {
+    void fetchCallConfig();
+    void fetchClientPageSettings();
+    void fetchClockMode();
 }

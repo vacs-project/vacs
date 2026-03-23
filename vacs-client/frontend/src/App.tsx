@@ -33,7 +33,7 @@ import MainPage from "./pages/MainPage.tsx";
 import Tabs from "./components/Tabs.tsx";
 import {useProfileType} from "./stores/profile-store.ts";
 import Button from "./components/ui/Button.tsx";
-import {fetchCallConfig, fetchClientPageSettings} from "./stores/settings-store.ts";
+import {fetchSettings} from "./stores/settings-store.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
 
 function App() {
@@ -57,8 +57,7 @@ function App() {
         void invokeSafe("auth_check_session");
 
         void fetchCapabilities();
-        void fetchCallConfig();
-        void fetchClientPageSettings();
+        void fetchSettings();
 
         return () => {
             cleanups.forEach(cleanup => cleanup());
