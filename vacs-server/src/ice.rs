@@ -1,5 +1,6 @@
 use crate::ice::provider::IceConfigProvider;
 use crate::ice::provider::cloudflare::CloudflareIceProvider;
+use crate::ice::provider::coturn::{CoturnIceProvider, CoturnIceProviderConfig};
 use crate::ice::provider::stun::StunOnlyProvider;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -22,6 +23,7 @@ pub enum IceConfigProviderType {
     #[default]
     StunOnly,
     Cloudflare,
+    Coturn,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +33,7 @@ pub struct IceConfig {
     pub cloudflare_turn_key_id: Option<String>,
     pub cloudflare_turn_key_api_token: Option<String>,
     pub turn_credential_ttl: Option<Duration>,
+    pub coturn: Option<CoturnIceProviderConfig>,
 }
 
 impl Default for IceConfig {
@@ -44,6 +47,7 @@ impl Default for IceConfig {
             cloudflare_turn_key_api_token: None,
             cloudflare_turn_key_id: None,
             turn_credential_ttl: Some(Self::DEFAULT_TURN_CREDENTIAL_TTL),
+            coturn: None,
         }
     }
 }
@@ -77,6 +81,13 @@ impl IceConfig {
                     _ => Err(IceError::Config(
                         "Missing Cloudflare credentials".to_string(),
                     )),
+                }
+            }
+            IceConfigProviderType::Coturn => {
+                if let Some(coturn_config) = self.coturn.clone() {
+                    Ok(Arc::new(CoturnIceProvider::new(coturn_config)))
+                } else {
+                    Err(IceError::Config("Missing Coturn configuration".to_string()))
                 }
             }
         }
