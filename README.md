@@ -186,6 +186,15 @@ The `vacs` project is a [Rust](https://rust-lang.org/) monorepo containing sever
 
 While these crates were primarily developed to be used in our project's own client, they are also usable independently and aim to provide some abstractions to reduce developer load when implementing a custom client.
 
+## Core Maintainers
+
+The core maintainers are responsible for the project's direction, architecture decisions, release management, and the operation of all infrastructure provided by the vacs project (including the official signaling servers, website, and CI/CD pipelines). While vacs benefits from contributions by all of its community members, the core maintainers hold final decision-making authority on project scope, roadmap, and policy.
+
+The current core maintainers are:
+
+- **Luis Kreihsl** ([@IamLuisAUT](https://github.com/IamLuisAUT), VATSIM CID 1487671)
+- **Nick Müller** ([@MorpheusXAUT](https://github.com/MorpheusXAUT), VATSIM CID 1461002)
+
 ## License
 
 The `vacs` project and all its crates and packages are dual-licensed as
