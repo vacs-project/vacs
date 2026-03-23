@@ -1,4 +1,4 @@
-import {useEffect, useState} from "preact/hooks";
+import {useEffect, useRef, useState} from "preact/hooks";
 import ConnectionStatusIndicator from "./ui/ConnectionStatusIndicator.tsx";
 
 type TimeState = {
@@ -8,6 +8,7 @@ type TimeState = {
 };
 
 function Clock() {
+    const intervalRef = useRef<number | undefined>(undefined);
     const [time, setTime] = useState<TimeState>({
         hours: "99",
         minutes: "99",
@@ -27,12 +28,20 @@ function Clock() {
                 }
                 return {hours, minutes, seconds};
             });
+
+            return 1000 - now.getMilliseconds();
         };
 
-        updateClock();
-        const interval = setInterval(updateClock, 1000);
+        const diff = updateClock();
+        const timeout = setTimeout(() => {
+            updateClock();
+            intervalRef.current = setInterval(updateClock, 1000);
+        }, diff);
 
-        return () => clearInterval(interval);
+        return () => {
+            clearTimeout(timeout);
+            clearInterval(intervalRef.current);
+        };
     }, []);
 
     return (
