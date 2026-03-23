@@ -1,4 +1,3 @@
-import {CloseButton} from "../../pages/SettingsPage.tsx";
 import KeyCapture from "./KeyCapture.tsx";
 import {codeToLabel} from "../../types/transmit.ts";
 import {useEffect, useState} from "preact/hooks";
@@ -7,6 +6,7 @@ import {invokeSafe, invokeStrict} from "../../error.ts";
 import {useCapabilitiesStore} from "../../stores/capabilities-store.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {clsx} from "clsx";
+import SettingsSubPage from "./SettingsSubPage.tsx";
 
 type Keybind = {
     code: string | null;
@@ -36,38 +36,28 @@ function HotkeysConfigPage() {
     }, []);
 
     return (
-        <div className="absolute top-0 z-10 h-full w-1/2 bg-blue-700 border-t-0 px-2 pb-2 flex flex-col">
-            <p className="w-full text-white bg-blue-700 font-semibold text-center">
-                Hotkeys Config
-            </p>
-            <div className="w-full grow rounded-b-sm bg-[#B5BBC6] flex flex-col overflow-y-auto">
-                <div className="w-full py-3 px-4 grow border-b-2 border-zinc-200">
-                    <div className="grid grid-cols-[auto_1fr] gap-4 items-center">
-                        <KeybindField
-                            type="AcceptCall"
-                            label="Accept first call"
-                            keybind={acceptCall}
-                            setKeybind={setAcceptCall}
-                        />
-                        <KeybindField
-                            type="EndCall"
-                            label="End active call"
-                            keybind={endCall}
-                            setKeybind={setEndCall}
-                        />
-                        <KeybindField
-                            type="ToggleRadioPrio"
-                            label="Toggle RADIO PRIO"
-                            keybind={toggleRadioPrio}
-                            setKeybind={setToggleRadioPrio}
-                        />
-                    </div>
-                </div>
-                <div className="h-20 w-full shrink-0 flex flex-row gap-2 justify-end p-2 [&>button]:px-1 [&>button]:shrink-0 overflow-x-auto scrollbar-hide">
-                    <CloseButton />
-                </div>
+        <SettingsSubPage title="Hotkeys Config" width="w-1/2" className="py-3 px-4">
+            <div className="grid grid-cols-[auto_1fr] gap-4 items-center">
+                <KeybindField
+                    type="AcceptCall"
+                    label="Accept first call"
+                    keybind={acceptCall}
+                    setKeybind={setAcceptCall}
+                />
+                <KeybindField
+                    type="EndCall"
+                    label="End active call"
+                    keybind={endCall}
+                    setKeybind={setEndCall}
+                />
+                <KeybindField
+                    type="ToggleRadioPrio"
+                    label="Toggle RADIO PRIO"
+                    keybind={toggleRadioPrio}
+                    setKeybind={setToggleRadioPrio}
+                />
             </div>
-        </div>
+        </SettingsSubPage>
     );
 }
 
