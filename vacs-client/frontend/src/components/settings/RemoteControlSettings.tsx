@@ -1,5 +1,4 @@
 import Checkbox from "../ui/Checkbox.tsx";
-import {StatusColors} from "../ui/StatusIndicator.tsx";
 import {useEffect, useState} from "preact/hooks";
 import {invokeStrict, invokeSafe} from "../../error.ts";
 import {isTauri, listen} from "../../transport";
@@ -7,6 +6,7 @@ import {clsx} from "clsx";
 import {parseSocketAddress} from "../../utils/socket-address.ts";
 import {RemoteConfig, RemoteStatus} from "../../types/settings.ts";
 import {TargetedEvent} from "preact";
+import StatusIndicator, {Status} from "../ui/StatusIndicator.tsx";
 
 const DEFAULT_IP = "0.0.0.0";
 const DEFAULT_PORT = 9600;
@@ -117,34 +117,34 @@ function RemoteControlSettings() {
                         }}
                         disabled={!isTauri || !config.enabled}
                     />
-                    <RemoteStatusIndicator status={status} enabled={config.enabled} />
+                    <RemoteStatusIndicator remoteStatus={status} enabled={config.enabled} />
                 </div>
             </div>
         </>
     );
 }
 
-function RemoteStatusIndicator(props: {status: RemoteStatus; enabled: boolean}) {
-    const {status, enabled} = props;
+function RemoteStatusIndicator(props: {remoteStatus: RemoteStatus; enabled: boolean}) {
+    const {remoteStatus, enabled} = props;
 
-    let color: string;
+    let status: Status;
     let title: string;
 
     if (!enabled) {
-        color = StatusColors["gray"];
+        status = "gray";
         title = "Disabled";
-    } else if (!status.listening) {
-        color = StatusColors["red"];
+    } else if (!remoteStatus.listening) {
+        status = "red";
         title = "Not listening";
-    } else if (status.connectedClients > 0) {
-        color = StatusColors["green"];
-        title = `Listening - ${status.connectedClients} client${status.connectedClients !== 1 ? "s" : ""} connected`;
+    } else if (remoteStatus.connectedClients > 0) {
+        status = "green";
+        title = `Listening - ${remoteStatus.connectedClients} client${remoteStatus.connectedClients !== 1 ? "s" : ""} connected`;
     } else {
-        color = StatusColors["blue"];
+        status = "blue";
         title = "Listening - no clients connected";
     }
 
-    return <div className={clsx("shrink-0 h-3 w-3 rounded-full border", color)} title={title} />;
+    return <StatusIndicator status={status} title={title} />;
 }
 
 export default RemoteControlSettings;

@@ -17,9 +17,9 @@ import {clsx} from "clsx";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {TargetedEvent} from "preact";
 import {RadioState} from "../../types/radio.ts";
-import {StatusColors} from "../ui/StatusIndicator.tsx";
 import {useRadioState} from "../../hooks/radio-state-hook.ts";
 import {transmitModeToKeybind} from "../../types/keybinds.ts";
+import StatusIndicator, {Status} from "../ui/StatusIndicator.tsx";
 
 function TransmitModeSettings() {
     const capKeybindListener = useCapabilitiesStore(state => state.keybindListener);
@@ -441,7 +441,7 @@ function RadioIntegrationSettings({
     return (
         <>
             <Select
-                className="shrink-0 !w-[21ch] h-full"
+                className="shrink-0 w-[21ch]! h-full"
                 name="radio-integration"
                 options={[
                     ...(capKeybindEmitter
@@ -487,36 +487,33 @@ function RadioIntegrationSettings({
     );
 }
 
-const RadioStateColors: {[key in RadioState]: string} = {
-    NotConfigured: StatusColors["gray"],
-    Disconnected: StatusColors["red"],
-    Error: StatusColors["red"],
-    Connected: StatusColors["green"],
-    VoiceConnected: StatusColors["green"],
-    RxIdle: StatusColors["green"],
-    RxActive: StatusColors["green"],
-    TxActive: StatusColors["green"],
+const RadioStateAsIndicatorState: {[key in RadioState]: Status} = {
+    NotConfigured: "gray",
+    Disconnected: "red",
+    Error: "red",
+    Connected: "green",
+    VoiceConnected: "green",
+    RxIdle: "green",
+    RxActive: "green",
+    TxActive: "green",
 };
 
 function TrackAudioStatusIndicator() {
     const {state, canReconnect, handleButtonClick} = useRadioState();
 
+    const title = canReconnect
+        ? "Reconnect to TrackAudio"
+        : state !== "NotConfigured"
+          ? "Connected to TrackAudio"
+          : "Deactivated";
+
     return (
-        <div
-            className={clsx(
-                "shrink-0 h-3 w-3 rounded-full border",
-                RadioStateColors[state],
-                canReconnect && "cursor-pointer",
-            )}
+        <StatusIndicator
+            status={RadioStateAsIndicatorState[state]}
+            className={canReconnect ? "cursor-pointer" : undefined}
             onClick={handleButtonClick}
-            title={
-                canReconnect
-                    ? "Reconnect to TrackAudio"
-                    : state !== "NotConfigured"
-                      ? "Connected to TrackAudio"
-                      : "Deactivated"
-            }
-        ></div>
+            title={title}
+        />
     );
 }
 

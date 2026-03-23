@@ -1,6 +1,4 @@
 import {clsx} from "clsx";
-import {useCallStore} from "../../stores/call-store.ts";
-import {useConnectionStore} from "../../stores/connection-store.ts";
 
 export type Status = "green" | "yellow" | "red" | "gray" | "blue";
 
@@ -12,22 +10,25 @@ export const StatusColors: Record<Status, string> = {
     blue: "bg-blue-500 border-blue-600",
 };
 
-function StatusIndicator() {
-    const connected = useConnectionStore(state => state.connectionState === "connected");
-    const callConnectionState = useCallStore(state => state.callDisplay?.connectionState);
-    const status = ((): Status => {
-        if (connected) {
-            if (callConnectionState === "connecting" || callConnectionState === "disconnected") {
-                return "yellow";
-            }
+type StatusIndicatorProps = {
+    status: Status;
+    className?: string;
+    title?: string;
+    onClick?: () => void;
+};
 
-            return "green";
-        }
-
-        return "gray";
-    })();
-
-    return <div className={clsx("h-3 w-3 rounded-full border", StatusColors[status])}></div>;
+function StatusIndicator(props: StatusIndicatorProps) {
+    return (
+        <div
+            className={clsx(
+                "shrink-0 h-3 w-3 rounded-full border",
+                StatusColors[props.status],
+                props.className,
+            )}
+            title={props.title}
+            onClick={props.onClick}
+        ></div>
+    );
 }
 
 export default StatusIndicator;

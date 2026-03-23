@@ -1,5 +1,5 @@
 import {useEffect, useState} from "preact/hooks";
-import StatusIndicator from "./ui/StatusIndicator.tsx";
+import ConnectionStatusIndicator from "./ui/ConnectionStatusIndicator.tsx";
 
 type TimeState = {
     hours: string;
@@ -44,7 +44,7 @@ function Clock() {
             </div>
             <div className="h-1/2 flex items-center justify-between">
                 <div className="h-full py-1.5 pl-0.5">
-                    <StatusIndicator />
+                    <ConnectionStatusIndicator />
                 </div>
                 <p className="font-bold leading-3 tracking-wider text-xl text-gray-500">
                     {time.seconds}
