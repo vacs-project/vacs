@@ -21,9 +21,9 @@ function getButton() {
 
 function expectButton(color: ButtonColor, highlight?: ButtonHighlightColor) {
     const btn = getButton();
-    expect(btn).toHaveClass(ButtonColors[color]);
+    expect(btn).toHaveClasses(ButtonColors[color]);
     if (highlight !== undefined) {
-        expect(btn.querySelector("div")).toHaveClass(ButtonHighlightColors[highlight]);
+        expect(btn.querySelector("div")).toHaveClasses(ButtonHighlightColors[highlight]);
     } else {
         expect(btn.querySelector("div")).toBeNull();
     }
