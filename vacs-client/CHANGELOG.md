@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.0.0...vacs-client-v2.1.0) (2026-03-24)
+
+
+### Features
+
+* allow assignment of station ID to geo page button ([#641](https://github.com/vacs-project/vacs/issues/641)) ([8331800](https://github.com/vacs-project/vacs/commit/8331800cca0becdec44312c7a0e5aa29594e0dc1))
+* automatically set default call source for position ([#650](https://github.com/vacs-project/vacs/issues/650)) ([3e3f2e5](https://github.com/vacs-project/vacs/commit/3e3f2e51fe459aa97714071e1f3edc617f5b64b5))
+* **vacs-client:** add remote control ([#614](https://github.com/vacs-project/vacs/issues/614)) ([149a245](https://github.com/vacs-project/vacs/commit/149a2458b01a19c1115120d8d0e800e714954fe4))
+* **vacs-client:** add zen modes to clock ([#678](https://github.com/vacs-project/vacs/issues/678)) ([f2e67cf](https://github.com/vacs-project/vacs/commit/f2e67cfbb10e404d8d11363bf9e1d8ecc4c3561b))
+* **vacs-client:** sort telephone directory by position ID ([#656](https://github.com/vacs-project/vacs/issues/656)) ([d0844a2](https://github.com/vacs-project/vacs/commit/d0844a2faacc3373b06324e8feabead6d5084bd4))
+* **vacs-server:** extend metrics to include call routing and coverage ([#624](https://github.com/vacs-project/vacs/issues/624)) ([e60a0a3](https://github.com/vacs-project/vacs/commit/e60a0a3a3cb5f029dfb6e2a0daf68e28ba28e424))
+
+
+### Bug Fixes
+
+* display seconds instead of current day in clock ([#605](https://github.com/vacs-project/vacs/issues/605)) ([3823760](https://github.com/vacs-project/vacs/commit/382376012c432cc8d028c34daf1ba93090c68548))
+* move third party licenses bundling to release config ([#602](https://github.com/vacs-project/vacs/issues/602)) ([b2627da](https://github.com/vacs-project/vacs/commit/b2627daed01f5aad466b19b179b09ec0b77869a6))
+* terminate session before reconnecting on connection loss ([#640](https://github.com/vacs-project/vacs/issues/640)) ([4e3f03e](https://github.com/vacs-project/vacs/commit/4e3f03ef0d77ff76b8d800ff429b9f981d60bb5c))
+* **vacs-client:** fix duplicate clients after VATSIM sync ([#625](https://github.com/vacs-project/vacs/issues/625)) ([24562be](https://github.com/vacs-project/vacs/commit/24562bed438517d3182addbd9900aa656d7a6968))
+* **vacs-client:** prioritize outgoing over incoming call state for phone button ([#631](https://github.com/vacs-project/vacs/issues/631)) ([d355383](https://github.com/vacs-project/vacs/commit/d355383f0f4756e4a141768828d77c80127e6458))
+* **vacs-client:** terminate session before reconnecting on connection loss ([4e3f03e](https://github.com/vacs-project/vacs/commit/4e3f03ef0d77ff76b8d800ff429b9f981d60bb5c))
+* **vacs-server:** correct station handoff handling in coverage state sync ([#630](https://github.com/vacs-project/vacs/issues/630)) ([5ed1aae](https://github.com/vacs-project/vacs/commit/5ed1aae0782454f001e2374c29a3c8de92442f99))
+
 ## [2.0.0](https://github.com/vacs-project/vacs/compare/vacs-client-v1.3.1...vacs-client-v2.0.0) (2026-03-02)
 
 
