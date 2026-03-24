@@ -15,8 +15,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "types": ["@testing-library/jest-dom/vitest"]
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "test"],
   "references": [

@@ -1,6 +1,6 @@
-import "@testing-library/jest-dom/vitest";
 import {mockIPC, clearMocks} from "@tauri-apps/api/mocks";
 import {afterEach, beforeAll, beforeEach, vi} from "vitest";
+import "./matchers.ts";
 
 // @ts-expect-error crypto is a nodejs built-in module
 import {randomFillSync} from "crypto";
