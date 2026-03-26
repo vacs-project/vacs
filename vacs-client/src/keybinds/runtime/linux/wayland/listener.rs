@@ -234,10 +234,7 @@ async fn setup_shortcuts_listener(
 
 async fn initialize_portal(
     startup_tx: &mut Option<oneshot::Sender<Result<(), KeybindsError>>>,
-) -> ashpd::Result<(
-    GlobalShortcuts<'static>,
-    ashpd::desktop::Session<'static, GlobalShortcuts<'static>>,
-)> {
+) -> ashpd::Result<(GlobalShortcuts, ashpd::desktop::Session<GlobalShortcuts>)> {
     let proxy = match tokio::time::timeout(Duration::from_secs(5), GlobalShortcuts::new()).await {
         Ok(Ok(proxy)) => proxy,
         Ok(Err(err)) => {
@@ -260,7 +257,12 @@ async fn initialize_portal(
         }
     };
 
-    let session = match tokio::time::timeout(Duration::from_secs(5), proxy.create_session()).await {
+    let session = match tokio::time::timeout(
+        Duration::from_secs(5),
+        proxy.create_session(Default::default()),
+    )
+    .await
+    {
         Ok(Ok(session)) => session,
         Ok(Err(err)) => {
             log::error!("Failed to create shortcuts session: {err}");
@@ -286,21 +288,24 @@ async fn initialize_portal(
 }
 
 async fn check_existing_shortcuts(
-    proxy: &GlobalShortcuts<'static>,
-    session: &ashpd::desktop::Session<'static, GlobalShortcuts<'static>>,
+    proxy: &GlobalShortcuts,
+    session: &ashpd::desktop::Session<GlobalShortcuts>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), KeybindsError>>>,
     shortcuts_map: &ShortcutMap,
 ) -> ashpd::Result<bool> {
     log::trace!("Checking for existing shortcuts");
-    let request = proxy.list_shortcuts(session).await.map_err(|err| {
-        log::error!("Failed to list shortcuts: {err}");
-        let _ = startup_tx.take().map(|tx| {
-            tx.send(Err(KeybindsError::Listener(
-                "Failed to list shortcuts".to_string(),
-            )))
-        });
-        err
-    })?;
+    let request = proxy
+        .list_shortcuts(session, Default::default())
+        .await
+        .map_err(|err| {
+            log::error!("Failed to list shortcuts: {err}");
+            let _ = startup_tx.take().map(|tx| {
+                tx.send(Err(KeybindsError::Listener(
+                    "Failed to list shortcuts".to_string(),
+                )))
+            });
+            err
+        })?;
 
     match request.response() {
         Ok(response) if !response.shortcuts().is_empty() => {
@@ -336,8 +341,8 @@ async fn check_existing_shortcuts(
 }
 
 async fn bind_shortcuts(
-    proxy: &GlobalShortcuts<'static>,
-    session: &ashpd::desktop::Session<'static, GlobalShortcuts<'static>>,
+    proxy: &GlobalShortcuts,
+    session: &ashpd::desktop::Session<GlobalShortcuts>,
     startup_tx: &mut Option<oneshot::Sender<Result<(), KeybindsError>>>,
     shortcuts_map: &ShortcutMap,
 ) -> ashpd::Result<()> {
@@ -353,7 +358,7 @@ async fn bind_shortcuts(
     let _ = startup_tx.take().map(|tx| tx.send(Ok(())));
 
     let request = proxy
-        .bind_shortcuts(session, &shortcuts, None)
+        .bind_shortcuts(session, &shortcuts, None, Default::default())
         .await
         .map_err(|err| {
             log::error!("Failed to bind shortcuts: {err}");
