@@ -40,8 +40,12 @@ jobs:
               - ".github/workflows/ci-rust.yml"
               - ".github/workflows/ci-gate.yml"
             node:
-              - "vacs-client/frontend/**"
-              - "!vacs-client/frontend/icons/**"
+              - "vacs-client/frontend/**/*.ts"
+              - "vacs-client/frontend/**/*.tsx"
+              - "vacs-client/frontend/index.html"
+              - "vacs-client/frontend/package.json"
+              - "vacs-client/frontend/tsconfig*.json"
+              - "vacs-client/package.json"
               - ".github/workflows/ci-node.yml"
               - ".github/workflows/ci-gate.yml"
 
