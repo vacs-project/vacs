@@ -210,7 +210,11 @@ impl Default for BackendEndpointsConfigs {
 pub struct AudioConfig {
     pub host_name: Option<String>, // Name of audio backend host, None means default host
     pub input_device_name: Option<String>, // None means default device
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_device_id: Option<String>, // Stable device ID for reliable matching, None means default device
     pub output_device_name: Option<String>, // None means default device
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_device_id: Option<String>, // Stable device ID for reliable matching, None means default device
     pub input_device_volume: f32,
     pub input_device_volume_amp: f32,
     pub output_device_volume: f32,
@@ -224,7 +228,9 @@ impl Default for AudioConfig {
         Self {
             host_name: None,
             input_device_name: None,
+            input_device_id: None,
             output_device_name: None,
+            output_device_id: None,
             input_device_volume: 0.5,
             input_device_volume_amp: 4.0,
             output_device_volume: 0.5,

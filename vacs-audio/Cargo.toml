@@ -12,6 +12,7 @@ anyhow = { workspace = true }
 audioadapter-buffers = { workspace = true }
 biquad = { workspace = true }
 bytes = { workspace = true }
+cpal = { workspace = true }
 opus = { workspace = true }
 parking_lot = { workspace = true }
 ringbuf = { workspace = true }
@@ -21,12 +22,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-cpal = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-cpal_macos = { package = "cpal", git = "https://github.com/RustAudio/cpal", rev = "a8269d3c993f7d375d4655b53d3437429d4f6bd8" }
 
 [lints]
 workspace = true

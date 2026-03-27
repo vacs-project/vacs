@@ -57,6 +57,9 @@ pub async fn audio_set_host(
     let persisted_audio_config: PersistedAudioConfig = {
         let mut audio_config = state.config.audio.clone();
         audio_config.host_name = Some(host_name).filter(|x| !x.is_empty());
+        // Device IDs are host-scoped, so clear them when switching hosts.
+        audio_config.input_device_id = None;
+        audio_config.output_device_id = None;
 
         audio_manager
             .write()
@@ -127,12 +130,27 @@ pub async fn audio_set_device(
     );
 
     let device_name = Some(device_name).filter(|x| !x.is_empty());
+    // Resolve the stable device ID for the selected device name so we can
+    // persist it alongside the display name. On next startup, the ID is tried
+    // first for reliable matching; the name serves as a fallback for old configs.
+    let device_id = device_name.as_deref().and_then(|name| {
+        DeviceSelector::resolve_device_id(
+            device_type,
+            state.config.audio.host_name.as_deref(),
+            name,
+        )
+    });
+
     let (persisted_audio_config, audio_devices): (PersistedAudioConfig, AudioDevices) = {
         match device_type {
-            DeviceType::Input => state.config.audio.input_device_name = device_name,
+            DeviceType::Input => {
+                state.config.audio.input_device_name = device_name;
+                state.config.audio.input_device_id = device_id;
+            }
             DeviceType::Output => {
                 let mut audio_config = state.config.audio.clone();
                 audio_config.output_device_name = device_name;
+                audio_config.output_device_id = device_id;
 
                 audio_manager.switch_output_device(app.clone(), &audio_config, false)?;
 
@@ -325,8 +343,12 @@ fn get_audio_devices(
     let (preferred, picked) = match device_type {
         DeviceType::Input => {
             let preferred = audio_config.input_device_name.clone().unwrap_or_default();
-            let picked =
-                DeviceSelector::picked_device_name(DeviceType::Input, host, Some(&preferred))?;
+            let picked = DeviceSelector::picked_device_name(
+                DeviceType::Input,
+                host,
+                audio_config.input_device_id.as_deref(),
+                Some(&preferred),
+            )?;
             (preferred, picked)
         }
         DeviceType::Output => {

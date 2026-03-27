@@ -1,7 +1,10 @@
 use crate::TARGET_SAMPLE_RATE;
 use crate::cpal;
+use crate::cpal::device_description::DeviceDirection;
 use crate::cpal::traits::{DeviceTrait, HostTrait};
-use crate::cpal::{Sample, SampleFormat, SupportedStreamConfig, SupportedStreamConfigRange};
+use crate::cpal::{
+    DeviceId, Sample, SampleFormat, SupportedStreamConfig, SupportedStreamConfigRange,
+};
 use crate::error::AudioError;
 use anyhow::Context;
 use rubato::{
@@ -42,12 +45,12 @@ impl StreamDevice {
 
     #[inline]
     pub fn name(&self) -> String {
-        self.device.name().unwrap_or_default()
+        device_display_name(&self.device)
     }
 
     #[inline]
     pub fn sample_rate(&self) -> u32 {
-        self.config.sample_rate.0
+        self.config.sample_rate
     }
 
     #[inline]
@@ -225,9 +228,13 @@ impl Debug for StreamDevice {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "StreamDevice {{ device_type: {}, device: {}, config: {:?}, sample_format: {:?} }}",
+            "StreamDevice {{ device_type: {}, device: {} (id: {}), config: {:?}, sample_format: {:?} }}",
             self.device_type,
-            self.device.name().unwrap_or_default(),
+            device_display_name(&self.device),
+            self.device
+                .id()
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             self.config,
             self.sample_format
         )
@@ -241,11 +248,16 @@ impl DeviceSelector {
     pub fn open(
         device_type: DeviceType,
         preferred_host: Option<&str>,
+        preferred_device_id: Option<&str>,
         preferred_device_name: Option<&str>,
     ) -> Result<(StreamDevice, bool), AudioError> {
         let host = Self::select_host(preferred_host);
-        let (device, stream_config, is_fallback) =
-            Self::pick_device_with_stream_config(device_type, &host, preferred_device_name)?;
+        let (device, stream_config, is_fallback) = Self::pick_device_with_stream_config(
+            device_type,
+            &host,
+            preferred_device_id,
+            preferred_device_name,
+        )?;
 
         Ok((
             StreamDevice {
@@ -282,13 +294,14 @@ impl DeviceSelector {
         let device_names = devices
             .into_iter()
             .filter_map(|device| {
-                if let Ok(device_name) = device.name()
-                    && Self::pick_best_stream_config(device_type, &device).is_ok()
-                {
-                    Some(device_name)
-                } else {
-                    None
+                let name = device_display_name(&device);
+                if name.is_empty() {
+                    return None;
                 }
+                if !Self::has_supported_configs(device_type, &device) {
+                    return None;
+                }
+                Some(name)
             })
             .collect::<Vec<_>>();
 
@@ -303,23 +316,44 @@ impl DeviceSelector {
         tracing::debug!("Retrieving device name for default device");
 
         let host = Self::select_host(preferred_host);
-        let (device, _) = Self::select_device(device_type, &host, None)?;
-        Self::pick_best_stream_config(device_type, &device)?;
+        let (device, _) = Self::select_device(device_type, &host, None, None)?;
 
-        Ok(device.name().unwrap_or_default())
+        Ok(device_display_name(&device))
     }
 
     #[instrument(level = "debug", err)]
     pub fn picked_device_name(
         device_type: DeviceType,
         preferred_host: Option<&str>,
+        preferred_device_id: Option<&str>,
         preferred_device_name: Option<&str>,
     ) -> Result<String, AudioError> {
         let host = Self::select_host(preferred_host);
-        let (device, _) = Self::select_device(device_type, &host, preferred_device_name)?;
-        Self::pick_best_stream_config(device_type, &device)?;
+        let (device, _) = Self::select_device(
+            device_type,
+            &host,
+            preferred_device_id,
+            preferred_device_name,
+        )?;
 
-        Ok(device.name().unwrap_or_default())
+        Ok(device_display_name(&device))
+    }
+
+    /// Resolves the stable device ID for a device identified by display name.
+    /// Returns `None` if the device cannot be found or has no ID.
+    pub fn resolve_device_id(
+        device_type: DeviceType,
+        preferred_host: Option<&str>,
+        device_name: &str,
+    ) -> Option<String> {
+        let host = Self::select_host(preferred_host);
+        let devices = Self::host_devices(device_type, &host).ok()?;
+        let device = devices.iter().find(|d| {
+            device_identifiers(d)
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(device_name))
+        })?;
+        device_id_string(device)
     }
 
     #[instrument(level = "trace")]
@@ -351,10 +385,15 @@ impl DeviceSelector {
     fn pick_device_with_stream_config(
         device_type: DeviceType,
         host: &cpal::Host,
+        preferred_device_id: Option<&str>,
         preferred_device_name: Option<&str>,
     ) -> Result<(cpal::Device, SupportedStreamConfig, bool), AudioError> {
-        let (mut device, mut is_fallback) =
-            Self::select_device(device_type, host, preferred_device_name)?;
+        let (mut device, mut is_fallback) = Self::select_device(
+            device_type,
+            host,
+            preferred_device_id,
+            preferred_device_name,
+        )?;
 
         let (stream_config, _) = match Self::pick_best_stream_config(device_type, &device) {
             Ok(stream_config) => stream_config,
@@ -419,24 +458,44 @@ impl DeviceSelector {
     fn select_device(
         device_type: DeviceType,
         host: &cpal::Host,
+        preferred_device_id: Option<&str>,
         preferred_device_name: Option<&str>,
     ) -> Result<(cpal::Device, bool), AudioError> {
+        if let Some(id_str) = preferred_device_id {
+            if let Ok(id) = id_str.parse::<DeviceId>()
+                && let Some(device) = host.device_by_id(&id)
+            {
+                tracing::trace!(device = ?DeviceDebug(&device), "Selected device by ID");
+                return Ok((device, false));
+            }
+            tracing::debug!(
+                id = id_str,
+                "Stored device ID no longer available, falling back to name matching"
+            );
+        }
+
+        // Fall back to name-based matching (backwards compat with old configs)
         if let Some(name) = preferred_device_name {
             let devices = Self::host_devices(device_type, host)?;
 
+            // Exact case-insensitive match against all device identifiers.
+            // Checking multiple identifiers ensures backwards compatibility with
+            // configs that stored names from older cpal versions (e.g. ALSA pcm_id
+            // or WASAPI FriendlyName).
             if let Some(device) = devices.iter().find(|d| {
-                d.name()
-                    .map(|n| n.eq_ignore_ascii_case(name))
-                    .unwrap_or(false)
+                device_identifiers(d)
+                    .iter()
+                    .any(|n| n.eq_ignore_ascii_case(name))
             }) {
                 tracing::trace!(device = ?DeviceDebug(device), "Selected preferred device");
                 return Ok((device.clone(), false));
             }
 
             if let Some(device) = devices.iter().find(|d| {
-                d.name()
-                    .map(|n| n.to_lowercase().contains(&name.to_lowercase()))
-                    .unwrap_or(false)
+                let name_lower = name.to_lowercase();
+                device_identifiers(d)
+                    .iter()
+                    .any(|n| n.to_lowercase().contains(&name_lower))
             }) {
                 tracing::trace!(device = ?DeviceDebug(device), "Selected preferred device (based on substring match)");
                 return Ok((device.clone(), false));
@@ -452,7 +511,50 @@ impl DeviceSelector {
                 .context("Failed to get default output device")?,
         };
         tracing::trace!(device = ?DeviceDebug(&device), "Selected default device");
-        Ok((device, preferred_device_name.is_some()))
+        Ok((
+            device,
+            preferred_device_id.is_some() || preferred_device_name.is_some(),
+        ))
+    }
+
+    /// Checks whether a device actually supports the requested stream direction.
+    ///
+    /// ALSA hint devices with NULL IOID are tagged as `Duplex` even when they
+    /// only support one direction (e.g. `surround71:` appearing in the input
+    /// list). This method filters those out.
+    ///
+    /// To avoid opening PCM devices unnecessarily (which on ALSA can leak file
+    /// descriptors and poison the backend for the process lifetime), we first
+    /// consult the direction metadata from the device description. Only
+    /// ambiguous input devices fall through to an actual config query; for
+    /// output we trust the metadata because an output stream might aready be
+    /// active during enumeration and probing would try to reopen the same
+    /// hardware via dmix, leaking FDs.
+    fn has_supported_configs(device_type: DeviceType, device: &cpal::Device) -> bool {
+        if let Ok(desc) = device.description() {
+            match (device_type, desc.direction()) {
+                // Clear mismatch: exclude.
+                (DeviceType::Input, DeviceDirection::Output)
+                | (DeviceType::Output, DeviceDirection::Input) => return false,
+                // Clear match: include.
+                (DeviceType::Input, DeviceDirection::Input)
+                | (DeviceType::Output, DeviceDirection::Output) => return true,
+                // Duplex/Unknown output: include without probing. A device
+                // listed by host.output_devices() that claims Duplex is a
+                // legitimate output device.
+                (DeviceType::Output, _) => return true,
+                // Duplex/Unknown input: fall through to probe. Surround-only
+                // output devices often claim Duplex via ALSA hints and must
+                // be verified. No capture stream is typically open during
+                // enumeration, so the probe is safe.
+                (DeviceType::Input, _) => {}
+            }
+        }
+
+        // Probe actual input config support for ambiguous devices.
+        device
+            .supported_input_configs()
+            .is_ok_and(|mut i| i.next().is_some())
     }
 
     #[instrument(level = "trace", err, skip(device), fields(device = ?DeviceDebug(device)))]
@@ -496,10 +598,10 @@ impl DeviceSelector {
         let (range, score) =
             best.ok_or_else(|| anyhow::anyhow!("No supported stream config found"))?;
         let sample_rate =
-            Self::closest_sample_rate(range.min_sample_rate().0, range.max_sample_rate().0);
+            Self::closest_sample_rate(range.min_sample_rate(), range.max_sample_rate());
 
         tracing::trace!(?range, ?score, ?sample_rate, "Picked best stream config");
-        Ok((range.with_sample_rate(cpal::SampleRate(sample_rate)), score))
+        Ok((range.with_sample_rate(sample_rate), score))
     }
 
     fn score_stream_config_range(
@@ -507,7 +609,7 @@ impl DeviceSelector {
         preferred_channels: u16,
     ) -> StreamConfigScore {
         let sample_rate_distance =
-            Self::sample_rate_distance(range.min_sample_rate().0, range.max_sample_rate().0);
+            Self::sample_rate_distance(range.min_sample_rate(), range.max_sample_rate());
 
         let channels_distance = range.channels().abs_diff(preferred_channels);
 
@@ -542,6 +644,62 @@ impl DeviceSelector {
     }
 }
 
+/// Returns the human-readable display name for an audio device via its description.
+/// Includes the driver name in parentheses when available and different from the
+/// device name, which helps disambiguate devices that share the same generic name
+/// (e.g. multiple "USB Audio, USB Audio" entries on ALSA).
+fn device_display_name(device: &cpal::Device) -> String {
+    let Ok(desc) = device.description() else {
+        return String::new();
+    };
+    let name = desc.name();
+    match desc.driver() {
+        Some(driver) if !driver.eq_ignore_ascii_case(name) => {
+            format!("{name} ({driver})")
+        }
+        _ => name.to_string(),
+    }
+}
+
+/// Returns all identifying strings for a device, used for backwards-compatible name matching.
+/// Includes the display name, description name, driver name, and any extended description lines.
+/// This ensures that device names stored in older configurations (which may have used
+/// different naming schemes per platform) can still match the correct device, and that
+/// new display names (which combine name + driver) also match correctly.
+fn device_identifiers(device: &cpal::Device) -> Vec<String> {
+    let mut ids = Vec::new();
+
+    // Include the composite display name first so exact match hits it directly.
+    let display = device_display_name(device);
+    if !display.is_empty() {
+        ids.push(display);
+    }
+
+    if let Ok(desc) = device.description() {
+        let name = desc.name().to_string();
+        if !ids.contains(&name) {
+            ids.push(name);
+        }
+        if let Some(driver) = desc.driver() {
+            let driver = driver.to_string();
+            if !ids.contains(&driver) {
+                ids.push(driver);
+            }
+        }
+        for line in desc.extended() {
+            if !ids.contains(line) {
+                ids.push(line.clone());
+            }
+        }
+    }
+    ids
+}
+
+/// Returns the stable device ID as a string, if available.
+pub fn device_id_string(device: &cpal::Device) -> Option<String> {
+    device.id().ok().map(|id| id.to_string())
+}
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct StreamConfigScore(u32, u16, u8); // sample_rate_distance, channels_distance, format_preference
 
@@ -560,8 +718,12 @@ struct DeviceDebug<'a>(&'a cpal::Device);
 
 impl<'a> Debug for DeviceDebug<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Device")
-            .field(&self.0.name().unwrap_or_default())
+        f.debug_struct("Device")
+            .field("name", &device_display_name(self.0))
+            .field(
+                "id",
+                &self.0.id().map(|id| id.to_string()).unwrap_or_default(),
+            )
             .finish()
     }
 }

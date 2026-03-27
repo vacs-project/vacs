@@ -187,6 +187,7 @@ impl AudioManager {
         let (device, is_fallback) = DeviceSelector::open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
+            audio_config.input_device_id.as_deref(),
             audio_config.input_device_name.as_deref(),
         )?;
         if is_fallback {
@@ -257,6 +258,7 @@ impl AudioManager {
         let (device, _) = DeviceSelector::open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
+            audio_config.input_device_id.as_deref(),
             audio_config.input_device_name.as_deref(),
         )?;
 
@@ -393,6 +395,7 @@ impl AudioManager {
         let (output_device, is_fallback) = DeviceSelector::open(
             DeviceType::Output,
             audio_config.host_name.as_deref(),
+            audio_config.output_device_id.as_deref(),
             audio_config.output_device_name.as_deref(),
         )?;
         if is_fallback {

@@ -54,6 +54,11 @@ impl From<StreamError> for AudioError {
         use StreamError::*;
         match e {
             DeviceNotAvailable => AudioError::DeviceNotAvailable,
+            StreamInvalidated => AudioError::DeviceNotAvailable,
+            BufferUnderrun => {
+                tracing::debug!("Audio buffer underrun");
+                AudioError::Other(anyhow::anyhow!("Audio buffer underrun"))
+            }
             BackendSpecific { err } => {
                 tracing::debug!(?err, "Backend specific cpal stream error");
                 AudioError::Other(anyhow::anyhow!(err.description))
