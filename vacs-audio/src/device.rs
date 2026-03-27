@@ -1,12 +1,9 @@
 use crate::TARGET_SAMPLE_RATE;
-use crate::cpal;
-use crate::cpal::device_description::DeviceDirection;
-use crate::cpal::traits::{DeviceTrait, HostTrait};
-use crate::cpal::{
-    DeviceId, Sample, SampleFormat, SupportedStreamConfig, SupportedStreamConfigRange,
-};
 use crate::error::AudioError;
 use anyhow::Context;
+use cpal::device_description::DeviceDirection;
+use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::{DeviceId, Sample, SampleFormat, SupportedStreamConfig, SupportedStreamConfigRange};
 use rubato::{
     Async, FixedAsync, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };

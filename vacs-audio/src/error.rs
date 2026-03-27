@@ -1,4 +1,4 @@
-use crate::cpal::{BuildStreamError, PlayStreamError, StreamError};
+use cpal::{BuildStreamError, PlayStreamError, StreamError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

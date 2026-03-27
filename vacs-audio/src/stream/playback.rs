@@ -1,9 +1,8 @@
-use crate::cpal;
-use crate::cpal::traits::StreamTrait;
 use crate::device::{DeviceType, StreamDevice};
 use crate::error::AudioError;
 use crate::mixer::Mixer;
 use crate::sources::{AudioSource, AudioSourceId};
+use cpal::traits::StreamTrait;
 use parking_lot::Mutex;
 use ringbuf::HeapRb;
 use ringbuf::consumer::Consumer;

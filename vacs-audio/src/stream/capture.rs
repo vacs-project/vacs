@@ -1,5 +1,3 @@
-use crate::cpal;
-use crate::cpal::traits::StreamTrait;
 use crate::device::{DeviceType, StreamDevice};
 use crate::dsp::{MicProcessor, downmix_interleaved_to_mono};
 use crate::error::AudioError;
@@ -7,6 +5,7 @@ use crate::{EncodedAudioFrame, FRAME_SIZE, TARGET_SAMPLE_RATE};
 use anyhow::Context;
 use audioadapter_buffers::direct::SequentialSliceOfVecs;
 use bytes::Bytes;
+use cpal::traits::StreamTrait;
 use parking_lot::lock_api::Mutex;
 use ringbuf::HeapRb;
 use ringbuf::consumer::Consumer;
