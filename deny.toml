@@ -49,8 +49,6 @@ allow = [
 exceptions = [
     { allow = ["CC0-1.0"], crate = "notify" },
     { allow = ["CC0-1.0"], crate = "tiny-keccak" },
-    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
-    { allow = ["OpenSSL"], crate = "aws-lc-sys" },
     { allow = ["Zlib"], crate = "foldhash" },
 ]
 
@@ -66,7 +64,10 @@ allow-wildcard-paths = true
 unknown-registry = "warn"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = [
+    "https://github.com/MorpheusXAUT/axum-login",
+    "https://github.com/maxcountryman/tower-sessions-stores",
+]
 
 [sources.allow-org]
 github = []

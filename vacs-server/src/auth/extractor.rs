@@ -53,7 +53,7 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
                 AppError::Unauthorized("Not authenticated".to_string())
             })?;
 
-        match auth_session.user {
+        match auth_session.user().await {
             Some(user) => Ok(Self {
                 user,
                 api_token: None,

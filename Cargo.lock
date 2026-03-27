@@ -644,18 +644,19 @@ dependencies = [
 [[package]]
 name = "axum-login"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "964ea6eb764a227baa8c3368e45c94d23b6863cc7b880c6c9e341c143c5a5ff7"
+source = "git+https://github.com/MorpheusXAUT/axum-login?rev=ce98c33e1fe6db4a11ece0afa307ba880ff033a5#ce98c33e1fe6db4a11ece0afa307ba880ff033a5"
 dependencies = [
  "axum",
  "form_urlencoded",
+ "pin-project",
  "serde",
  "subtle",
  "thiserror 2.0.18",
+ "tokio",
  "tower-cookies",
  "tower-layer",
  "tower-service",
- "tower-sessions 0.14.0",
+ "tower-sessions",
  "tracing",
  "urlencoding",
 ]
@@ -3807,7 +3808,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
- "serde",
 ]
 
 [[package]]
@@ -7932,23 +7932,6 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tower-sessions"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43a05911f23e8fae446005fe9b7b97e66d95b6db589dc1c4d59f6a2d4d4927d3"
-dependencies = [
- "async-trait",
- "http",
- "time",
- "tokio",
- "tower-cookies",
- "tower-layer",
- "tower-service",
- "tower-sessions-core 0.14.0",
- "tracing",
-]
-
-[[package]]
-name = "tower-sessions"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "518dca34b74a17cadfcee06e616a09d2bd0c3984eff1769e1e76d58df978fc78"
@@ -7960,28 +7943,8 @@ dependencies = [
  "tower-cookies",
  "tower-layer",
  "tower-service",
- "tower-sessions-core 0.15.0",
+ "tower-sessions-core",
  "tower-sessions-memory-store",
- "tracing",
-]
-
-[[package]]
-name = "tower-sessions-core"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce8cce604865576b7751b7a6bc3058f754569a60d689328bb74c52b1d87e355b"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "futures",
- "http",
- "parking_lot",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "time",
- "tokio",
  "tracing",
 ]
 
@@ -8015,21 +7978,20 @@ dependencies = [
  "async-trait",
  "time",
  "tokio",
- "tower-sessions-core 0.15.0",
+ "tower-sessions-core",
 ]
 
 [[package]]
 name = "tower-sessions-redis-store"
 version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e15b774f3d46625a27a8ac1238ecd73c8bd50013244e2de004026e161aad728"
+source = "git+https://github.com/maxcountryman/tower-sessions-stores?rev=be0f230fadb4ca0496d4cabc946ae7778eee37e6#be0f230fadb4ca0496d4cabc946ae7778eee37e6"
 dependencies = [
  "async-trait",
  "fred",
  "rmp-serde",
  "thiserror 2.0.18",
  "time",
- "tower-sessions-core 0.14.0",
+ "tower-sessions-core",
 ]
 
 [[package]]
@@ -8527,7 +8489,7 @@ dependencies = [
  "tokio-tungstenite 0.29.0",
  "toml 1.1.0+spec-1.1.0",
  "tower-http",
- "tower-sessions 0.15.0",
+ "tower-sessions",
  "tower-sessions-redis-store",
  "tracing",
  "tracing-subscriber",

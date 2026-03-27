@@ -26,7 +26,7 @@ mod get {
     use vacs_protocol::http::auth::InitVatsimLogin;
 
     pub async fn vatsim(auth_session: AuthSession, session: Session) -> ApiResult<InitVatsimLogin> {
-        let (url, csrf_token) = auth_session.backend.authorize_url();
+        let (url, csrf_token) = auth_session.backend().authorize_url();
 
         session
             .insert(VATSIM_OAUTH_CSRF_TOKEN_KEY, csrf_token)
@@ -52,7 +52,7 @@ mod post {
     use vacs_protocol::http::auth::AuthExchangeToken;
 
     pub async fn vatsim_callback(
-        mut auth_session: AuthSession,
+        auth_session: AuthSession,
         session: Session,
         Json(AuthExchangeToken { code, state }): Json<AuthExchangeToken>,
     ) -> ApiResult<UserInfo> {
@@ -96,7 +96,7 @@ mod post {
                 .await
                 .context("Failed to revoke API token")?;
         } else {
-            let mut auth_session = AuthSession::from_request_parts(&mut parts, &state)
+            let auth_session = AuthSession::from_request_parts(&mut parts, &state)
                 .await
                 .map_err(|_| AppError::Unauthorized("Not authenticated".to_string()))?;
             let session = Session::from_request_parts(&mut parts, &state)
