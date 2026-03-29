@@ -1,6 +1,7 @@
 import {Fragment, JSX} from "preact";
 import {clsx} from "clsx";
 import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
+import {useEffect, useRef} from "preact/hooks";
 
 type ListProps = {
     itemsCount: number;
@@ -110,11 +111,42 @@ function ScrollButtonRow({
     disabled: boolean;
     onClick: () => void;
 }) {
+    const timeoutRef = useRef<number | undefined>(undefined);
+    const intervalRef = useRef<number | undefined>(undefined);
+
+    const handleOnMouseDown = () => {
+        timeoutRef.current = setTimeout(() => {
+            intervalRef.current = setInterval(() => {
+                if (!disabled) onClick();
+            }, 75);
+            timeoutRef.current = undefined;
+        }, 200);
+    };
+
+    const handleOnMouseUp = () => {
+        if (timeoutRef.current !== undefined) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = undefined;
+            onClick();
+        }
+        if (intervalRef.current !== undefined) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = undefined;
+        }
+    };
+
+    useEffect(() => {
+        window.addEventListener("mouseup", handleOnMouseUp);
+
+        return () => window.removeEventListener("mouseup", handleOnMouseUp);
+    }, []);
+
     return (
         <div
             className="relative bg-gray-300"
             style={{cursor: disabled ? "not-allowed" : "pointer"}}
-            onClick={!disabled ? onClick : undefined}
+            onMouseDown={!disabled ? handleOnMouseDown : undefined}
+            onMouseUp={handleOnMouseUp}
         >
             <svg
                 className={clsx(
