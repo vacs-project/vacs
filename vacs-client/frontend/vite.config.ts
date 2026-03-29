@@ -8,7 +8,7 @@ import tailwindcss from "@tailwindcss/vite";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vitejs.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig({
     plugins: [preact(), tailwindcss()],
 
     cacheDir: "../node_modules/.vite",
@@ -33,7 +33,6 @@ export default defineConfig(async () => ({
 
     // https://vitest.dev/config/
     test: {
-        globals: true,
         environment: "jsdom",
         setupFiles: ["./test/setup.ts"],
         coverage: {
@@ -43,4 +42,4 @@ export default defineConfig(async () => ({
             exclude: ["test/", "**/*.d.ts", "src/main.tsx"],
         },
     },
-}));
+});

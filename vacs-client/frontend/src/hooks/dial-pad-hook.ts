@@ -20,7 +20,7 @@ export function useDialPadInput() {
             return;
         }
 
-        const chars = [...buttonChars];
+        const chars = Array.from(buttonChars);
         const lastChar = dialInput[dialInput.length - 1] ?? "";
 
         if (multipleTapTimeoutRef.current !== undefined) {

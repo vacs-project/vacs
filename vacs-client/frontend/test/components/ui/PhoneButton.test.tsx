@@ -1,5 +1,5 @@
 import {describe, expect, it, afterEach} from "vitest";
-import {render, screen} from "@testing-library/preact";
+import {render, screen, cleanup} from "@testing-library/preact";
 import PhoneButton from "../../../src/components/ui/PhoneButton.tsx";
 import {
     ButtonColor,
@@ -13,26 +13,13 @@ import {flipBlink, makeTestCall} from "../../util.ts";
 
 afterEach(() => {
     useCallStore.getState().actions.reset();
+    cleanup();
 });
-
-function getButton() {
-    return screen.getByRole("button", {name: "Phone"});
-}
-
-function expectButton(color: ButtonColor, highlight?: ButtonHighlightColor) {
-    const btn = getButton();
-    expect(btn).toHaveClasses(ButtonColors[color]);
-    if (highlight !== undefined) {
-        expect(btn.querySelector("div")).toHaveClasses(ButtonHighlightColors[highlight]);
-    } else {
-        expect(btn.querySelector("div")).toBeNull();
-    }
-}
 
 describe("PhoneButton", () => {
     it("renders gray when idle", () => {
         render(<PhoneButton />);
-        expectButton("gray");
+        expectColorWithoutHighlight("gray");
     });
 
     describe("outgoing call", () => {
@@ -41,134 +28,134 @@ describe("PhoneButton", () => {
                 callDisplay: {type: "outgoing", call: makeTestCall()},
             });
             render(<PhoneButton />);
-            expectButton("gray", "green");
+            expectColorAndHighlight("gray", "green");
         });
 
-        it("blinks between yellow with green highlight and gray with green highlight for priority call", () => {
+        it("blinks between yellow with green highlight and gray with green highlight for priority call", async () => {
             useCallStore.setState({
                 callDisplay: {type: "outgoing", call: makeTestCall({prio: true})},
                 blink: true,
             });
             render(<PhoneButton />);
-            expectButton("yellow", "green");
+            expectColorAndHighlight("yellow", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("yellow", "green");
+            await flipBlink();
+            expectColorAndHighlight("yellow", "green");
         });
 
-        it("shows outgoing state when both outgoing and incoming calls exist", () => {
+        it("shows outgoing state when both outgoing and incoming calls exist", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "outgoing", call: makeTestCall()},
                 incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
-            expectButton("gray", "green");
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
         });
 
-        it("ignores incoming prio when outgoing call exists", () => {
+        it("ignores incoming prio when outgoing call exists", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "outgoing", call: makeTestCall()},
                 incomingCalls: [makeTestCall({callId: "call1" as CallId, prio: true})],
             });
             render(<PhoneButton />);
-            expectButton("gray", "green");
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
         });
 
-        it("shows rejected state when both rejected and incoming calls exist", () => {
+        it("shows rejected state when both rejected and incoming calls exist", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "rejected", call: makeTestCall()},
                 incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
-            expectButton("green", "green");
+            expectColorAndHighlight("green", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("green", "green");
+            await flipBlink();
+            expectColorAndHighlight("green", "green");
         });
 
-        it("shows error state when both error and incoming calls exist", () => {
+        it("shows error state when both error and incoming calls exist", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "error", call: makeTestCall()},
                 incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
-            expectButton("red");
+            expectColorWithoutHighlight("red");
 
-            flipBlink();
-            expectButton("gray");
+            await flipBlink();
+            expectColorWithoutHighlight("gray");
 
-            flipBlink();
-            expectButton("red");
+            await flipBlink();
+            expectColorWithoutHighlight("red");
         });
 
-        it("shows accepted state when both accepted and incoming calls exist", () => {
+        it("shows accepted state when both accepted and incoming calls exist", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "accepted", call: makeTestCall()},
                 incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
-            expectButton("green");
+            expectColorWithoutHighlight("green");
 
-            flipBlink();
-            expectButton("green");
+            await flipBlink();
+            expectColorWithoutHighlight("green");
 
-            flipBlink();
-            expectButton("green");
+            await flipBlink();
+            expectColorWithoutHighlight("green");
         });
     });
 
     describe("incoming call", () => {
-        it("blinks between green and gray for incoming call", () => {
+        it("blinks between green and gray for incoming call", async () => {
             useCallStore.setState({
                 blink: true,
                 incomingCalls: [makeTestCall()],
             });
             render(<PhoneButton />);
-            expectButton("green");
+            expectColorWithoutHighlight("green");
 
-            flipBlink();
-            expectButton("gray");
+            await flipBlink();
+            expectColorWithoutHighlight("gray");
 
-            flipBlink();
-            expectButton("green");
+            await flipBlink();
+            expectColorWithoutHighlight("green");
         });
 
-        it("blinks between yellow with green highlight and gray for priority call", () => {
+        it("blinks between yellow with green highlight and gray for priority call", async () => {
             useCallStore.setState({
                 blink: true,
                 incomingCalls: [makeTestCall({prio: true})],
             });
             render(<PhoneButton />);
-            expectButton("yellow", "green");
+            expectColorAndHighlight("yellow", "green");
 
-            flipBlink();
-            expectButton("gray", "gray");
+            await flipBlink();
+            expectColorAndHighlight("gray", "gray");
 
-            flipBlink();
-            expectButton("yellow", "green");
+            await flipBlink();
+            expectColorAndHighlight("yellow", "green");
         });
     });
 
@@ -178,7 +165,7 @@ describe("PhoneButton", () => {
                 callDisplay: {type: "accepted", call: makeTestCall()},
             });
             render(<PhoneButton />);
-            expectButton("green");
+            expectColorWithoutHighlight("green");
         });
 
         it("renders yellow with green highlight for priority call", () => {
@@ -186,7 +173,7 @@ describe("PhoneButton", () => {
                 callDisplay: {type: "accepted", call: makeTestCall({prio: true})},
             });
             render(<PhoneButton />);
-            expectButton("yellow", "green");
+            expectColorAndHighlight("yellow", "green");
         });
 
         it("shows accepted state when incoming calls exist", () => {
@@ -196,41 +183,57 @@ describe("PhoneButton", () => {
                 incomingCalls: [makeTestCall({callId: "call1" as CallId})],
             });
             render(<PhoneButton />);
-            expectButton("green");
+            expectColorWithoutHighlight("green");
         });
     });
 
     describe("rejected call", () => {
-        it("blinks between green and gray with green highlight", () => {
+        it("blinks between green and gray with green highlight", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "rejected", call: makeTestCall()},
             });
             render(<PhoneButton />);
-            expectButton("green", "green");
+            expectColorAndHighlight("green", "green");
 
-            flipBlink();
-            expectButton("gray", "green");
+            await flipBlink();
+            expectColorAndHighlight("gray", "green");
 
-            flipBlink();
-            expectButton("green", "green");
+            await flipBlink();
+            expectColorAndHighlight("green", "green");
         });
     });
 
     describe("error call", () => {
-        it("blinks between red and gray", () => {
+        it("blinks between red and gray", async () => {
             useCallStore.setState({
                 blink: true,
                 callDisplay: {type: "error", call: makeTestCall()},
             });
             render(<PhoneButton />);
-            expectButton("red");
+            expectColorWithoutHighlight("red");
 
-            flipBlink();
-            expectButton("gray");
+            await flipBlink();
+            expectColorWithoutHighlight("gray");
 
-            flipBlink();
-            expectButton("red");
+            await flipBlink();
+            expectColorWithoutHighlight("red");
         });
     });
 });
+
+function getButton() {
+    return screen.getByRole("button", {name: "Phone"});
+}
+
+function expectColorWithoutHighlight(color: ButtonColor) {
+    const btn = getButton();
+    expect(btn).toHaveClasses(ButtonColors[color]);
+    expect(btn.querySelector("div")).toBeNull();
+}
+
+function expectColorAndHighlight(color: ButtonColor, highlight: ButtonHighlightColor) {
+    const btn = getButton();
+    expect(btn).toHaveClasses(ButtonColors[color]);
+    expect(btn.querySelector("div")).toHaveClasses(ButtonHighlightColors[highlight]);
+}

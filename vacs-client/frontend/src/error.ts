@@ -63,7 +63,7 @@ export function safeSerialize(value: unknown): unknown {
                 name: value.name,
                 message: value.message,
                 stack: value.stack,
-                cause: (value as any).cause, // eslint-disable-line @typescript-eslint/no-explicit-any
+                cause: (value as any).cause /* oxlint-disable @typescript-eslint/no-explicit-any */,
             };
         }
         return JSON.parse(JSON.stringify(value));
@@ -74,7 +74,7 @@ export function safeSerialize(value: unknown): unknown {
 
 export function logError(msg: string) {
     if (isTauri) {
-        import("@tauri-apps/plugin-log").then(mod => void mod.error(msg));
+        void import("@tauri-apps/plugin-log").then(mod => void mod.error(msg));
     } else {
         console.error(msg);
     }
