@@ -46,8 +46,8 @@ class RemoteTransport {
                 void this.hydrateFromSnapshot();
             };
 
-            this.ws.onmessage = ev => {
-                const msg: WsMessage = JSON.parse(ev.data as string);
+            this.ws.onmessage = (ev: MessageEvent<string>) => {
+                const msg: WsMessage = JSON.parse(ev.data);
                 this.handleMessage(msg);
             };
 
@@ -142,8 +142,8 @@ class RemoteTransport {
         }
 
         return () => {
-            listeners!.delete(cb);
-            if (listeners!.size === 0) {
+            listeners.delete(cb);
+            if (listeners.size === 0) {
                 this.eventListeners.delete(event);
                 if (this.ws?.readyState === WebSocket.OPEN) {
                     this.ws.send(JSON.stringify({type: "unsubscribe", event}));

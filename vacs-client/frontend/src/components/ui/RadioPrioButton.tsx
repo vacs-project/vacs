@@ -33,8 +33,8 @@ function RadioPrioButton() {
         });
 
         return () => {
-            unlistenPrio.then(fn => fn());
-            unlistenImplicitPrio.then(fn => fn());
+            void unlistenPrio.then(fn => fn());
+            void unlistenImplicitPrio.then(fn => fn());
         };
     }, [callDisplayType]);
 

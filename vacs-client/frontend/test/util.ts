@@ -3,8 +3,8 @@ import {useCallStore} from "../src/stores/call-store.ts";
 import {CallId, ClientId, PositionId, StationId} from "../src/types/generic.ts";
 import {Call} from "../src/types/call.ts";
 
-export function flipBlink() {
-    return act(() => {
+export async function flipBlink() {
+    await act(() => {
         useCallStore.setState(s => ({blink: !s.blink}));
     });
 }

@@ -16,8 +16,8 @@ type InteractionResult = ReturnType<typeof useStationKeyInteraction>;
 type ExpectedInteraction = {
     color?: ButtonColor;
     highlight?: ButtonHighlightColor;
-    disabled?: boolean;
-    own?: boolean;
+    disabled: boolean;
+    own: boolean;
 };
 
 function expectInteraction(
@@ -29,8 +29,8 @@ function expectInteraction(
     }
     expect(result.current.color).toBe(expected.color);
     expect(result.current.highlight).toBe(expected.highlight);
-    if (expected.disabled !== undefined) expect(result.current.disabled).toBe(expected.disabled);
-    if (expected.own !== undefined) expect(result.current.own).toBe(expected.own);
+    expect(result.current.disabled).toBe(expected.disabled);
+    expect(result.current.own).toBe(expected.own);
 }
 
 function setStations(stations: StationInfo[]) {
@@ -197,10 +197,10 @@ describe("useStationKeyInteraction", () => {
         });
 
         describe("default call sources from position", () => {
-            it("auto-selects default source from position defaults when enabled", () => {
+            it("auto-selects default source from position defaults when enabled", async () => {
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
 
-                act(() => {
+                await act(() => {
                     useStationsStore
                         .getState()
                         .setPositionDefaultSources([OWN_STATION, OTHER_OWN_STATION]);
@@ -214,7 +214,7 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
 
-            it("does not auto-select when useDefaultCallSources is disabled", () => {
+            it("does not auto-select when useDefaultCallSources is disabled", async () => {
                 useSettingsStore.setState({
                     callConfig: {
                         ...useSettingsStore.getState().callConfig,
@@ -223,7 +223,7 @@ describe("useStationKeyInteraction", () => {
                 });
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
 
-                act(() => {
+                await act(() => {
                     useStationsStore
                         .getState()
                         .setPositionDefaultSources([OWN_STATION, OTHER_OWN_STATION]);
@@ -237,14 +237,14 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
 
-            it("picks first own station from position default sources", () => {
+            it("picks first own station from position default sources", async () => {
                 setStations([
                     {id: FOREIGN_STATION, own: false},
                     {id: OWN_STATION, own: true},
                     {id: OTHER_OWN_STATION, own: true},
                 ]);
 
-                act(() => {
+                await act(() => {
                     useStationsStore
                         .getState()
                         .setPositionDefaultSources([
@@ -263,11 +263,11 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: false, own: false});
             });
 
-            it("does not override manually set default source", () => {
+            it("does not override manually set default source", async () => {
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
                 useStationsStore.setState({defaultSource: OTHER_OWN_STATION});
 
-                act(() => {
+                await act(() => {
                     useStationsStore.getState().setPositionDefaultSources([OWN_STATION]);
                 });
 
@@ -278,10 +278,10 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
 
-            it("keeps existing default source when setting is toggled off", () => {
+            it("keeps existing default source when setting is toggled off", async () => {
                 setOwnStations(OWN_STATION);
 
-                act(() => {
+                await act(() => {
                     useStationsStore.getState().setPositionDefaultSources([OWN_STATION]);
                 });
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
@@ -290,7 +290,7 @@ describe("useStationKeyInteraction", () => {
                 result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
 
-                act(() => {
+                await act(() => {
                     useSettingsStore.getState().setCallConfig({
                         ...useSettingsStore.getState().callConfig,
                         useDefaultCallSources: false,
@@ -304,17 +304,17 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
-            it("auto-selects default source when setting is toggled on with no existing default", () => {
+            it("auto-selects default source when setting is toggled on with no existing default", async () => {
                 setOwnStations(OWN_STATION);
 
-                act(() => {
+                await act(() => {
                     useSettingsStore.getState().setCallConfig({
                         ...useSettingsStore.getState().callConfig,
                         useDefaultCallSources: false,
                     });
                 });
 
-                act(() => {
+                await act(() => {
                     useStationsStore.getState().setPositionDefaultSources([OWN_STATION]);
                 });
 
@@ -324,7 +324,7 @@ describe("useStationKeyInteraction", () => {
                 result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
 
-                act(() => {
+                await act(() => {
                     useSettingsStore.getState().setCallConfig({
                         ...useSettingsStore.getState().callConfig,
                         useDefaultCallSources: true,
@@ -338,11 +338,11 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
-            it("clears temporary source if it matches newly auto-selected default", () => {
+            it("clears temporary source if it matches newly auto-selected default", async () => {
                 setOwnStations(OWN_STATION);
                 useStationsStore.setState({temporarySource: OWN_STATION});
 
-                act(() => {
+                await act(() => {
                     useStationsStore.getState().setPositionDefaultSources([OWN_STATION]);
                 });
 
@@ -354,11 +354,11 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
-            it("keeps temporary source if it differs from auto-selected default", () => {
+            it("keeps temporary source if it differs from auto-selected default", async () => {
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
                 useStationsStore.setState({temporarySource: OTHER_OWN_STATION});
 
-                act(() => {
+                await act(() => {
                     useStationsStore.getState().setPositionDefaultSources([OWN_STATION]);
                 });
 
@@ -372,14 +372,14 @@ describe("useStationKeyInteraction", () => {
         });
 
         describe("coverage changes", () => {
-            it("resets default source when station is no longer covered", () => {
+            it("resets default source when station is no longer covered", async () => {
                 setOwnStations(OWN_STATION);
                 useStationsStore.setState({
                     defaultSource: OWN_STATION,
                     positionDefaultSources: [],
                 });
 
-                act(() => {
+                await act(() => {
                     setStations([{id: OWN_STATION, own: false}]);
                 });
 
@@ -391,11 +391,11 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
-            it("resets temporary source when station is no longer covered", () => {
+            it("resets temporary source when station is no longer covered", async () => {
                 setOwnStations(OWN_STATION);
                 useStationsStore.setState({temporarySource: OWN_STATION});
 
-                act(() => {
+                await act(() => {
                     setStations([{id: OWN_STATION, own: false}]);
                 });
 
@@ -407,14 +407,14 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
-            it("chooses next available default source when original station is no longer covered", () => {
+            it("chooses next available default source when original station is no longer covered", async () => {
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
                 useStationsStore.setState({
                     defaultSource: OWN_STATION,
                     positionDefaultSources: [OWN_STATION, OTHER_OWN_STATION],
                 });
 
-                act(() => {
+                await act(() => {
                     setStations([
                         {id: OWN_STATION, own: false},
                         {id: OTHER_OWN_STATION, own: true},
@@ -429,7 +429,7 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
 
-            it("promotes temporary source to default when original default station is no longer covered", () => {
+            it("promotes temporary source to default when original default station is no longer covered", async () => {
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
                 useStationsStore.setState({
                     defaultSource: OWN_STATION,
@@ -437,7 +437,7 @@ describe("useStationKeyInteraction", () => {
                     positionDefaultSources: [OWN_STATION, OTHER_OWN_STATION],
                 });
 
-                act(() => {
+                await act(() => {
                     setStations([
                         {id: OWN_STATION, own: false},
                         {id: OTHER_OWN_STATION, own: true},
