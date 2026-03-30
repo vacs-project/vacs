@@ -1,7 +1,7 @@
-import {Fragment, JSX} from "preact";
+import {Fragment, JSX, TargetedMouseEvent} from "preact";
 import {clsx} from "clsx";
 import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
-import {useEffect, useRef} from "preact/hooks";
+import {useEffect, useRef, useState} from "preact/hooks";
 
 type ListProps = {
     itemsCount: number;
@@ -20,6 +20,74 @@ function List(props: ListProps) {
         useList(props);
 
     const gridCols = `${props.columnWidths.join(" ")} 4rem`;
+
+    const [dragging, setDragging] = useState<boolean>(false);
+    const isDraggingRef = useRef<boolean>(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scrollHandleVisible = maxScrollOffset > 0;
+    const position = (1 / maxScrollOffset) * scrollOffset;
+
+    const updatePositionFromClientY = (clientY: number) => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+        const padding = 28; // 1.75rem = 28px padding (top and bottom)
+        const usableHeight = rect.height - padding * 2;
+
+        let newY = clientY - rect.top - padding;
+        newY = Math.max(0, Math.min(newY, usableHeight));
+
+        const newPos = newY / usableHeight;
+        const steps = 1 / (maxScrollOffset + 1);
+
+        setScrollOffset(Math.min(Math.floor(Math.max(newPos / steps, 0)), maxScrollOffset));
+    };
+
+    const handleClick = (event: MouseEvent) => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+        const padding = 28; // 1.75rem = 28px padding (top and bottom)
+        const usableHeight = rect.height - padding * 2;
+
+        let newY = event.clientY - rect.top - padding;
+        newY = Math.max(0, Math.min(newY, usableHeight));
+
+        const newPos = newY / usableHeight;
+
+        if (newPos > position) {
+            setScrollOffset(scrollOffset => Math.min(scrollOffset + 1, maxScrollOffset));
+        } else {
+            setScrollOffset(scrollOffset => Math.max(scrollOffset - 1, 0));
+        }
+    };
+
+    const handleMouseDown = (event: MouseEvent | TargetedMouseEvent<HTMLDivElement>) => {
+        if (event.button !== 0) return;
+        isDraggingRef.current = true;
+        setDragging(true);
+    };
+
+    const handleMouseMove = (event: MouseEvent) => {
+        if (!isDraggingRef.current) return;
+        updatePositionFromClientY(event.clientY);
+    };
+
+    const handleMouseUp = () => {
+        isDraggingRef.current = false;
+        setDragging(false);
+    };
+
+    useEffect(() => {
+        window.addEventListener("mouseup", handleMouseUp);
+        window.addEventListener("mousemove", handleMouseMove);
+        return () => {
+            window.removeEventListener("mouseup", handleMouseUp);
+            window.removeEventListener("mousemove", handleMouseMove);
+        };
+    });
 
     return (
         <div
@@ -63,16 +131,28 @@ function List(props: ListProps) {
                             className="bg-gray-300"
                             style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}
                         >
-                            <div className="relative h-full w-full px-4 py-7">
+                            <div
+                                onClick={handleClick}
+                                ref={containerRef}
+                                className="relative h-full w-full px-4 py-7"
+                            >
                                 <div className="h-full w-full border border-b-gray-100 border-r-gray-100 border-l-gray-700 border-t-gray-700 flex flex-col-reverse"></div>
-                                {/*<div*/}
-                                {/*    className={clsx(*/}
-                                {/*        "dotted-background absolute translate-y-[-50%] left-0 w-full aspect-square shadow-[0_0_0_1px_#364153] rounded-md cursor-pointer bg-blue-600 border",*/}
-                                {/*        true && "border-t-blue-200 border-l-blue-200 border-r-blue-900 border-b-blue-900",*/}
-                                {/*        false && "border-b-blue-200 border-r-blue-200 border-l-blue-900 border-t-blue-900 shadow-none",*/}
-                                {/*    )}*/}
-                                {/*    style={{top: `calc(2.25rem + (1 - ${1}) * (100% - 4.5rem))`}}>*/}
-                                {/*</div>*/}
+                                {scrollHandleVisible && (
+                                    <div
+                                        onClick={e => e.stopPropagation()}
+                                        onMouseDown={handleMouseDown}
+                                        className={clsx(
+                                            "dotted-background-gray absolute translate-y-[-50%] left-0 w-full h-13 rounded-md cursor-pointer bg-gray-300 border",
+                                            !dragging &&
+                                                "border-t-white border-l-white border-r-gray-900 border-b-gray-900",
+                                            dragging &&
+                                                "border-b-white border-r-white border-l-gray-900 border-t-gray-900 shadow-none",
+                                        )}
+                                        style={{
+                                            top: `calc(1.625rem + ${position} * (100% - 3.25rem))`,
+                                        }}
+                                    ></div>
+                                )}
                             </div>
                         </div>
                     ) : idx === visibleItemIndices.length - 1 ? (

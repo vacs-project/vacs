@@ -1,3 +1,7 @@
 .dotted-background {
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><circle cx='6' cy='6' r='0.5' fill='white' /></svg>");
 }
+
+.dotted-background-gray {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><circle cx='6' cy='6' r='0.5' fill='gray' /></svg>");
+}

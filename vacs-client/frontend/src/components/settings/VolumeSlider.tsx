@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from "preact/hooks";
-import type {JSX} from "preact";
+import type {TargetedMouseEvent} from "preact";
 import "../../styles/volume-slider.css";
 import {clsx} from "clsx";
 
@@ -30,7 +30,7 @@ function VolumeSlider(props: VolumeSliderProps) {
         setPosition(newPos);
     };
 
-    const handleMouseDown = (event: MouseEvent | JSX.TargetedMouseEvent<HTMLDivElement>) => {
+    const handleMouseDown = (event: MouseEvent | TargetedMouseEvent<HTMLDivElement>) => {
         if (event.button !== 0) return;
         isDraggingRef.current = true;
         setDragging(true);
