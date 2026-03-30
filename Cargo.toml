@@ -74,7 +74,7 @@ rustls = { version = "0.23.37", features = ["aws-lc-rs"] }
 semver = { version = "1.0.26", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.149"
-sha1 = "0.10.6"
+sha1 = "0.11.0"
 syn = { version = "2.0.117", features = ["full"] }
 tar = "0.4.45"
 tauri = "2.10.3"
