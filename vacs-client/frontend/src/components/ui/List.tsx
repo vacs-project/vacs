@@ -34,7 +34,6 @@ function List(props: ListProps) {
                 gridTemplateColumns: gridCols,
             }}
         >
-            {/*HEADER*/}
             {props.header.map((headerItem, idx) => (
                 <div
                     key={idx}
@@ -105,10 +104,19 @@ function ScrollBar({
     setScrollOffset: (value: number | ((scrollOffset: number) => number)) => void;
 }) {
     const [dragging, setDragging] = useState<boolean>(false);
+
     const isDraggingRef = useRef<boolean>(false);
     const containerRef = useRef<HTMLDivElement>(null);
+    const positionRef = useRef<number>(0);
+    const maxScrollOffsetRef = useRef<number>(maxScrollOffset);
+
     const scrollHandleVisible = maxScrollOffset > 0;
     const position = (1 / maxScrollOffset) * scrollOffset;
+
+    useEffect(() => {
+        positionRef.current = position;
+        maxScrollOffsetRef.current = maxScrollOffset;
+    }, [position, maxScrollOffset]);
 
     const getNormalizedScrollPosition = (clientY: number): number | null => {
         const container = containerRef.current;
@@ -123,20 +131,31 @@ function ScrollBar({
         return newY / usableHeight;
     };
 
-    const updatePositionFromClientY = (clientY: number) => {
+    const updateOffsetFromClientY = (clientY: number) => {
         const newPos = getNormalizedScrollPosition(clientY);
         if (newPos === null) return;
 
-        const stepSize = 1 / maxScrollOffset;
+        const maxOffset = maxScrollOffsetRef.current;
+        if (maxOffset <= 0) return;
 
-        if (newPos >= position + stepSize / 2) {
-            setScrollOffset(Math.min(scrollOffset + 1, maxScrollOffset));
-        } else if (newPos <= position - stepSize / 2) {
-            setScrollOffset(Math.max(scrollOffset - 1, 0));
-        }
+        const stepSize = 1 / maxOffset;
+
+        const posDelta = newPos - positionRef.current;
+        const absPosDelta = Math.abs(posDelta);
+
+        if (absPosDelta < stepSize / 2) return;
+
+        const steps = Math.sign(posDelta) * Math.floor((absPosDelta + stepSize / 2) / stepSize);
+
+        setScrollOffset(prev => {
+            const nextOffset = Math.max(0, Math.min(prev + steps, maxOffset));
+            positionRef.current = nextOffset / maxOffset;
+            return nextOffset;
+        });
     };
 
     const handleScrollBarMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
+        // TODO: Click and hold?
         const newPos = getNormalizedScrollPosition(event.clientY);
         if (newPos === null) return;
 
@@ -147,33 +166,32 @@ function ScrollBar({
         }
     };
 
-    const handleScrollHandleMouseDown = (
-        event: MouseEvent | TargetedMouseEvent<HTMLDivElement>,
-    ) => {
+    const handleScrollHandleMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
         event.stopPropagation();
         if (event.button !== 0) return;
         isDraggingRef.current = true;
         setDragging(true);
     };
 
-    const handleWindowMouseMove = (event: MouseEvent) => {
-        if (!isDraggingRef.current) return;
-        updatePositionFromClientY(event.clientY);
-    };
-
-    const handleWindowMouseUp = () => {
-        isDraggingRef.current = false;
-        setDragging(false);
-    };
-
     useEffect(() => {
+        const handleWindowMouseMove = (event: MouseEvent) => {
+            if (!isDraggingRef.current) return;
+            updateOffsetFromClientY(event.clientY);
+        };
+
+        const handleWindowMouseUp = () => {
+            isDraggingRef.current = false;
+            setDragging(false);
+        };
+
         window.addEventListener("mouseup", handleWindowMouseUp);
         window.addEventListener("mousemove", handleWindowMouseMove);
+
         return () => {
             window.removeEventListener("mouseup", handleWindowMouseUp);
             window.removeEventListener("mousemove", handleWindowMouseMove);
         };
-    });
+    }, []);
 
     return (
         <div className="bg-gray-300" style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}>
@@ -220,7 +238,7 @@ function ScrollButtonRow({
         timeoutRef.current = setTimeout(() => {
             intervalRef.current = setInterval(() => {
                 if (!disabled) onClick();
-            }, 75);
+            }, 75); // TODO: Increase speed based on hold duration?
             timeoutRef.current = undefined;
         }, 200);
     };
