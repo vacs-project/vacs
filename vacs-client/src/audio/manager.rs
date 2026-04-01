@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{broadcast, mpsc};
 use vacs_audio::EncodedAudioFrame;
-use vacs_audio::device::{DeviceSelector, DeviceType, StreamDevice};
+use vacs_audio::backend::AudioBackend;
+use vacs_audio::device::{AudioBackendExt, DeviceType};
 use vacs_audio::error::AudioError;
 use vacs_audio::sources::opus::OpusSource;
 use vacs_audio::sources::{AudioSource, AudioSourceId};
@@ -27,6 +28,7 @@ const RESTART_COOLDOWN: Duration = Duration::from_secs(2);
 type SourceMap = HashMap<SourceType, AudioSourceId>;
 
 pub struct AudioManager {
+    backend: Arc<dyn AudioBackend>,
     output: PlaybackStream,
     speaker: Option<PlaybackStream>,
     input: Option<CaptureStream>,
@@ -39,35 +41,30 @@ pub struct AudioManager {
 }
 
 pub type AudioManagerHandle = Arc<RwLock<AudioManager>>;
+pub type AudioBackendHandle = Arc<dyn AudioBackend>;
 
 impl AudioManager {
-    pub fn new(app: AppHandle, audio_config: &AudioConfig) -> Result<Self, Error> {
-        let (output_device, is_fallback) = DeviceSelector::open(
-            DeviceType::Output,
-            audio_config.host_name.as_deref(),
+    pub fn new(
+        backend: Arc<dyn AudioBackend>,
+        app: AppHandle,
+        audio_config: &AudioConfig,
+    ) -> Result<Self, Error> {
+        let (output, output_source_ids) = Self::create_playback_stream(
+            &*backend,
+            app.clone(),
             audio_config.output_device_id.as_deref(),
             audio_config.output_device_name.as_deref(),
-        )?;
-        let (output, output_source_ids) = Self::create_playback_stream(
-            app.clone(),
-            output_device,
-            is_fallback,
             audio_config,
             None,
             PlaybackDeviceType::Output,
         )?;
 
         let (speaker, speaker_source_ids) = if audio_config.speaker_enabled {
-            let (speaker_device, is_fallback) = DeviceSelector::open(
-                DeviceType::Output,
-                audio_config.host_name.as_deref(),
+            let (speaker, speaker_source_ids) = Self::create_playback_stream(
+                &*backend,
+                app,
                 audio_config.speaker_device_id.as_deref(),
                 audio_config.speaker_device_name.as_deref(),
-            )?;
-            let (speaker, speaker_source_ids) = Self::create_playback_stream(
-                app,
-                speaker_device,
-                is_fallback,
                 audio_config,
                 None,
                 PlaybackDeviceType::Speaker,
@@ -78,6 +75,7 @@ impl AudioManager {
         };
 
         Ok(Self {
+            backend,
             output,
             input: None,
             speaker,
@@ -120,16 +118,11 @@ impl AudioManager {
             ),
         };
 
-        let (output_device, is_fallback) = DeviceSelector::open(
-            DeviceType::Output,
-            audio_config.host_name.as_deref(),
+        let (stream, source_ids) = Self::create_playback_stream(
+            &*self.backend,
+            app,
             device_id,
             device_name,
-        )?;
-        let (stream, source_ids) = Self::create_playback_stream(
-            app,
-            output_device,
-            is_fallback,
             audio_config,
             restarted_at,
             device_type,
@@ -170,7 +163,7 @@ impl AudioManager {
             self.level_meter_users = 0;
         };
 
-        let (device, is_fallback) = DeviceSelector::open(
+        let (device, is_fallback) = self.backend.open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
             audio_config.input_device_id.as_deref(),
@@ -237,7 +230,7 @@ impl AudioManager {
             return Ok(());
         }
 
-        let (device, _) = DeviceSelector::open(
+        let (device, _) = self.backend.open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
             audio_config.input_device_id.as_deref(),
@@ -491,13 +484,20 @@ impl AudioManager {
     }
 
     fn create_playback_stream(
+        backend: &dyn AudioBackend,
         app: AppHandle,
-        device: StreamDevice,
-        is_fallback: bool,
+        device_id: Option<&str>,
+        device_name: Option<&str>,
         audio_config: &AudioConfig,
         restarted_at: Option<Instant>,
         device_type: PlaybackDeviceType,
     ) -> Result<(PlaybackStream, SourceMap), Error> {
+        let (device, is_fallback) = backend.open(
+            DeviceType::Output,
+            audio_config.host_name.as_deref(),
+            device_id,
+            device_name,
+        )?;
         if is_fallback {
             app.emit::<FrontendError>("error", FrontendError::from(Error::AudioDevice(Box::from(AudioError::Other(
                 anyhow::anyhow!("Selected audio output device is not available, falling back to next best option. Check your audio settings.")
