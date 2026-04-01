@@ -1,6 +1,6 @@
 import {clsx} from "clsx";
 import {Fragment, JSX, TargetedMouseEvent} from "preact";
-import {useEffect, useRef, useState} from "preact/hooks";
+import {useCallback, useEffect, useRef, useState} from "preact/hooks";
 import {invokeSafe} from "../../error.ts";
 import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
 
@@ -131,28 +131,31 @@ function ScrollBar({
         return newY / usableHeight;
     };
 
-    const updateOffsetFromClientY = (clientY: number) => {
-        const newPos = getNormalizedScrollPosition(clientY);
-        if (newPos === null) return;
+    const updateOffsetFromClientY = useCallback(
+        (clientY: number) => {
+            const newPos = getNormalizedScrollPosition(clientY);
+            if (newPos === null) return;
 
-        const maxOffset = maxScrollOffsetRef.current;
-        if (maxOffset <= 0) return;
+            const maxOffset = maxScrollOffsetRef.current;
+            if (maxOffset <= 0) return;
 
-        const stepSize = 1 / maxOffset;
+            const stepSize = 1 / maxOffset;
 
-        const posDelta = newPos - positionRef.current;
-        const absPosDelta = Math.abs(posDelta);
+            const posDelta = newPos - positionRef.current;
+            const absPosDelta = Math.abs(posDelta);
 
-        if (absPosDelta < stepSize / 2) return;
+            if (absPosDelta < stepSize / 2) return;
 
-        const steps = Math.sign(posDelta) * Math.floor((absPosDelta + stepSize / 2) / stepSize);
+            const steps = Math.sign(posDelta) * Math.floor((absPosDelta + stepSize / 2) / stepSize);
 
-        setScrollOffset(prev => {
-            const nextOffset = Math.max(0, Math.min(prev + steps, maxOffset));
-            positionRef.current = nextOffset / maxOffset;
-            return nextOffset;
-        });
-    };
+            setScrollOffset(prev => {
+                const nextOffset = Math.max(0, Math.min(prev + steps, maxOffset));
+                positionRef.current = nextOffset / maxOffset;
+                return nextOffset;
+            });
+        },
+        [setScrollOffset],
+    );
 
     const handleScrollBarMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
         // TODO: Click and hold?
@@ -191,7 +194,7 @@ function ScrollBar({
             window.removeEventListener("mouseup", handleWindowMouseUp);
             window.removeEventListener("mousemove", handleWindowMouseMove);
         };
-    }, []);
+    }, [updateOffsetFromClientY]);
 
     return (
         <div className="bg-gray-300" style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}>
@@ -243,7 +246,7 @@ function ScrollButtonRow({
         }, 200);
     };
 
-    const handleOnMouseUp = () => {
+    const handleOnMouseUp = useCallback(() => {
         if (timeoutRef.current !== undefined) {
             clearTimeout(timeoutRef.current);
             timeoutRef.current = undefined;
@@ -255,13 +258,13 @@ function ScrollButtonRow({
             clearInterval(intervalRef.current);
             intervalRef.current = undefined;
         }
-    };
+    }, [onClick]);
 
     useEffect(() => {
         window.addEventListener("mouseup", handleOnMouseUp);
 
         return () => window.removeEventListener("mouseup", handleOnMouseUp);
-    }, []);
+    }, [handleOnMouseUp]);
 
     return (
         <div

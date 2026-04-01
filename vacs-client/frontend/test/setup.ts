@@ -27,13 +27,13 @@ afterEach(() => {
 
 // Mock Tauri plugins that aren't covered by mockIPC
 vi.mock("@tauri-apps/plugin-log", () => ({
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    trace: vi.fn(),
+    error: vi.fn<(message: string, options?: any) => Promise<void>>(),
+    warn: vi.fn<(message: string, options?: any) => Promise<void>>(),
+    info: vi.fn<(message: string, options?: any) => Promise<void>>(),
+    debug: vi.fn<(message: string, options?: any) => Promise<void>>(),
+    trace: vi.fn<(message: string, options?: any) => Promise<void>>(),
 }));
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
-    openUrl: vi.fn(),
+    openUrl: vi.fn<(url: string | URL, openWith?: string) => Promise<void>>(),
 }));

@@ -28,6 +28,7 @@ export default defineConfig({
         "prefer-template": "warn",
 
         "no-unsafe-type-assertion": "off",
+        "no-unnecessary-type-arguments": "off",
         "no-shadow": "off",
     },
     options: {
