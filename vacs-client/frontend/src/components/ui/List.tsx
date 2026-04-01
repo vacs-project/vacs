@@ -1,7 +1,7 @@
-import {Fragment, JSX, TargetedMouseEvent} from "preact";
 import {clsx} from "clsx";
-import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
+import {Fragment, JSX, TargetedMouseEvent} from "preact";
 import {useEffect, useRef, useState} from "preact/hooks";
+import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
 
 type ListProps = {
     itemsCount: number;
@@ -27,6 +27,8 @@ function List(props: ListProps) {
     const scrollHandleVisible = maxScrollOffset > 0;
     const position = (1 / maxScrollOffset) * scrollOffset;
 
+    const outerClickRef = useRef<boolean>(false);
+
     const updatePositionFromClientY = (clientY: number) => {
         const container = containerRef.current;
         if (!container) return;
@@ -39,12 +41,16 @@ function List(props: ListProps) {
         newY = Math.max(0, Math.min(newY, usableHeight));
 
         const newPos = newY / usableHeight;
-        const steps = 1 / (maxScrollOffset + 1);
+        const stepSize = 1 / maxScrollOffset;
 
-        setScrollOffset(Math.min(Math.floor(Math.max(newPos / steps, 0)), maxScrollOffset));
+        if (newPos >= position + stepSize / 2) {
+            setScrollOffset(Math.min(scrollOffset + 1, maxScrollOffset));
+        } else if (newPos <= position - stepSize / 2) {
+            setScrollOffset(Math.max(scrollOffset - 1, 0));
+        }
     };
 
-    const handleClick = (event: MouseEvent) => {
+    const handleClick = (event: TargetedMouseEvent<HTMLDivElement>) => {
         const container = containerRef.current;
         if (!container) return;
 
@@ -65,6 +71,7 @@ function List(props: ListProps) {
     };
 
     const handleMouseDown = (event: MouseEvent | TargetedMouseEvent<HTMLDivElement>) => {
+        event.stopPropagation();
         if (event.button !== 0) return;
         isDraggingRef.current = true;
         setDragging(true);
@@ -78,6 +85,7 @@ function List(props: ListProps) {
     const handleMouseUp = () => {
         isDraggingRef.current = false;
         setDragging(false);
+        outerClickRef.current = false;
     };
 
     useEffect(() => {
@@ -132,7 +140,13 @@ function List(props: ListProps) {
                             style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}
                         >
                             <div
-                                onClick={handleClick}
+                                onMouseDown={() => (outerClickRef.current = true)}
+                                onMouseUp={e => {
+                                    if (outerClickRef.current) {
+                                        handleClick(e);
+                                    }
+                                    outerClickRef.current = false;
+                                }}
                                 ref={containerRef}
                                 className="relative h-full w-full px-4 py-7"
                             >
