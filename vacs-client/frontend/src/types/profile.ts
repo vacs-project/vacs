@@ -1,5 +1,6 @@
 import {ProfileId, StationId} from "./generic.ts";
 import {ClientPageConfig} from "./client.ts";
+import {DirectAccessKeyColors} from "../components/ui/Button.tsx";
 
 export type SessionProfile = {
     type: "changed" | "unchanged";
@@ -59,6 +60,7 @@ export type DirectAccessPage = {
 
 export type DirectAccessKey = {
     label: string[];
+    color?: DirectAccessKeyColors;
     stationId?: StationId;
     page?: DirectAccessPage;
 };

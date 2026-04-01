@@ -83,6 +83,10 @@ pub struct DirectAccessKey {
     #[serde(deserialize_with = "string_or_vec")]
     pub label: Vec<String>,
 
+    /// The default color of the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<DirectAccessKeyColor>,
+
     /// The optional station ID associated with this key.
     ///
     /// If [`DirectAccessKey::station_id`] and [`DirectAccessKey::page`] are `None`, the DA key will be displayed on the UI but will be non-functional.
@@ -96,6 +100,21 @@ pub struct DirectAccessKey {
     /// This field is mutually exclusive with [`DirectAccessKey::station_id`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<DirectAccessPage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DirectAccessKeyColor {
+    Clay,
+    Blush,
+    Lilac,
+    Mint,
+    Periwinkle,
+    Taupe,
+    Orchid,
+    Steel,
+    Umber,
+    Lagoon,
 }
 
 pub fn string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>

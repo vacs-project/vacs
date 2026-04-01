@@ -1,5 +1,5 @@
 import {DirectAccessKey} from "../../types/profile.ts";
-import Button from "./Button.tsx";
+import Button, {ButtonColor} from "./Button.tsx";
 import {clsx} from "clsx";
 import ButtonLabel from "./ButtonLabel.tsx";
 import {useStationKeyInteraction} from "../../hooks/station-key-interaction-hook.ts";
@@ -10,10 +10,32 @@ type DirectAccessStationKeyProps = {
 };
 
 function DirectAccessStationKey({
-    data: {stationId, label},
+    data: {stationId, label, color: defaultColor},
     className,
 }: DirectAccessStationKeyProps) {
-    const {color, highlight, disabled, own, handleClick} = useStationKeyInteraction(stationId);
+    let realDefaultColor: ButtonColor | undefined;
+    if (stationId !== undefined) {
+        if (stationId.startsWith("2_TEST")) {
+            realDefaultColor = "peach";
+        } else if (stationId.startsWith("3_TEST")) {
+            realDefaultColor = "honey";
+        } else if (stationId.startsWith("4_TEST")) {
+            realDefaultColor = "yellow";
+        } else if (stationId.startsWith("5_TEST")) {
+            realDefaultColor = "sage";
+        } else if (stationId.startsWith("6_TEST")) {
+            realDefaultColor = "green";
+        } else if (stationId.startsWith("7_TEST")) {
+            realDefaultColor = "red";
+        } else {
+            realDefaultColor = defaultColor;
+        }
+    }
+
+    const {color, highlight, disabled, own, handleClick} = useStationKeyInteraction(
+        stationId,
+        realDefaultColor,
+    );
 
     return (
         <Button

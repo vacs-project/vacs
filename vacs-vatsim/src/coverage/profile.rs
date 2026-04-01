@@ -10,8 +10,8 @@ use vacs_protocol::profile::geo::{
 };
 use vacs_protocol::profile::tabbed::Tab;
 use vacs_protocol::profile::{
-    DirectAccessKey, DirectAccessPage, DirectAccessPageContent, Profile as ProtocolProfile,
-    ProfileId, ProfileType,
+    DirectAccessKey, DirectAccessKeyColor, DirectAccessPage, DirectAccessPageContent,
+    Profile as ProtocolProfile, ProfileId, ProfileType,
 };
 use vacs_protocol::vatsim::StationId;
 
@@ -117,6 +117,8 @@ pub(super) enum DirectAccessPageContentRaw {
 pub(super) struct DirectAccessKeyRaw {
     #[serde(deserialize_with = "vacs_protocol::profile::string_or_vec")]
     pub label: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<DirectAccessKeyColor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_id: Option<StationId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -511,6 +513,7 @@ impl TryFrom<DirectAccessKeyRaw> for DirectAccessKey {
         raw.validate()?;
         Ok(Self {
             label: raw.label,
+            color: raw.color,
             station_id: raw.station_id,
             page: raw.page.map(DirectAccessPage::from_raw).transpose()?,
         })
@@ -1085,6 +1088,7 @@ mod tests {
     fn direct_access_key_validation() {
         let valid = DirectAccessKeyRaw {
             label: vec!["L".to_string()],
+            color: None,
             station_id: Some(StationId::from("S1")),
             page: None,
         };
@@ -1092,6 +1096,7 @@ mod tests {
 
         let valid = DirectAccessKeyRaw {
             label: vec!["L".to_string()],
+            color: None,
             station_id: None,
             page: Some(DirectAccessPageRaw {
                 rows: 1,
@@ -1102,6 +1107,7 @@ mod tests {
 
         let valid = DirectAccessKeyRaw {
             label: vec!["L".to_string()],
+            color: None,
             station_id: None,
             page: Some(DirectAccessPageRaw {
                 rows: 1,
@@ -1114,6 +1120,7 @@ mod tests {
 
         let invalid_fields = DirectAccessKeyRaw {
             label: vec!["L".to_string()],
+            color: None,
             station_id: Some(StationId::from("S1")),
             page: Some(DirectAccessPageRaw {
                 rows: 1,
@@ -1152,6 +1159,7 @@ mod tests {
                             content: DirectAccessPageContentRaw::Keys {
                                 keys: vec![DirectAccessKeyRaw {
                                     label: vec!["K1".to_string()],
+                                    color: None,
                                     station_id: Some(StationId::from("S1")),
                                     page: None,
                                 }],
@@ -1168,16 +1176,19 @@ mod tests {
                                 keys: vec![
                                     DirectAccessKeyRaw {
                                         label: vec!["K2".to_string()],
+                                        color: None,
                                         station_id: Some(StationId::from("S2")),
                                         page: None,
                                     },
                                     DirectAccessKeyRaw {
                                         label: vec!["K3".to_string()],
+                                        color: None,
                                         station_id: Some(StationId::from("S1")), // Duplicate
                                         page: None,
                                     },
                                     DirectAccessKeyRaw {
                                         label: vec!["K4".to_string()],
+                                        color: None,
                                         station_id: None,
                                         page: None,
                                     },
@@ -1223,6 +1234,7 @@ mod tests {
                         content: DirectAccessPageContentRaw::Keys {
                             keys: vec![DirectAccessKeyRaw {
                                 label: vec!["K1".to_string()],
+                                color: None,
                                 station_id: Some(station_id.clone()),
                                 page: None,
                             }],
@@ -1257,6 +1269,7 @@ mod tests {
                         content: DirectAccessPageContentRaw::Keys {
                             keys: vec![DirectAccessKeyRaw {
                                 label: vec!["K3".to_string()],
+                                color: None,
                                 station_id: Some(StationId::from("MISSING")),
                                 page: None,
                             }],
@@ -1295,6 +1308,7 @@ mod tests {
                         content: DirectAccessPageContentRaw::Keys {
                             keys: vec![DirectAccessKeyRaw {
                                 label: vec!["K4".to_string()],
+                                color: None,
                                 station_id: None,
                                 page: None,
                             }],

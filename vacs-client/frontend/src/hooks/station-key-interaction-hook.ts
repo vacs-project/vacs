@@ -5,8 +5,12 @@ import {invokeSafe, invokeStrict} from "../error.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
+import {ButtonColor} from "../components/ui/Button.tsx";
 
-export function useStationKeyInteraction(stationId: StationId | undefined) {
+export function useStationKeyInteraction(
+    stationId: StationId | undefined,
+    defaultColor: ButtonColor = "gray",
+) {
     const blink = useCallStore(state => state.blink);
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
@@ -106,6 +110,7 @@ export function useStationKeyInteraction(stationId: StationId | undefined) {
         temporarySource:
             temporaryStationSource === stationId && temporaryStationSource !== undefined,
         defaultSource: defaultStationSource === stationId && defaultStationSource !== undefined,
+        defaultColor,
     });
 
     return {color, highlight, disabled: !hasStationId || !online, own, handleClick};
