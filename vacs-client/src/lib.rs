@@ -22,7 +22,7 @@ use crate::app::state::keybinds::AppStateKeybindsExt;
 use crate::app::state::playback::AppStatePlaybackExt;
 use crate::app::state::radio::AppStateRadioExt;
 use crate::app::state::{AppState, AppStateInner};
-use crate::audio::manager::AudioManagerHandle;
+use crate::audio::manager::{AudioBackendHandle, AudioManagerHandle};
 use crate::build::VersionInfo;
 use crate::config::{CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::{StartupError, StartupErrorExt};
@@ -105,6 +105,7 @@ pub fn run() {
                 let radio_integration_enabled = state.config.client.radio.integration.is_some();
 
                 app.manage::<HttpState>(HttpState::new(app.handle())?);
+                app.manage::<AudioBackendHandle>(state.audio_backend_handle());
                 app.manage::<AudioManagerHandle>(state.audio_manager_handle());
                 app.manage::<PlaybackRecorderHandle>(
                     state.playback_recorder_handle(),
