@@ -5,11 +5,11 @@ import {invokeSafe, invokeStrict} from "../error.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
-import {ButtonColor} from "../components/ui/Button.tsx";
+import {CustomButtonColor} from "../types/custom-button-colors.ts";
 
 export function useStationKeyInteraction(
     stationId: StationId | undefined,
-    defaultColor: ButtonColor = "gray",
+    defaultColor?: CustomButtonColor,
 ) {
     const blink = useCallStore(state => state.blink);
     const stations = useStationsStore(state => state.stations);

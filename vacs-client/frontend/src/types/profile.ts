@@ -1,6 +1,6 @@
 import {ProfileId, StationId} from "./generic.ts";
 import {ClientPageConfig} from "./client.ts";
-import {DirectAccessKeyColors} from "../components/ui/Button.tsx";
+import {CustomButtonColor} from "./custom-button-colors.ts";
 
 export type SessionProfile = {
     type: "changed" | "unchanged";
@@ -41,6 +41,7 @@ export type GeoPageContainer = {
 export type GeoPageButton = {
     label: string[];
     size: number; // size in rem, > 0
+    color?: CustomButtonColor;
     page?: DirectAccessPage;
     stationId?: StationId;
 };
@@ -60,7 +61,7 @@ export type DirectAccessPage = {
 
 export type DirectAccessKey = {
     label: string[];
-    color?: DirectAccessKeyColors;
+    color?: CustomButtonColor;
     stationId?: StationId;
     page?: DirectAccessPage;
 };

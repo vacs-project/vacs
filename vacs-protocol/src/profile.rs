@@ -85,7 +85,7 @@ pub struct DirectAccessKey {
 
     /// The default color of the key.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<DirectAccessKeyColor>,
+    pub color: Option<CustomButtonColor>,
 
     /// The optional station ID associated with this key.
     ///
@@ -104,14 +104,14 @@ pub struct DirectAccessKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum DirectAccessKeyColor {
+pub enum CustomButtonColor {
     Clay,
     Blush,
     Lilac,
     Mint,
-    Periwinkle,
+    Lavender,
     Taupe,
-    Orchid,
+    Cadet,
     Steel,
     Umber,
     Lagoon,

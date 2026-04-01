@@ -5,8 +5,9 @@ import {Call} from "../types/call.ts";
 import {ClientId, StationId} from "../types/generic.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
+import {CustomButtonColor} from "../types/custom-button-colors.ts";
 
-export function useCallState(page: DirectAccessPage | undefined) {
+export function useCallState(page: DirectAccessPage | undefined, defaultColor?: CustomButtonColor) {
     const blink = useCallStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
@@ -52,6 +53,7 @@ export function useCallState(page: DirectAccessPage | undefined) {
         outgoingPrio,
         incomingPrio,
         blink,
+        defaultColor,
     });
 
     return {isCalling, beingCalled, inCall, isRejected, isError, isTarget, color, highlight, blink};

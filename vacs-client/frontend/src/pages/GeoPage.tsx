@@ -101,9 +101,9 @@ function GeoPageButton({button}: {button: GeoPageButtonModel}) {
         disabled,
         own,
         handleClick,
-    } = useStationKeyInteraction(button.stationId);
+    } = useStationKeyInteraction(button.stationId, button.color);
 
-    const {color: groupColor, highlight: groupHighlight} = useCallState(button.page);
+    const {color: groupColor, highlight: groupHighlight} = useCallState(button.page, button.color);
     const setSelectedPage = useProfileStore(state => state.setPage);
 
     const color = hasStationId ? stationColor : groupColor;
