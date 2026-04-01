@@ -83,7 +83,7 @@ pub struct DirectAccessKey {
     #[serde(deserialize_with = "string_or_vec")]
     pub label: Vec<String>,
 
-    /// The default color of the key.
+    /// The background color of the key, which may be overridden dynamically by state changes (e.g., incoming call). Defaults to gray if unspecified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<CustomButtonColor>,
 

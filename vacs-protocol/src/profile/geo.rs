@@ -124,7 +124,7 @@ pub struct GeoPageButton {
     /// The size of the button (> 0, in rem).
     pub size: f64,
 
-    /// The default color of the key.
+    /// The background color of the button, which may be overridden dynamically by state changes (e.g., incoming call). Defaults to gray if unspecified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<CustomButtonColor>,
 
