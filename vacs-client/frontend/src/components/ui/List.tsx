@@ -1,6 +1,7 @@
 import {clsx} from "clsx";
 import {Fragment, JSX, TargetedMouseEvent} from "preact";
 import {useEffect, useRef, useState} from "preact/hooks";
+import {invokeSafe} from "../../error.ts";
 import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
 
 type ListProps = {
@@ -20,82 +21,6 @@ function List(props: ListProps) {
         useList(props);
 
     const gridCols = `${props.columnWidths.join(" ")} 4rem`;
-
-    const [dragging, setDragging] = useState<boolean>(false);
-    const isDraggingRef = useRef<boolean>(false);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const scrollHandleVisible = maxScrollOffset > 0;
-    const position = (1 / maxScrollOffset) * scrollOffset;
-
-    const outerClickRef = useRef<boolean>(false);
-
-    const updatePositionFromClientY = (clientY: number) => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const rect = container.getBoundingClientRect();
-        const padding = 28; // 1.75rem = 28px padding (top and bottom)
-        const usableHeight = rect.height - padding * 2;
-
-        let newY = clientY - rect.top - padding;
-        newY = Math.max(0, Math.min(newY, usableHeight));
-
-        const newPos = newY / usableHeight;
-        const stepSize = 1 / maxScrollOffset;
-
-        if (newPos >= position + stepSize / 2) {
-            setScrollOffset(Math.min(scrollOffset + 1, maxScrollOffset));
-        } else if (newPos <= position - stepSize / 2) {
-            setScrollOffset(Math.max(scrollOffset - 1, 0));
-        }
-    };
-
-    const handleClick = (event: TargetedMouseEvent<HTMLDivElement>) => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const rect = container.getBoundingClientRect();
-        const padding = 28; // 1.75rem = 28px padding (top and bottom)
-        const usableHeight = rect.height - padding * 2;
-
-        let newY = event.clientY - rect.top - padding;
-        newY = Math.max(0, Math.min(newY, usableHeight));
-
-        const newPos = newY / usableHeight;
-
-        if (newPos > position) {
-            setScrollOffset(scrollOffset => Math.min(scrollOffset + 1, maxScrollOffset));
-        } else {
-            setScrollOffset(scrollOffset => Math.max(scrollOffset - 1, 0));
-        }
-    };
-
-    const handleMouseDown = (event: MouseEvent | TargetedMouseEvent<HTMLDivElement>) => {
-        event.stopPropagation();
-        if (event.button !== 0) return;
-        isDraggingRef.current = true;
-        setDragging(true);
-    };
-
-    const handleMouseMove = (event: MouseEvent) => {
-        if (!isDraggingRef.current) return;
-        updatePositionFromClientY(event.clientY);
-    };
-
-    const handleMouseUp = () => {
-        isDraggingRef.current = false;
-        setDragging(false);
-        outerClickRef.current = false;
-    };
-
-    useEffect(() => {
-        window.addEventListener("mouseup", handleMouseUp);
-        window.addEventListener("mousemove", handleMouseMove);
-        return () => {
-            window.removeEventListener("mouseup", handleMouseUp);
-            window.removeEventListener("mousemove", handleMouseMove);
-        };
-    });
 
     return (
         <div
@@ -135,40 +60,12 @@ function List(props: ListProps) {
                             }
                         />
                     ) : idx === 1 ? (
-                        <div
-                            className="bg-gray-300"
-                            style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}
-                        >
-                            <div
-                                onMouseDown={() => (outerClickRef.current = true)}
-                                onMouseUp={e => {
-                                    if (outerClickRef.current) {
-                                        handleClick(e);
-                                    }
-                                    outerClickRef.current = false;
-                                }}
-                                ref={containerRef}
-                                className="relative h-full w-full px-4 py-7"
-                            >
-                                <div className="h-full w-full border border-b-gray-100 border-r-gray-100 border-l-gray-700 border-t-gray-700 flex flex-col-reverse"></div>
-                                {scrollHandleVisible && (
-                                    <div
-                                        onClick={e => e.stopPropagation()}
-                                        onMouseDown={handleMouseDown}
-                                        className={clsx(
-                                            "dotted-background-gray absolute translate-y-[-50%] left-0 w-full h-13 rounded-md cursor-pointer bg-gray-300 border",
-                                            !dragging &&
-                                                "border-t-white border-l-white border-r-gray-900 border-b-gray-900",
-                                            dragging &&
-                                                "border-b-white border-r-white border-l-gray-900 border-t-gray-900 shadow-none",
-                                        )}
-                                        style={{
-                                            top: `calc(1.625rem + ${position} * (100% - 3.25rem))`,
-                                        }}
-                                    ></div>
-                                )}
-                            </div>
-                        </div>
+                        <ScrollBar
+                            rowSpan={rowSpan}
+                            scrollOffset={scrollOffset}
+                            maxScrollOffset={maxScrollOffset}
+                            setScrollOffset={setScrollOffset}
+                        />
                     ) : idx === visibleItemIndices.length - 1 ? (
                         <ScrollButtonRow
                             direction="down"
@@ -192,6 +89,117 @@ function List(props: ListProps) {
                     </Fragment>
                 );
             })}
+        </div>
+    );
+}
+
+function ScrollBar({
+    rowSpan,
+    scrollOffset,
+    maxScrollOffset,
+    setScrollOffset,
+}: {
+    rowSpan: number;
+    scrollOffset: number;
+    maxScrollOffset: number;
+    setScrollOffset: (value: number | ((scrollOffset: number) => number)) => void;
+}) {
+    const [dragging, setDragging] = useState<boolean>(false);
+    const isDraggingRef = useRef<boolean>(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const scrollHandleVisible = maxScrollOffset > 0;
+    const position = (1 / maxScrollOffset) * scrollOffset;
+
+    const getNormalizedScrollPosition = (clientY: number): number | null => {
+        const container = containerRef.current;
+        if (!container) return null;
+
+        const rect = container.getBoundingClientRect();
+        const usableHeight = rect.height - 28 * 2;
+
+        let newY = clientY - rect.top - 28;
+        newY = Math.max(0, Math.min(newY, usableHeight));
+
+        return newY / usableHeight;
+    };
+
+    const updatePositionFromClientY = (clientY: number) => {
+        const newPos = getNormalizedScrollPosition(clientY);
+        if (newPos === null) return;
+
+        const stepSize = 1 / maxScrollOffset;
+
+        if (newPos >= position + stepSize / 2) {
+            setScrollOffset(Math.min(scrollOffset + 1, maxScrollOffset));
+        } else if (newPos <= position - stepSize / 2) {
+            setScrollOffset(Math.max(scrollOffset - 1, 0));
+        }
+    };
+
+    const handleScrollBarMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
+        const newPos = getNormalizedScrollPosition(event.clientY);
+        if (newPos === null) return;
+
+        if (newPos > position) {
+            setScrollOffset(scrollOffset => Math.min(scrollOffset + 1, maxScrollOffset));
+        } else {
+            setScrollOffset(scrollOffset => Math.max(scrollOffset - 1, 0));
+        }
+    };
+
+    const handleScrollHandleMouseDown = (
+        event: MouseEvent | TargetedMouseEvent<HTMLDivElement>,
+    ) => {
+        event.stopPropagation();
+        if (event.button !== 0) return;
+        isDraggingRef.current = true;
+        setDragging(true);
+    };
+
+    const handleWindowMouseMove = (event: MouseEvent) => {
+        if (!isDraggingRef.current) return;
+        updatePositionFromClientY(event.clientY);
+    };
+
+    const handleWindowMouseUp = () => {
+        isDraggingRef.current = false;
+        setDragging(false);
+    };
+
+    useEffect(() => {
+        window.addEventListener("mouseup", handleWindowMouseUp);
+        window.addEventListener("mousemove", handleWindowMouseMove);
+        return () => {
+            window.removeEventListener("mouseup", handleWindowMouseUp);
+            window.removeEventListener("mousemove", handleWindowMouseMove);
+        };
+    });
+
+    return (
+        <div className="bg-gray-300" style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}>
+            <div
+                onMouseDown={handleScrollBarMouseDown}
+                ref={containerRef}
+                className="relative h-full w-full px-4 py-7"
+            >
+                <div className="h-full w-full border border-b-gray-100 border-r-gray-100 border-l-gray-700 border-t-gray-700 flex flex-col-reverse"></div>
+                {scrollHandleVisible && (
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        onMouseDown={handleScrollHandleMouseDown}
+                        className={clsx(
+                            "dotted-background-gray absolute translate-y-[-50%] left-0 w-full h-13 rounded-md cursor-pointer bg-gray-300 border",
+                            !dragging &&
+                                "border-t-white border-l-white border-r-gray-900 border-b-gray-900",
+                            dragging &&
+                                "border-b-white border-r-white border-l-gray-900 border-t-gray-900 shadow-none",
+                        )}
+                        style={{
+                            top: `calc(1.625rem + ${position} * (100% - 3.25rem))`,
+                        }}
+                    ></div>
+                )}
+            </div>
         </div>
     );
 }
@@ -221,6 +229,8 @@ function ScrollButtonRow({
         if (timeoutRef.current !== undefined) {
             clearTimeout(timeoutRef.current);
             timeoutRef.current = undefined;
+
+            void invokeSafe("audio_play_ui_click");
             onClick();
         }
         if (intervalRef.current !== undefined) {

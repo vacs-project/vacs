@@ -83,13 +83,13 @@ function TelephonePageButton(props: TelephonePageButtonProps) {
     return (
         <button
             className={clsx(
-                "w-full h-16 rounded-r-lg cursor-pointer border-2 border-l-0 font-semibold text-lg leading-5",
+                "w-full h-16 rounded-r-lg border-2 border-l-0 font-semibold text-lg leading-5",
                 "bg-[#959CA8] disabled:bg-[#B5BBC6] border-t-gray-100 border-r-gray-700 border-b-gray-700",
                 "shadow-[0_-1px_0_0_#364153,1px_0_0_0_#364153,0_1px_0_0_#364153]",
                 "active:border-r-gray-100 active:border-b-gray-100 active:border-t-gray-700 active:border-l-gray-700",
-                "disabled:relative disabled:cursor-default disabled:border-gray-600",
+                "not-disabled:active:*:translate-y-px not-disabled:active:*:translate-x-px not-disabled:cursor-pointer",
+                "disabled:relative disabled:border-gray-600 disabled:pointer-events-none",
                 "active-telephone-page",
-                "not-disabled:active:*:translate-y-px not-disabled:active:*:translate-x-px",
             )}
             onClick={() => {
                 void invokeSafe("audio_play_ui_click");
