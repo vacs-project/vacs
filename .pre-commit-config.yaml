@@ -23,7 +23,7 @@ repos:
   - repo: local
     hooks:
       - id: npm-lint
-        name: eslint
+        name: oxlint
         entry: npm
         args: ["run", "-w", "frontend", "lint", "--prefix", "vacs-client"]
         language: system
