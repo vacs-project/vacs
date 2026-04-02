@@ -1,9 +1,9 @@
 use crate::sources::AudioSource;
 use crate::{EncodedAudioFrame, FRAME_SIZE, TARGET_SAMPLE_RATE};
 use anyhow::{Context, Result};
-use audioadapter_buffers::direct::SequentialSliceOfVecs;
 use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
+use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 use rubato::{Async, Indexing, Resampler};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;

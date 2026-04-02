@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-audioadapter-buffers = { workspace = true }
 biquad = { workspace = true }
 bytes = { workspace = true }
 cpal = { workspace = true }
