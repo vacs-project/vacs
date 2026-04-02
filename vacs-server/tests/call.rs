@@ -6,14 +6,13 @@ use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::ServerMessage;
 use vacs_protocol::ws::shared::{CallId, CallTarget};
-use vacs_server::config::{AppConfig, CallConfig};
 use vacs_server::ratelimit::{Policy as RateLimitPolicy, RateLimiters, RateLimitersConfig};
-use vacs_server::test_utils::{TestApp, TestClient, setup_n_test_clients};
+use vacs_server::test_utils::{TestClient, TestEnv};
 
 #[test(tokio::test)]
 async fn call_offer() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -136,8 +135,8 @@ async fn call_offer() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn call_offer_answer() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -280,8 +279,8 @@ async fn call_offer_answer() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn invite_after_call_end() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -385,8 +384,8 @@ async fn invite_after_call_end() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn call_end_from_non_participant() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -486,8 +485,8 @@ async fn call_end_from_non_participant() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn call_end_by_callee_cancels_pending_invitations() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -596,8 +595,8 @@ async fn call_end_by_callee_cancels_pending_invitations() -> anyhow::Result<()> 
 
 #[test(tokio::test)]
 async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -683,8 +682,8 @@ async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn ringing_conference_target_disconnect_notifies_the_inviter() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -783,8 +782,8 @@ async fn ringing_conference_target_disconnect_notifies_the_inviter() -> anyhow::
 
 #[test(tokio::test)]
 async fn unanswered_target_disconnect_updates_remaining_ringing_targets() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -856,8 +855,8 @@ async fn unanswered_target_disconnect_updates_remaining_ringing_targets() -> any
 
 #[test(tokio::test)]
 async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -969,8 +968,8 @@ async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn target_not_found() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -984,7 +983,7 @@ async fn target_not_found() -> anyhow::Result<()> {
                     position_id: None,
                     station_id: None,
                 },
-                targets: HashSet::from([CallTarget::Client(ClientId::from("client69"))]),
+                targets: HashSet::from([CallTarget::Client(ClientId::from("9999999"))]),
                 prio: false,
             },
         ))
@@ -1023,7 +1022,7 @@ async fn target_not_found() -> anyhow::Result<()> {
             assert_eq!(
                 error.reason,
                 vacs_protocol::ws::shared::CallErrorReason::TargetsNotFound(HashSet::from([
-                    CallTarget::Client(ClientId::from("client69"))
+                    CallTarget::Client(ClientId::from("9999999"))
                 ])),
                 "CallErrorReason mismatch"
             );
@@ -1054,8 +1053,8 @@ async fn target_not_found() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn webrtc_messages_to_non_participants_are_dropped() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1166,13 +1165,13 @@ async fn webrtc_messages_to_non_participants_are_dropped() -> anyhow::Result<()>
 
 #[test(tokio::test)]
 async fn partial_targets_not_found_still_rings_online_target() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients(2).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
 
-    let offline_target = CallTarget::Client(ClientId::from("client69"));
+    let offline_target = CallTarget::Client(ClientId::from("9999999"));
     let call_id = CallId::new();
     client1
         .send(ClientMessage::CallInvite(
@@ -1255,15 +1254,15 @@ async fn partial_targets_not_found_still_rings_online_target() -> anyhow::Result
 
 #[test(tokio::test)]
 async fn all_targets_not_found_leaves_no_call_state() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients(2).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
 
     let offline_targets = HashSet::from([
-        CallTarget::Client(ClientId::from("client69")),
-        CallTarget::Client(ClientId::from("client70")),
+        CallTarget::Client(ClientId::from("9999999")),
+        CallTarget::Client(ClientId::from("9999998")),
     ]);
     client1
         .send(ClientMessage::CallInvite(
@@ -1337,8 +1336,8 @@ async fn all_targets_not_found_leaves_no_call_state() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn empty_targets_rejected() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients(2).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1455,8 +1454,8 @@ async fn join_call(
 
 #[test(tokio::test)]
 async fn auto_hangup_drops_a_ringing_target_without_ending_the_call() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1536,8 +1535,8 @@ async fn auto_hangup_drops_a_ringing_target_without_ending_the_call() -> anyhow:
 
 #[test(tokio::test)]
 async fn conference_leader_drops_a_participant() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1616,8 +1615,8 @@ async fn conference_leader_drops_a_participant() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1720,8 +1719,8 @@ async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> 
 /// treat call-scoped reasons as their own call failing.
 #[test(tokio::test)]
 async fn conference_member_call_failure_only_updates_survivors() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1775,8 +1774,8 @@ async fn conference_member_call_failure_only_updates_survivors() -> anyhow::Resu
 /// target it was the only client of fails out for the caller.
 #[test(tokio::test)]
 async fn busy_accept_fails_the_ringing_target() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1862,8 +1861,8 @@ async fn busy_accept_fails_the_ringing_target() -> anyhow::Result<()> {
 /// so a client that applied the drop locally converges back.
 #[test(tokio::test)]
 async fn refused_drop_carries_the_authoritative_call_state() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1932,8 +1931,8 @@ async fn setup_conference(
 /// conference down.
 #[test(tokio::test)]
 async fn conference_leader_ending_the_call_ends_it_for_everyone() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -1964,7 +1963,7 @@ async fn conference_leader_ending_the_call_ends_it_for_everyone() -> anyhow::Res
     }
 
     assert!(
-        test_app.state().calls.active_call(&call_id).is_none(),
+        env.state().calls.active_call(&call_id).is_none(),
         "the conference must be gone once its leader ended it"
     );
 
@@ -1975,8 +1974,8 @@ async fn conference_leader_ending_the_call_ends_it_for_everyone() -> anyhow::Res
 /// hangup, and the end is attributed to the leader that went away.
 #[test(tokio::test)]
 async fn conference_leader_disconnect_ends_the_call_for_everyone() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2003,7 +2002,7 @@ async fn conference_leader_disconnect_ends_the_call_for_everyone() -> anyhow::Re
     }
 
     assert!(
-        test_app.state().calls.active_call(&call_id).is_none(),
+        env.state().calls.active_call(&call_id).is_none(),
         "the conference must be gone once its leader disconnected"
     );
 
@@ -2014,8 +2013,8 @@ async fn conference_leader_disconnect_ends_the_call_for_everyone() -> anyhow::Re
 /// the call loses its leader and continues as a regular call.
 #[test(tokio::test)]
 async fn conference_member_ending_the_call_shrinks_it_to_a_regular_call() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2047,7 +2046,7 @@ async fn conference_member_ending_the_call_shrinks_it_to_a_regular_call() -> any
         );
     }
 
-    let active_call = test_app
+    let active_call = env
         .state()
         .calls
         .active_call(&call_id)
@@ -2063,8 +2062,8 @@ async fn conference_member_ending_the_call_shrinks_it_to_a_regular_call() -> any
 
 #[test(tokio::test)]
 async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2092,7 +2091,7 @@ async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> an
         );
     }
 
-    let active_call = test_app
+    let active_call = env
         .state()
         .calls
         .active_call(&call_id)
@@ -2110,15 +2109,15 @@ async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> an
 /// with the disconnecting participant or the gauge stays raised forever.
 #[test(tokio::test)]
 async fn disconnect_releases_the_active_call() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients(2).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
 
     let call_id = CallId::new();
     join_call(&mut client1, &mut client2, call_id).await?;
-    assert_eq!(test_app.state().calls.active_call_count(), 1);
+    assert_eq!(env.state().calls.active_call_count(), 1);
 
     let client1_id = client1.id().clone();
     client1.close().await;
@@ -2132,14 +2131,14 @@ async fn disconnect_releases_the_active_call() -> anyhow::Result<()> {
     assert_eq!(ends.len(), 1, "the peer should be told the call ended");
 
     assert_eq!(
-        test_app.state().calls.active_call_count(),
+        env.state().calls.active_call_count(),
         0,
         "no call may stay active after a participant disconnected from a two-party call"
     );
 
     client2.close().await;
     assert_eq!(
-        test_app.state().calls.active_call_count(),
+        env.state().calls.active_call_count(),
         0,
         "the peer disconnecting afterwards must find nothing left to clean up"
     );
@@ -2151,8 +2150,8 @@ async fn disconnect_releases_the_active_call() -> anyhow::Result<()> {
 /// joined later, and only once both endpoints have reported it.
 #[test(tokio::test)]
 async fn confirmed_link_failure_evicts_the_later_joiner_of_the_pair() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2245,7 +2244,7 @@ async fn confirmed_link_failure_evicts_the_later_joiner_of_the_pair() -> anyhow:
         );
     }
 
-    let active_call = test_app
+    let active_call = env
         .state()
         .calls
         .active_call(&call_id)
@@ -2265,8 +2264,8 @@ async fn confirmed_link_failure_evicts_the_later_joiner_of_the_pair() -> anyhow:
 #[test(tokio::test)]
 async fn conference_member_webrtc_failure_names_the_leaver_to_the_survivors() -> anyhow::Result<()>
 {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2326,7 +2325,7 @@ async fn conference_member_webrtc_failure_names_the_leaver_to_the_survivors() ->
         );
     }
 
-    let active_call = test_app
+    let active_call = env
         .state()
         .calls
         .active_call(&call_id)
@@ -2365,8 +2364,8 @@ async fn invite(
 /// never listed as a target to itself.
 #[test(tokio::test)]
 async fn multi_target_invitation_lists_the_co_targets() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2424,8 +2423,8 @@ async fn multi_target_invitation_lists_the_co_targets() -> anyhow::Result<()> {
 /// and can still turn the invite into a call.
 #[test(tokio::test)]
 async fn busy_co_target_fails_without_disturbing_the_other_target() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 4).await;
+    let env = TestEnv::builder().default_users(4).build().await;
+    let mut clients = env.setup_clients(4).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2548,9 +2547,12 @@ fn invite_rate_limiters(burst: u32) -> RateLimiters {
 /// as a whole, naming the targets it asked for.
 #[test(tokio::test)]
 async fn rate_limited_invite_reports_the_requested_targets() -> anyhow::Result<()> {
-    let test_app =
-        TestApp::new_with_config(TestApp::default_config(), invite_rate_limiters(2)).await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+    let env = TestEnv::builder()
+        .default_users(3)
+        .rate_limiters(invite_rate_limiters(2))
+        .build()
+        .await;
+    let mut clients = env.setup_clients(3).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2641,9 +2643,12 @@ async fn rate_limited_invite_reports_the_requested_targets() -> anyhow::Result<(
 /// in for cost the caller nothing.
 #[test(tokio::test)]
 async fn unresolvable_targets_do_not_count_against_the_invite_rate_limit() -> anyhow::Result<()> {
-    let test_app =
-        TestApp::new_with_config(TestApp::default_config(), invite_rate_limiters(1)).await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+    let env = TestEnv::builder()
+        .default_users(2)
+        .rate_limiters(invite_rate_limiters(1))
+        .build()
+        .await;
+    let mut clients = env.setup_clients(2).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2712,12 +2717,12 @@ async fn unresolvable_targets_do_not_count_against_the_invite_rate_limit() -> an
 /// leaves the running call exactly as it was.
 #[test(tokio::test)]
 async fn invite_beyond_max_conference_size_leaves_the_call_unchanged() -> anyhow::Result<()> {
-    let config = AppConfig {
-        call: CallConfig { max_conf_size: 3 },
-        ..TestApp::default_config()
-    };
-    let test_app = TestApp::new_with_config(config, RateLimiters::default()).await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 4).await;
+    let env = TestEnv::builder()
+        .default_users(4)
+        .max_conf_size(3)
+        .build()
+        .await;
+    let mut clients = env.setup_clients(4).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -2773,7 +2778,7 @@ async fn invite_beyond_max_conference_size_leaves_the_call_unchanged() -> anyhow
         );
     }
 
-    let active_call = test_app
+    let active_call = env
         .state()
         .calls
         .active_call(&call_id)

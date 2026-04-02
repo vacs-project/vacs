@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,12 +16,15 @@ use vatsim_api::types::connect::{
 };
 
 use super::CertificateIdExt;
+use super::TestClient;
 
 use crate::auth::layer::setup_test_auth_layer;
 use crate::config::{AppConfig, AuthConfig, OAuthConfig, VatsimConfig};
 use crate::ice::provider::stun::StunOnlyProvider;
 use crate::ratelimit::RateLimiters;
 use crate::release::UpdateChecker;
+use crate::release::catalog::file::FileCatalog;
+use crate::release::policy::Policy;
 use crate::routes::create_app;
 use crate::state::AppState;
 use crate::store::Store;
@@ -29,13 +33,16 @@ use vacs_vatsim::coverage::network::Network;
 use vacs_vatsim::data_feed::VatsimDataFeed;
 use vacs_vatsim::slurper::SlurperClient;
 
+/// Base CID for default test users. User N gets CID `DEFAULT_CID_BASE + N`
+/// (i.e. 1000001, 1000002, ...).
+const DEFAULT_CID_BASE: u32 = 1_000_000;
+
 /// A self-contained test environment that spins up a mock VATSIM server and a
 /// real vacs-server instance wired together.
 ///
 /// The mock VATSIM server provides real HTTP endpoints for OAuth, datafeed,
-/// and slurper. The vacs-server uses the real `Backend` auth layer (not
-/// `MockBackend`) pointed at these URLs, with `MemoryStore` for sessions
-/// (no Redis required).
+/// and slurper. The vacs-server uses the real `Backend` auth layer pointed
+/// at these URLs, with `MemoryStore` for sessions (no Redis required).
 ///
 /// The environment owns all resources and tears them down on drop.
 pub struct TestEnv {
@@ -53,6 +60,9 @@ pub struct TestEnvBuilder {
     controllers: Vec<vatsim_api::types::datafeed::Controller>,
     network: Network,
     require_active_connection: bool,
+    rate_limiters: RateLimiters,
+    max_conf_size: Option<u32>,
+    compatible_protocol_range: Option<String>,
 }
 
 impl TestEnv {
@@ -64,6 +74,9 @@ impl TestEnv {
             controllers: Vec::new(),
             network: Network::default(),
             require_active_connection: false,
+            rate_limiters: RateLimiters::default(),
+            max_conf_size: None,
+            compatible_protocol_range: None,
         }
     }
 
@@ -130,14 +143,16 @@ impl TestEnv {
     ///
     /// 1. `GET /auth/vatsim` to initiate login (stores CSRF state in session)
     /// 2. Follows the redirect to the mock VATSIM OAuth authorize endpoint
+    ///    (with `login_hint` set to the target CID)
     /// 3. `POST /auth/vatsim/callback` to exchange the code
     ///
     /// The returned client has a valid session cookie and can call any
     /// authenticated endpoint.
     pub async fn authenticated_http_client(
         &self,
-        _cid: impl Into<ClientId>,
+        cid: impl Into<ClientId>,
     ) -> anyhow::Result<reqwest::Client> {
+        let cid = cid.into();
         let jar = Arc::new(reqwest::cookie::Jar::default());
         let client = reqwest::Client::builder()
             .cookie_provider(jar)
@@ -152,13 +167,24 @@ impl TestEnv {
             .error_for_status()?
             .json()
             .await?;
-        let auth_url = body["url"]
+        let auth_url_str = body["url"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing `url` in /auth/vatsim response"))?;
 
+        // Append login_hint so the mock OAuth server authenticates as the
+        // correct user instead of always picking the first one.
+        let mut auth_url = Url::parse(auth_url_str)?;
+        auth_url
+            .query_pairs_mut()
+            .append_pair("login_hint", cid.as_str());
+
         // Step 2: Follow redirect to mock OAuth (which auto-approves and
         // redirects back with code + state)
-        let redirect_resp = client.get(auth_url).send().await?.error_for_status()?;
+        let redirect_resp = client
+            .get(auth_url.as_str())
+            .send()
+            .await?
+            .error_for_status()?;
         let redirect_location = redirect_resp
             .headers()
             .get(reqwest::header::LOCATION)
@@ -208,6 +234,48 @@ impl TestEnv {
 
         Ok(token)
     }
+
+    /// Authenticates and connects `n` users via WebSocket, returning them as
+    /// a `Vec<TestClient>`.
+    ///
+    /// The users are drawn from the seeded user list (see
+    /// [`TestEnvBuilder::default_users`]). Each client walks the full OAuth
+    /// flow to obtain a WS token and then performs a WS login.
+    ///
+    /// Client CIDs will be `"1000001"`, `"1000002"`, etc. (matching
+    /// [`default_users`]).
+    pub async fn setup_clients(&self, n: usize) -> Vec<TestClient> {
+        let mut clients = Vec::with_capacity(n);
+        for i in 1..=n {
+            let cid = format!("{}", DEFAULT_CID_BASE + i as u32);
+            let token = self
+                .ws_token_for(cid.as_str())
+                .await
+                .expect("ws_token_for failed");
+            let client = TestClient::new_with_login(
+                self.ws_url(),
+                cid.as_str(),
+                &token,
+                |_, _| Ok(()),
+                |_| Ok(()),
+                |_| Ok(()),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("Failed to connect client {cid}: {e}"));
+            clients.push(client);
+        }
+        clients
+    }
+
+    /// Like [`setup_clients`](Self::setup_clients) but returns a
+    /// `HashMap<ClientId, TestClient>` for named access.
+    pub async fn setup_clients_map(&self, n: usize) -> HashMap<ClientId, TestClient> {
+        self.setup_clients(n)
+            .await
+            .into_iter()
+            .map(|c| (c.id().clone(), c))
+            .collect()
+    }
 }
 
 impl Drop for TestEnv {
@@ -222,6 +290,19 @@ impl TestEnvBuilder {
     #[must_use]
     pub fn users(mut self, users: Vec<ConnectUser>) -> Self {
         self.users = users;
+        self
+    }
+
+    /// Convenience: seeds `n` default test users with CIDs 1000001 through
+    /// 1000000+n. Use with [`TestEnv::setup_clients`] to connect them.
+    #[must_use]
+    pub fn default_users(mut self, n: usize) -> Self {
+        self.users = (1..=n)
+            .map(|i| {
+                let cid = DEFAULT_CID_BASE + i as u32;
+                test_user(cid.to_string(), &format!("User{i}"), &format!("Test{i}"))
+            })
+            .collect();
         self
     }
 
@@ -251,6 +332,28 @@ impl TestEnvBuilder {
         self
     }
 
+    /// Sets the request rate limiters. Default: no limits.
+    #[must_use]
+    pub fn rate_limiters(mut self, rate_limiters: RateLimiters) -> Self {
+        self.rate_limiters = rate_limiters;
+        self
+    }
+
+    /// Caps the number of invited targets and participants per call.
+    #[must_use]
+    pub fn max_conf_size(mut self, max_conf_size: u32) -> Self {
+        self.max_conf_size = Some(max_conf_size);
+        self
+    }
+
+    /// Runs the server behind a release policy that only accepts client
+    /// protocol versions matching `range`. Default: every version.
+    #[must_use]
+    pub fn compatible_protocol_range(mut self, range: &str) -> Self {
+        self.compatible_protocol_range = Some(range.to_owned());
+        self
+    }
+
     /// Builds the [`TestEnv`], starting both the mock VATSIM server and
     /// the vacs-server.
     pub async fn build(self) -> TestEnv {
@@ -263,9 +366,9 @@ impl TestEnvBuilder {
 
         let mock_base = mock_vatsim.base_url().to_owned();
 
-        let config = AppConfig {
+        let mut config = AppConfig {
             auth: AuthConfig {
-                login_flow_timeout_millis: 5000,
+                login_flow_timeout_millis: 100,
                 oauth: OAuthConfig {
                     auth_url: format!("{mock_base}/oauth/authorize"),
                     token_url: format!("{mock_base}/oauth/token"),
@@ -291,6 +394,24 @@ impl TestEnvBuilder {
             },
             ..Default::default()
         };
+        if let Some(max_conf_size) = self.max_conf_size {
+            config.call.max_conf_size = max_conf_size;
+        }
+
+        let updates = match self.compatible_protocol_range {
+            Some(range) => {
+                let mut policy_file =
+                    tempfile::NamedTempFile::new().expect("Failed to create policy file");
+                writeln!(policy_file, "compatible_protocol_range = \"{range}\"")
+                    .expect("Failed to write policy file");
+                // Policy reads the file once, so the handle may go away afterwards.
+                let policy = Policy::new(policy_file.path()).expect("Failed to load policy");
+                let catalog =
+                    FileCatalog::new("releases.toml").expect("Failed to load release catalog");
+                UpdateChecker::new(Arc::new(catalog), policy)
+            }
+            None => UpdateChecker::default(),
+        };
 
         let data_feed = Arc::new(
             VatsimDataFeed::new(
@@ -304,12 +425,12 @@ impl TestEnvBuilder {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let state = Arc::new(AppState::new(
             config.clone(),
-            UpdateChecker::default(),
+            updates,
             Store::Memory(MemoryStore::default()),
             SlurperClient::new(&mock_base).unwrap(),
             data_feed,
             self.network,
-            RateLimiters::default(),
+            self.rate_limiters,
             shutdown_rx,
             Arc::new(StunOnlyProvider::default()),
             None,
@@ -349,6 +470,14 @@ impl TestEnvBuilder {
             handle,
         }
     }
+}
+
+/// Returns the CID string for default test user `n` (1-based).
+///
+/// E.g., `cid(1)` returns `"1000001"`, `cid(2)` returns `"1000002"`.
+#[must_use]
+pub fn cid(n: usize) -> String {
+    format!("{}", DEFAULT_CID_BASE + n as u32)
 }
 
 /// Creates a minimal [`ConnectUser`] for test seeding.

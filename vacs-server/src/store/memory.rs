@@ -32,13 +32,6 @@ impl Default for MemoryStore {
         let map = DashMap::new();
         for i in 0..=5u128 {
             map.insert(
-                format!("ws.token.token{i}"),
-                StoredValue {
-                    value: Bytes::from(format!("\"client{i}\"")),
-                    expires_at: None,
-                },
-            );
-            map.insert(
                 format!("api.token.{}", Uuid::from_u128(i)),
                 StoredValue {
                     value: Bytes::from(format!("\"cid{i}\"")),
