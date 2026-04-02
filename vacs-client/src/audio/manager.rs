@@ -11,7 +11,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
 use vacs_audio::EncodedAudioFrame;
-use vacs_audio::device::{DeviceSelector, DeviceType};
+use vacs_audio::device::{DeviceSelector, DeviceType, StreamDevice};
 use vacs_audio::error::AudioError;
 use vacs_audio::sources::AudioSourceId;
 use vacs_audio::sources::opus::OpusSource;
@@ -144,25 +144,66 @@ impl SourceType {
 
 pub struct AudioManager {
     output: PlaybackStream,
+    speaker: Option<PlaybackStream>,
     input: Option<CaptureStream>,
-    source_ids: HashMap<SourceType, AudioSourceId>,
+    output_source_ids: HashMap<SourceType, AudioSourceId>,
+    speaker_source_ids: HashMap<SourceType, AudioSourceId>,
 }
 
 pub type AudioManagerHandle = Arc<RwLock<AudioManager>>;
 
 impl AudioManager {
     pub fn new(app: AppHandle, audio_config: &AudioConfig) -> Result<Self, Error> {
-        let (output, source_ids) = Self::create_playback_stream(app, audio_config, false)?;
+        let (output_device, is_fallback) = DeviceSelector::open(
+            DeviceType::Output,
+            audio_config.host_name.as_deref(),
+            audio_config.output_device_id.as_deref(),
+            audio_config.output_device_name.as_deref(),
+        )?;
+        let (output, output_source_ids) = Self::create_playback_stream(
+            app.clone(),
+            output_device,
+            is_fallback,
+            audio_config,
+            false,
+            false,
+        )?;
+
+        let (speaker, speaker_source_ids) = if audio_config.speaker_enabled {
+            let (speaker_device, is_fallback) = DeviceSelector::open(
+                DeviceType::Output,
+                audio_config.host_name.as_deref(),
+                audio_config.speaker_device_id.as_deref(),
+                audio_config.speaker_device_name.as_deref(),
+            )?;
+            let (speaker, speaker_source_ids) = Self::create_playback_stream(
+                app,
+                speaker_device,
+                is_fallback,
+                audio_config,
+                false,
+                true,
+            )?;
+            (Some(speaker), speaker_source_ids)
+        } else {
+            (None, HashMap::new())
+        };
 
         Ok(Self {
             output,
             input: None,
-            source_ids,
+            speaker,
+            output_source_ids,
+            speaker_source_ids,
         })
     }
 
     pub fn output_device_name(&self) -> String {
         self.output.device_name()
+    }
+
+    pub fn speaker_device_name(&self) -> Option<String> {
+        self.speaker.as_ref().map(|s| s.device_name().clone())
     }
 
     pub fn switch_output_device(
@@ -171,9 +212,53 @@ impl AudioManager {
         audio_config: &AudioConfig,
         restarting: bool,
     ) -> Result<(), Error> {
-        let (output, source_ids) = Self::create_playback_stream(app, audio_config, restarting)?;
+        let (output_device, is_fallback) = DeviceSelector::open(
+            DeviceType::Output,
+            audio_config.host_name.as_deref(),
+            audio_config.output_device_id.as_deref(),
+            audio_config.output_device_name.as_deref(),
+        )?;
+        let (output, source_ids) = Self::create_playback_stream(
+            app,
+            output_device,
+            is_fallback,
+            audio_config,
+            restarting,
+            false,
+        )?;
         self.output = output;
-        self.source_ids = source_ids;
+        self.output_source_ids = source_ids;
+        Ok(())
+    }
+
+    pub fn switch_speaker_device(
+        &mut self,
+        app: AppHandle,
+        audio_config: &AudioConfig,
+        restarting: bool,
+    ) -> Result<(), Error> {
+        if audio_config.speaker_enabled {
+            let (speaker_device, is_fallback) = DeviceSelector::open(
+                DeviceType::Output,
+                audio_config.host_name.as_deref(),
+                audio_config.speaker_device_id.as_deref(),
+                audio_config.speaker_device_name.as_deref(),
+            )?;
+            let (speaker, source_ids) = Self::create_playback_stream(
+                app,
+                speaker_device,
+                is_fallback,
+                audio_config,
+                restarting,
+                true,
+            )?;
+            self.speaker = Some(speaker);
+            self.speaker_source_ids = source_ids;
+        } else {
+            self.speaker = None;
+            self.speaker_source_ids = HashMap::new();
+        }
+
         Ok(())
     }
 
@@ -304,36 +389,62 @@ impl AudioManager {
     }
 
     pub fn start(&self, source_type: SourceType) {
-        self.output
-            .start_audio_source(self.source_ids[&source_type]);
+        if let Some(speaker) = &self.speaker
+            && let Some(source_id) = self.speaker_source_ids.get(&source_type)
+        {
+            speaker.start_audio_source(*source_id);
+        } else if let Some(source_id) = self.output_source_ids.get(&source_type) {
+            self.output.start_audio_source(*source_id);
+        }
     }
 
     pub fn restart(&self, source_type: SourceType) {
-        self.output
-            .restart_audio_source(self.source_ids[&source_type]);
+        if let Some(speaker) = &self.speaker
+            && let Some(source_id) = self.speaker_source_ids.get(&source_type)
+        {
+            speaker.restart_audio_source(*source_id);
+        } else if let Some(source_id) = self.output_source_ids.get(&source_type) {
+            self.output.restart_audio_source(*source_id);
+        }
     }
 
     pub fn stop(&self, source_type: SourceType) {
-        self.output.stop_audio_source(self.source_ids[&source_type]);
+        if let Some(speaker) = &self.speaker
+            && let Some(source_id) = self.speaker_source_ids.get(&source_type)
+        {
+            speaker.stop_audio_source(*source_id);
+        } else if let Some(source_id) = self.output_source_ids.get(&source_type) {
+            self.output.stop_audio_source(*source_id);
+        }
     }
 
     pub fn set_output_volume(&self, source_type: SourceType, volume: f32) {
-        if !self.source_ids.contains_key(&source_type) {
+        if let Some(source_id) = self.output_source_ids.get(&source_type) {
+            self.output.set_volume(*source_id, volume);
+
+            match source_type {
+                SourceType::Ring | SourceType::Click | SourceType::RingbackOneshot => {
+                    self.output.restart_audio_source(*source_id);
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(speaker) = &self.speaker
+            && let Some(source_id) = self.speaker_source_ids.get(&source_type)
+        {
+            speaker.set_volume(*source_id, volume);
+
+            match source_type {
+                SourceType::Ring | SourceType::Click | SourceType::RingbackOneshot => {
+                    speaker.restart_audio_source(*source_id);
+                }
+                _ => {}
+            }
+        } else if !self.output_source_ids.contains_key(&source_type) {
             log::trace!(
                 "Tried to set output volume {volume} for missing audio source {source_type:?}, skipping"
             );
-            return;
-        }
-
-        self.output
-            .set_volume(self.source_ids[&source_type], volume);
-
-        match source_type {
-            SourceType::Ring | SourceType::Click | SourceType::RingbackOneshot => {
-                self.output
-                    .restart_audio_source(self.source_ids[&source_type]);
-            }
-            _ => {}
         }
     }
 
@@ -355,7 +466,7 @@ impl AudioManager {
         volume: f32,
         amp: f32,
     ) -> Result<(), Error> {
-        if self.source_ids.contains_key(&SourceType::Opus) {
+        if self.output_source_ids.contains_key(&SourceType::Opus) {
             log::warn!("Tried to attach call but a call was already attached");
             return Err(AudioError::Other(anyhow::anyhow!(
                 "Tried to attach call but a call was already attached"
@@ -363,7 +474,7 @@ impl AudioManager {
             .into());
         }
 
-        self.source_ids.insert(
+        self.output_source_ids.insert(
             SourceType::Opus,
             self.output.add_audio_source(Box::new(OpusSource::new(
                 webrtc_rx,
@@ -379,7 +490,7 @@ impl AudioManager {
     }
 
     pub fn detach_call_output(&mut self) {
-        if let Some(source_id) = self.source_ids.remove(&SourceType::Opus) {
+        if let Some(source_id) = self.output_source_ids.remove(&SourceType::Opus) {
             self.output.remove_audio_source(source_id);
             log::info!("Detached call output");
         } else {
@@ -389,26 +500,23 @@ impl AudioManager {
 
     fn create_playback_stream(
         app: AppHandle,
+        device: StreamDevice,
+        is_fallback: bool,
         audio_config: &AudioConfig,
         restarting: bool,
+        speaker: bool,
     ) -> Result<(PlaybackStream, HashMap<SourceType, AudioSourceId>), Error> {
-        let (output_device, is_fallback) = DeviceSelector::open(
-            DeviceType::Output,
-            audio_config.host_name.as_deref(),
-            audio_config.output_device_id.as_deref(),
-            audio_config.output_device_name.as_deref(),
-        )?;
         if is_fallback {
             app.emit::<FrontendError>("error", FrontendError::from(Error::AudioDevice(Box::from(AudioError::Other(
                 anyhow::anyhow!("Selected audio output device is not available, falling back to next best option. Check your audio settings.")
             )))).non_critical()).ok();
         }
 
-        let sample_rate = output_device.sample_rate() as f32;
-        let channels = output_device.channels() as usize;
+        let sample_rate = device.sample_rate() as f32;
+        let channels = device.channels() as usize;
 
         let (error_tx, mut error_rx) = mpsc::channel(AUDIO_STREAM_ERROR_CHANNEL_SIZE);
-        let output = PlaybackStream::start(output_device, error_tx)?;
+        let output = PlaybackStream::start(device, error_tx)?;
 
         let audio_config_clone = audio_config.clone();
         tauri::async_runtime::spawn(async move {
@@ -447,21 +555,37 @@ impl AudioManager {
                         app.emit("signaling:call-end", &call_id).ok();
                     }
 
-                    if let Err(err) = app
-                        .state::<AudioManagerHandle>()
-                        .write()
-                        .switch_output_device(app.clone(), &audio_config_clone, true)
-                    {
-                        log::error!("Failed to switch output device after failure: {:?}", err);
+                    let res = {
+                        let audio_manager = app.state::<AudioManagerHandle>();
+                        let mut audio_manager = audio_manager.write();
+
+                        if speaker {
+                            audio_manager.switch_output_device(
+                                app.clone(),
+                                &audio_config_clone,
+                                true,
+                            )
+                        } else {
+                            audio_manager.switch_speaker_device(
+                                app.clone(),
+                                &audio_config_clone,
+                                true,
+                            )
+                        }
+                    };
+
+                    let device = if speaker { "speaker" } else { "output" };
+                    if let Err(err) = res {
+                        log::error!("Failed to switch {device} device after failure: {:?}", err);
 
                         app.emit::<FrontendError>("error", Error::AudioDevice(Box::from(AudioError::Other(
-                            anyhow::anyhow!("Audio output device failed to start irrecoverably, check your audio settings and restart the application.")
+                            anyhow::anyhow!("Audio {device} device failed to start irrecoverably, check your audio settings and restart the application.")
                         ))).into()).ok();
 
                         return;
                     } else {
                         log::info!(
-                            "Successfully restarted output device after failure, continuing playback"
+                            "Successfully restarted {device} device after failure, continuing playback"
                         );
                     }
 
@@ -476,6 +600,7 @@ impl AudioManager {
         });
 
         let mut source_ids = HashMap::new();
+
         source_ids.insert(
             SourceType::Ring,
             output.add_audio_source(Box::new(SourceType::into_waveform_source(
@@ -495,24 +620,6 @@ impl AudioManager {
             ))),
         );
         source_ids.insert(
-            SourceType::Ringback,
-            output.add_audio_source(Box::new(SourceType::into_waveform_source(
-                SourceType::Ringback,
-                sample_rate,
-                channels,
-                audio_config.output_device_volume,
-            ))),
-        );
-        source_ids.insert(
-            SourceType::RingbackOneshot,
-            output.add_audio_source(Box::new(SourceType::into_waveform_source(
-                SourceType::RingbackOneshot,
-                sample_rate,
-                channels,
-                audio_config.output_device_volume,
-            ))),
-        );
-        source_ids.insert(
             SourceType::Click,
             output.add_audio_source(Box::new(SourceType::into_waveform_source(
                 SourceType::Click,
@@ -521,24 +628,45 @@ impl AudioManager {
                 audio_config.click_volume,
             ))),
         );
-        source_ids.insert(
-            SourceType::CallStart,
-            output.add_audio_source(Box::new(SourceType::into_waveform_source(
+
+        if !speaker {
+            source_ids.insert(
+                SourceType::Ringback,
+                output.add_audio_source(Box::new(SourceType::into_waveform_source(
+                    SourceType::Ringback,
+                    sample_rate,
+                    channels,
+                    audio_config.output_device_volume,
+                ))),
+            );
+            source_ids.insert(
+                SourceType::RingbackOneshot,
+                output.add_audio_source(Box::new(SourceType::into_waveform_source(
+                    SourceType::RingbackOneshot,
+                    sample_rate,
+                    channels,
+                    audio_config.output_device_volume,
+                ))),
+            );
+            source_ids.insert(
                 SourceType::CallStart,
-                sample_rate,
-                channels,
-                audio_config.output_device_volume,
-            ))),
-        );
-        source_ids.insert(
-            SourceType::CallEnd,
-            output.add_audio_source(Box::new(SourceType::into_waveform_source(
+                output.add_audio_source(Box::new(SourceType::into_waveform_source(
+                    SourceType::CallStart,
+                    sample_rate,
+                    channels,
+                    audio_config.output_device_volume,
+                ))),
+            );
+            source_ids.insert(
                 SourceType::CallEnd,
-                sample_rate,
-                channels,
-                audio_config.output_device_volume,
-            ))),
-        );
+                output.add_audio_source(Box::new(SourceType::into_waveform_source(
+                    SourceType::CallEnd,
+                    sample_rate,
+                    channels,
+                    audio_config.output_device_volume,
+                ))),
+            );
+        }
 
         Ok((output, source_ids))
     }

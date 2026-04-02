@@ -5,10 +5,12 @@ import {AudioDevices} from "../../types/audio.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {useCallStore} from "../../stores/call-store.ts";
 import {clsx} from "clsx";
+import Hint from "../Hint.tsx";
 
 type DeviceSelectorProps = {
-    deviceType: "Input" | "Output";
+    deviceType: "Input" | "Output" | "Speaker";
 };
+const NONE_DEVICE = "<none>";
 
 function DeviceSelector(props: DeviceSelectorProps) {
     const [device, setDevice] = useState<string>("");
@@ -19,7 +21,7 @@ function DeviceSelector(props: DeviceSelectorProps) {
 
     const setAudioDevices = (audioDevices: AudioDevices) => {
         const isFallback =
-            audioDevices.preferred.length !== 0 && audioDevices.preferred !== audioDevices.picked;
+            audioDevices.preferred?.length !== 0 && audioDevices.preferred !== audioDevices.picked;
         const defaultDevice = {
             value: "",
             text: `Default (${audioDevices.default})`,
@@ -36,7 +38,20 @@ function DeviceSelector(props: DeviceSelectorProps) {
         }));
 
         deviceList = [defaultDevice, ...deviceList];
-        if (isFallback) {
+
+        if (props.deviceType === "Speaker") {
+            deviceList = [
+                {
+                    value: NONE_DEVICE,
+                    text: "",
+                    hidden: false,
+                    disabled: false,
+                },
+                ...deviceList,
+            ];
+        }
+
+        if (audioDevices.preferred !== undefined && isFallback) {
             deviceList.push({
                 value: audioDevices.preferred,
                 text: audioDevices.preferred,
@@ -46,7 +61,7 @@ function DeviceSelector(props: DeviceSelectorProps) {
         }
 
         setIsFallback(isFallback);
-        setDevice(audioDevices.preferred);
+        setDevice(audioDevices.preferred ?? NONE_DEVICE);
         setDevices(deviceList);
     };
 
@@ -67,7 +82,7 @@ function DeviceSelector(props: DeviceSelectorProps) {
         try {
             const audioDevices = await invokeStrict<AudioDevices>("audio_set_device", {
                 deviceType: props.deviceType,
-                deviceName: new_device,
+                deviceName: new_device === NONE_DEVICE ? undefined : new_device,
             });
             setAudioDevices(audioDevices);
         } catch {
@@ -81,9 +96,16 @@ function DeviceSelector(props: DeviceSelectorProps) {
 
     return (
         <>
-            <p className="w-full text-center font-semibold">
-                {props.deviceType === "Output" ? "Headset" : "Microphone"}
-            </p>
+            {props.deviceType === "Speaker" ? (
+                <div className="w-full flex flex-row gap-2 items-center justify-center">
+                    <p className="text-center font-semibold">Speaker</p>
+                    <Hint hint="Optional device for playing notification sounds such as ring, priority ring and UI clicks separately. Note: Call audio including start and end sounds will always be played on the headset device." />
+                </div>
+            ) : (
+                <p className="w-full text-center font-semibold">
+                    {props.deviceType === "Output" ? "Headset" : "Microphone"}
+                </p>
+            )}
             <Select
                 name={props.deviceType}
                 className={clsx("mb-1", isFallback && "text-red-500 disabled:text-[#B34F5C]!")}

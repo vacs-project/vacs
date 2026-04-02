@@ -37,22 +37,19 @@ function AudioHostSelector() {
     }, []);
 
     return (
-        <>
-            <p className="w-full text-center font-semibold">Audio Backend</p>
-            <Select
-                name="audio-host"
-                className="mb-1"
-                options={hosts}
-                selected={host}
-                onChange={handleOnChange}
-                disabled={
-                    hosts === undefined ||
-                    hosts.length === 0 ||
-                    callDisplayType === "accepted" ||
-                    callDisplayType === "outgoing"
-                }
-            />
-        </>
+        <Select
+            name="audio-host"
+            className="mb-1"
+            options={hosts}
+            selected={host}
+            onChange={handleOnChange}
+            disabled={
+                hosts === undefined ||
+                hosts.length === 0 ||
+                callDisplayType === "accepted" ||
+                callDisplayType === "outgoing"
+            }
+        />
     );
 }
 

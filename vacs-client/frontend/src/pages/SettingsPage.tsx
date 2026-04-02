@@ -5,7 +5,6 @@ import {invokeSafe, invokeStrict} from "../error.ts";
 import {useAsyncDebounce} from "../hooks/debounce-hook.ts";
 import DeviceSelector from "../components/settings/DeviceSelector.tsx";
 import VolumeSettings from "../components/settings/VolumeSettings.tsx";
-import AudioHostSelector from "../components/settings/AudioHostSelector.tsx";
 import {useEffect, useState} from "preact/hooks";
 import {useUpdateStore} from "../stores/update-store.ts";
 import {useCapabilitiesStore} from "../stores/capabilities-store.ts";
@@ -30,9 +29,9 @@ function SettingsPage() {
                                 Devices
                             </p>
                             <div className="w-full px-3 py-1.5 flex flex-col">
-                                <AudioHostSelector />
                                 <DeviceSelector deviceType="Output" />
                                 <DeviceSelector deviceType="Input" />
+                                <DeviceSelector deviceType="Speaker" />
                             </div>
                             <div className="py-0.5 flex flex-col gap-2">
                                 <p className="pt-1 text-center font-semibold uppercase border-t-2 border-zinc-200">

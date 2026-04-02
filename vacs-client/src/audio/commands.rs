@@ -1,7 +1,7 @@
 use crate::app::state::AppState;
 use crate::app::state::webrtc::AppStateWebrtcExt;
 use crate::audio::manager::{AudioManagerHandle, SourceType};
-use crate::audio::{AudioDevices, AudioHosts, AudioVolumes, VolumeType};
+use crate::audio::{AudioDevices, AudioHosts, AudioVolumes, ClientAudioDeviceType, VolumeType};
 use crate::config::{AUDIO_SETTINGS_FILE_NAME, AudioConfig, Persistable, PersistedAudioConfig};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
@@ -83,7 +83,7 @@ pub async fn audio_set_host(
 pub async fn audio_get_devices(
     app_state: State<'_, AppState>,
     audio_manager: State<'_, AudioManagerHandle>,
-    device_type: DeviceType,
+    device_type: ClientAudioDeviceType,
 ) -> Result<AudioDevices, Error> {
     log::debug!("Getting audio devices (type: {:?})", device_type);
 
@@ -92,6 +92,7 @@ pub async fn audio_get_devices(
         device_type,
         &state.config.audio,
         audio_manager.read().output_device_name(),
+        audio_manager.read().speaker_device_name(),
     )
 }
 
@@ -101,8 +102,8 @@ pub async fn audio_set_device(
     app: AppHandle,
     app_state: State<'_, AppState>,
     audio_manager: State<'_, AudioManagerHandle>,
-    device_type: DeviceType,
-    device_name: String,
+    device_type: ClientAudioDeviceType,
+    device_name: Option<String>,
 ) -> Result<AudioDevices, Error> {
     let mut state = app_state.lock().await;
     let mut audio_manager = audio_manager.write();
@@ -114,14 +115,15 @@ pub async fn audio_set_device(
         .into());
     }
 
-    let reattach_input_level_meter =
-        if audio_manager.is_input_device_attached() && matches!(device_type, DeviceType::Input) {
-            log::trace!("Detaching input level meter before switching input device");
-            audio_manager.detach_input_device();
-            true
-        } else {
-            false
-        };
+    let reattach_input_level_meter = if audio_manager.is_input_device_attached()
+        && matches!(device_type, ClientAudioDeviceType::Input)
+    {
+        log::trace!("Detaching input level meter before switching input device");
+        audio_manager.detach_input_device();
+        true
+    } else {
+        false
+    };
 
     log::info!(
         "Setting audio device (name: {:?}, type: {:?})",
@@ -129,13 +131,15 @@ pub async fn audio_set_device(
         device_type
     );
 
-    let device_name = Some(device_name).filter(|x| !x.is_empty());
+    let speaker_enabled = device_type == ClientAudioDeviceType::Speaker && device_name.is_some();
+
+    let device_name = device_name.filter(|x| !x.is_empty());
     // Resolve the stable device ID for the selected device name so we can
     // persist it alongside the display name. On next startup, the ID is tried
     // first for reliable matching; the name serves as a fallback for old configs.
     let device_id = device_name.as_deref().and_then(|name| {
         DeviceSelector::resolve_device_id(
-            device_type,
+            device_type.into(),
             state.config.audio.host_name.as_deref(),
             name,
         )
@@ -143,16 +147,26 @@ pub async fn audio_set_device(
 
     let (persisted_audio_config, audio_devices): (PersistedAudioConfig, AudioDevices) = {
         match device_type {
-            DeviceType::Input => {
+            ClientAudioDeviceType::Input => {
                 state.config.audio.input_device_name = device_name;
                 state.config.audio.input_device_id = device_id;
             }
-            DeviceType::Output => {
+            ClientAudioDeviceType::Output => {
                 let mut audio_config = state.config.audio.clone();
                 audio_config.output_device_name = device_name;
                 audio_config.output_device_id = device_id;
 
                 audio_manager.switch_output_device(app.clone(), &audio_config, false)?;
+
+                state.config.audio = audio_config;
+            }
+            ClientAudioDeviceType::Speaker => {
+                let mut audio_config = state.config.audio.clone();
+                audio_config.speaker_enabled = speaker_enabled;
+                audio_config.speaker_device_name = device_name;
+                audio_config.speaker_device_id = device_id;
+
+                audio_manager.switch_speaker_device(app.clone(), &audio_config, false)?;
 
                 state.config.audio = audio_config;
             }
@@ -162,6 +176,7 @@ pub async fn audio_set_device(
             device_type,
             &state.config.audio,
             audio_manager.output_device_name(),
+            audio_manager.speaker_device_name(),
         )?;
 
         if reattach_input_level_meter {
@@ -334,14 +349,15 @@ pub async fn audio_set_radio_prio(
 }
 
 fn get_audio_devices(
-    device_type: DeviceType,
+    device_type: ClientAudioDeviceType,
     audio_config: &AudioConfig,
     picked_output_device: String,
+    picked_speaker_device: Option<String>,
 ) -> Result<AudioDevices, Error> {
     let host = audio_config.host_name.clone();
     let host = host.as_deref();
     let (preferred, picked) = match device_type {
-        DeviceType::Input => {
+        ClientAudioDeviceType::Input => {
             let preferred = audio_config.input_device_name.clone().unwrap_or_default();
             let picked = DeviceSelector::picked_device_name(
                 DeviceType::Input,
@@ -349,16 +365,27 @@ fn get_audio_devices(
                 audio_config.input_device_id.as_deref(),
                 Some(&preferred),
             )?;
-            (preferred, picked)
+            (Some(preferred), Some(picked))
         }
-        DeviceType::Output => {
+        ClientAudioDeviceType::Output => {
             let preferred = audio_config.output_device_name.clone().unwrap_or_default();
-            (preferred, picked_output_device)
+            (Some(preferred), Some(picked_output_device))
+        }
+        ClientAudioDeviceType::Speaker => {
+            if audio_config.speaker_enabled {
+                let preferred = audio_config.speaker_device_name.clone().unwrap_or_default();
+                (
+                    Some(preferred),
+                    Some(picked_speaker_device.unwrap_or_default()),
+                )
+            } else {
+                (None, None)
+            }
         }
     };
 
-    let default = DeviceSelector::default_device_name(device_type, host)?;
-    let devices: Vec<String> = DeviceSelector::all_device_names(device_type, host)?;
+    let default = DeviceSelector::default_device_name(device_type.into(), host)?;
+    let devices: Vec<String> = DeviceSelector::all_device_names(device_type.into(), host)?;
 
     Ok(AudioDevices {
         preferred,

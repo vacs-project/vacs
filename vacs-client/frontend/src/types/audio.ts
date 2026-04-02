@@ -1,6 +1,6 @@
 export type AudioDevices = {
-    preferred: string;
-    picked: string;
+    preferred?: string;
+    picked?: string;
     default: string;
     all: string[];
 };
