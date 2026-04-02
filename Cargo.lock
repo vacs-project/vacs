@@ -478,13 +478,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "audioadapter"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91f87b70b051c5866680ad79f6743a42ccab264c009d1a71f4d33a3872ae60c8"
+dependencies = [
+ "audio-core",
+ "num-traits",
+]
+
+[[package]]
 name = "audioadapter-buffers"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6af89882334c4e501faa08992888593ada468f9e1ab211635c32f9ada7786e0"
 dependencies = [
- "audioadapter",
- "audioadapter-sample",
+ "audioadapter 2.0.0",
+ "audioadapter-sample 2.0.0",
+ "num-traits",
+]
+
+[[package]]
+name = "audioadapter-buffers"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9097d67933fb083d382ce980430afdb758aada60846010aee6be068c06cef0ca"
+dependencies = [
+ "audioadapter 3.0.0",
+ "audioadapter-sample 3.0.0",
  "num-traits",
 ]
 
@@ -493,6 +514,16 @@ name = "audioadapter-sample"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e9a3d502fec0b21aa420febe0b110875cf8a7057c49e83a0cace1df6a73e03e"
+dependencies = [
+ "audio-core",
+ "num-traits",
+]
+
+[[package]]
+name = "audioadapter-sample"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34ab94f2bc04a14e1f49ee5f222f66460e8a1b51627bdfedf34eed394d747938"
 dependencies = [
  "audio-core",
  "num-traits",
@@ -6055,12 +6086,12 @@ dependencies = [
 
 [[package]]
 name = "rubato"
-version = "1.0.1"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90173154a8a14e6adb109ea641743bc95ec81c093d94e70c6763565f7108ebeb"
+checksum = "ce96ead1a91f7895704a9f08ea5947dfc8bd7c1f2936a22295b655ec67e5c6ef"
 dependencies = [
- "audioadapter",
- "audioadapter-buffers",
+ "audioadapter 3.0.0",
+ "audioadapter-buffers 3.0.0",
  "num-complex",
  "num-integer",
  "num-traits",
@@ -8364,7 +8395,7 @@ name = "vacs-audio"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "audioadapter-buffers",
+ "audioadapter-buffers 2.0.0",
  "biquad",
  "bytes",
  "cpal",
