@@ -1,12 +1,10 @@
 use crate::auth::users::Backend;
-use crate::auth::users::mock::MockBackend;
 use crate::config::AppConfig;
-use crate::http::session::{setup_memory_session_manager, setup_redis_session_manager};
+use crate::http::session::setup_redis_session_manager;
 use anyhow::Context;
 use axum_login::{AuthManagerLayer, AuthManagerLayerBuilder};
 use oauth2::basic::BasicClient;
 use oauth2::{AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
-use tower_sessions::MemoryStore;
 use tower_sessions::service::SignedCookie;
 use tower_sessions_redis_store::RedisStore;
 use tower_sessions_redis_store::fred::prelude::Pool;
@@ -43,19 +41,6 @@ pub async fn setup_auth_layer(
     Ok(AuthManagerLayerBuilder::new(backend, session_layer).build())
 }
 
-#[instrument(level = "debug", skip_all, err)]
-pub async fn setup_mock_auth_layer(
-    config: &AppConfig,
-) -> anyhow::Result<AuthManagerLayer<MockBackend, MemoryStore, SignedCookie>> {
-    tracing::debug!("Setting up mock authentication layer");
-
-    let backend = MockBackend::default();
-    let session_layer = setup_memory_session_manager(config).await?;
-
-    tracing::debug!("Mock authentication layer setup complete");
-    Ok(AuthManagerLayerBuilder::new(backend, session_layer).build())
-}
-
 /// Sets up a real [`Backend`] auth layer backed by in-memory sessions.
 ///
 /// This is intended for integration tests that run a real mock VATSIM HTTP
@@ -65,11 +50,11 @@ pub async fn setup_mock_auth_layer(
 #[instrument(level = "debug", skip_all, err)]
 pub async fn setup_test_auth_layer(
     config: &AppConfig,
-) -> anyhow::Result<AuthManagerLayer<Backend, MemoryStore, SignedCookie>> {
+) -> anyhow::Result<AuthManagerLayer<Backend, tower_sessions::MemoryStore, SignedCookie>> {
     tracing::debug!("Setting up test authentication layer");
 
     let backend = create_oauth_backend(config)?;
-    let session_layer = setup_memory_session_manager(config).await?;
+    let session_layer = crate::http::session::setup_memory_session_manager(config).await?;
 
     tracing::debug!("Test authentication layer setup complete");
     Ok(AuthManagerLayerBuilder::new(backend, session_layer).build())
