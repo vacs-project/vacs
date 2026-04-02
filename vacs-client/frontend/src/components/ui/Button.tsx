@@ -85,7 +85,7 @@ export const ForceDisabledButtonColors: Record<ButtonColor, string> = {
     salmon: "border-red-950! border!",
     peach: "border-yellow-600! border!",
     honey: "border-yellow-700! border!",
-    sage: "border-gray-700! border! outline-none!",
+    sage: "border-gray-700! border!",
     yellow: "border-[#958e1a]! border!",
     ...CustomForceDisabledButtonColors,
 };

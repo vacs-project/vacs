@@ -8,7 +8,9 @@ export type CustomButtonColor =
     | "cadet"
     | "steel"
     | "umber"
-    | "lagoon";
+    | "lagoon"
+    | "snow"
+    | "azure";
 
 export const CustomButtonColors: Record<CustomButtonColor, string> = {
     clay: "bg-[#e68765] border-t-[#eb9f84] border-l-[#eb9f84] border-r-[#b86c51] border-b-[#b86c51]",
@@ -22,6 +24,8 @@ export const CustomButtonColors: Record<CustomButtonColor, string> = {
     steel: "bg-[#8fa6b4] border-t-[#abbcc7] border-l-[#abbcc7] border-r-[#6b7d87] border-b-[#6b7d87]",
     umber: "bg-[#a98874] border-t-[#bca391] border-l-[#bca391] border-r-[#7e6655] border-b-[#7e6655]",
     lagoon: "bg-[#73b7c2] border-t-[#95cad1] border-l-[#95cad1] border-r-[#598b92] border-b-[#598b92]",
+    snow: "bg-[#f9f9f9] border-t-white border-l-white border-r-[#bfbfbf] border-b-[#bfbfbf]",
+    azure: "bg-[#89addc] border-t-[#a7c2e5] border-l-[#a7c2e5] border-r-[#6782a5] border-b-[#6782a5]",
 };
 
 export const CustomActiveButtonColors: Record<CustomButtonColor, string> = {
@@ -36,6 +40,8 @@ export const CustomActiveButtonColors: Record<CustomButtonColor, string> = {
     steel: "active:border-r-[#abbcc7] active:border-b-[#abbcc7] active:border-t-[#6b7d87] active:border-l-[#6b7d87]",
     umber: "active:border-r-[#bca391] active:border-b-[#bca391] active:border-t-[#7e6655] active:border-l-[#7e6655]",
     lagoon: "active:border-r-[#95cad1] active:border-b-[#95cad1] active:border-t-[#598b92] active:border-l-[#598b92]",
+    snow: "active:border-r-white active:border-b-white active:border-t-[#bfbfbf] active:border-l-[#bfbfbf]",
+    azure: "active:border-r-[#a7c2e5] active:border-b-[#a7c2e5] active:border-t-[#6782a5] active:border-l-[#6782a5]",
 };
 
 export const CustomForceDisabledButtonColors: Record<CustomButtonColor, string> = {
@@ -49,6 +55,8 @@ export const CustomForceDisabledButtonColors: Record<CustomButtonColor, string> 
     steel: "border-[#6b7d87]! border!",
     umber: "border-[#7e6655]! border!",
     lagoon: "border-[#598b92]! border!",
+    snow: "border-[#858585]! border!",
+    azure: "border-[#6782a5]! border!",
 };
 
 export const CustomButtonHighlightColors: Record<CustomButtonColor, string> = {
@@ -62,4 +70,6 @@ export const CustomButtonHighlightColors: Record<CustomButtonColor, string> = {
     steel: "bg-[#8fa6b4]",
     umber: "bg-[#a98874]",
     lagoon: "bg-[#73b7c2]",
+    snow: "bg-[#f9f9f9]",
+    azure: "bg-[#82caff]",
 };

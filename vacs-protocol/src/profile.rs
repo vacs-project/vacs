@@ -115,6 +115,8 @@ pub enum CustomButtonColor {
     Steel,
     Umber,
     Lagoon,
+    Snow,
+    Azure,
 }
 
 pub fn string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
