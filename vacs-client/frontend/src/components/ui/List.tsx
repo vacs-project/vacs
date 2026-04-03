@@ -2,6 +2,7 @@ import {clsx} from "clsx";
 import {Fragment, JSX, TargetedMouseEvent} from "preact";
 import {useCallback, useEffect, useRef, useState} from "preact/hooks";
 import {invokeSafe} from "../../error.ts";
+import {useClickAndHold} from "../../hooks/click-and-hold-hook.ts";
 import {HEADER_HEIGHT_REM, useList} from "../../hooks/list-hook.ts";
 
 type ListProps = {
@@ -53,7 +54,7 @@ function List(props: ListProps) {
                     idx === 0 ? (
                         <ScrollButtonRow
                             direction="up"
-                            disabled={scrollOffset <= 0}
+                            enabled={scrollOffset > 0}
                             onClick={() =>
                                 setScrollOffset(scrollOffset => Math.max(scrollOffset - 1, 0))
                             }
@@ -68,7 +69,7 @@ function List(props: ListProps) {
                     ) : idx === visibleItemIndices.length - 1 ? (
                         <ScrollButtonRow
                             direction="down"
-                            disabled={scrollOffset >= maxScrollOffset}
+                            enabled={scrollOffset < maxScrollOffset}
                             onClick={() =>
                                 setScrollOffset(scrollOffset =>
                                     Math.min(scrollOffset + 1, maxScrollOffset),
@@ -109,6 +110,7 @@ function ScrollBar({
     const containerRef = useRef<HTMLDivElement>(null);
     const positionRef = useRef<number>(0);
     const maxScrollOffsetRef = useRef<number>(maxScrollOffset);
+    const trackHoldTargetRef = useRef<number | null>(null);
 
     const scrollHandleVisible = maxScrollOffset > 0;
     const position = (1 / maxScrollOffset) * scrollOffset;
@@ -157,16 +159,63 @@ function ScrollBar({
         [setScrollOffset],
     );
 
+    const stepOffsetTowardTarget = useCallback(
+        (targetOffset: number, fallbackDirection: -1 | 0 | 1 = 0) => {
+            setScrollOffset(prev => {
+                const maxOffset = maxScrollOffsetRef.current;
+                if (maxOffset <= 0) return prev;
+
+                const clampedTarget = Math.max(0, Math.min(targetOffset, maxOffset));
+
+                let nextOffset = prev;
+                if (prev < clampedTarget) {
+                    nextOffset = prev + 1;
+                } else if (prev > clampedTarget) {
+                    nextOffset = prev - 1;
+                } else if (fallbackDirection !== 0) {
+                    nextOffset = Math.max(0, Math.min(prev + fallbackDirection, maxOffset));
+                }
+
+                if (nextOffset === prev) return prev;
+
+                positionRef.current = nextOffset / maxOffset;
+                return nextOffset;
+            });
+        },
+        [setScrollOffset],
+    );
+
+    const {
+        startHold: startTrackHold,
+        stopHold: handleScrollBarMouseUp,
+        isHoldingRef: isTrackHoldingRef,
+    } = useClickAndHold({
+        enabled: maxScrollOffset > 0,
+        onHoldTick: () => {
+            const targetOffset = trackHoldTargetRef.current;
+            if (targetOffset === null) return;
+            stepOffsetTowardTarget(targetOffset);
+        },
+        onStop: () => {
+            trackHoldTargetRef.current = null;
+        },
+    });
+
     const handleScrollBarMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
-        // TODO: Click and hold?
+        if (event.button !== 0) return;
+
+        const maxOffset = maxScrollOffsetRef.current;
+        if (maxOffset <= 0) return;
+
         const newPos = getNormalizedScrollPosition(event.clientY);
         if (newPos === null) return;
 
-        if (newPos > position) {
-            setScrollOffset(scrollOffset => Math.min(scrollOffset + 1, maxScrollOffset));
-        } else {
-            setScrollOffset(scrollOffset => Math.max(scrollOffset - 1, 0));
-        }
+        const targetOffset = Math.round(newPos * maxOffset);
+        const fallbackDirection: -1 | 1 = newPos > positionRef.current ? 1 : -1;
+
+        trackHoldTargetRef.current = targetOffset;
+        stepOffsetTowardTarget(targetOffset, fallbackDirection);
+        startTrackHold();
     };
 
     const handleScrollHandleMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
@@ -178,8 +227,19 @@ function ScrollBar({
 
     useEffect(() => {
         const handleWindowMouseMove = (event: MouseEvent) => {
-            if (!isDraggingRef.current) return;
-            updateOffsetFromClientY(event.clientY);
+            if (isDraggingRef.current) {
+                updateOffsetFromClientY(event.clientY);
+            }
+
+            if (!isTrackHoldingRef.current) return;
+
+            const maxOffset = maxScrollOffsetRef.current;
+            if (maxOffset <= 0) return;
+
+            const newPos = getNormalizedScrollPosition(event.clientY);
+            if (newPos === null) return;
+
+            trackHoldTargetRef.current = Math.round(newPos * maxOffset);
         };
 
         const handleWindowMouseUp = () => {
@@ -194,12 +254,13 @@ function ScrollBar({
             window.removeEventListener("mouseup", handleWindowMouseUp);
             window.removeEventListener("mousemove", handleWindowMouseMove);
         };
-    }, [updateOffsetFromClientY]);
+    }, [isTrackHoldingRef, updateOffsetFromClientY]);
 
     return (
         <div className="bg-gray-300" style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}>
             <div
                 onMouseDown={handleScrollBarMouseDown}
+                onMouseUp={handleScrollBarMouseUp}
                 ref={containerRef}
                 className="relative h-full w-full px-4 py-7"
             >
@@ -227,50 +288,33 @@ function ScrollBar({
 
 function ScrollButtonRow({
     direction,
-    disabled,
+    enabled,
     onClick,
 }: {
     direction: "up" | "down";
-    disabled: boolean;
+    enabled: boolean;
     onClick: () => void;
 }) {
-    const timeoutRef = useRef<number | undefined>(undefined);
-    const intervalRef = useRef<number | undefined>(undefined);
+    const {startHold, stopHold: handleOnMouseUp} = useClickAndHold({
+        enabled,
+        onHoldTick: onClick,
+    });
 
-    const handleOnMouseDown = () => {
-        timeoutRef.current = setTimeout(() => {
-            intervalRef.current = setInterval(() => {
-                if (!disabled) onClick();
-            }, 75); // TODO: Increase speed based on hold duration?
-            timeoutRef.current = undefined;
-        }, 200);
-    };
-
-    const handleOnMouseUp = useCallback(() => {
-        if (timeoutRef.current !== undefined) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = undefined;
-
+    const handleOnMouseDown = useCallback(
+        (event: TargetedMouseEvent<HTMLDivElement>) => {
+            if (event.button !== 0) return;
             void invokeSafe("audio_play_ui_click");
             onClick();
-        }
-        if (intervalRef.current !== undefined) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = undefined;
-        }
-    }, [onClick]);
-
-    useEffect(() => {
-        window.addEventListener("mouseup", handleOnMouseUp);
-
-        return () => window.removeEventListener("mouseup", handleOnMouseUp);
-    }, [handleOnMouseUp]);
+            startHold();
+        },
+        [startHold, onClick],
+    );
 
     return (
         <div
             className="relative bg-gray-300"
-            style={{cursor: disabled ? "not-allowed" : "pointer"}}
-            onMouseDown={!disabled ? handleOnMouseDown : undefined}
+            style={{cursor: enabled ? "pointer" : "not-allowed"}}
+            onMouseDown={enabled ? handleOnMouseDown : undefined}
             onMouseUp={handleOnMouseUp}
         >
             <svg
@@ -282,10 +326,10 @@ function ScrollButtonRow({
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
             >
-                <path d="M62.5 0L120 60H5L62.5 0Z" fill={disabled ? "#6A7282" : "black"} />
+                <path d="M62.5 0L120 60H5L62.5 0Z" fill={enabled ? "black" : "#6A7282"} />
                 <path
                     d="M63.2217 26.3076L120.722 86.3076L122.344 88H2.65625L4.27832 86.3076L61.7783 26.3076L62.5 25.5547L63.2217 26.3076Z"
-                    fill={disabled ? "#6A7282" : "black"}
+                    fill={enabled ? "black" : "#6A7282"}
                     stroke="#D1D5DC"
                     strokeWidth="2"
                 />
