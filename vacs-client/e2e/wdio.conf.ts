@@ -10,6 +10,8 @@ const VACS_DATA_DIR = process.env.VACS_DATA_DIR || path.resolve(VACS_ROOT, "..",
 
 const isWindows = process.platform === "win32";
 const binaryExt = isWindows ? ".exe" : "";
+// tauri build uses productName ("vacs") on Windows but the cargo bin name on Linux
+const appBinaryName = isWindows ? "vacs" : "vacs-client";
 
 const MOCK_VATSIM_PORT = 4567;
 const VACS_SERVER_PORT = 4568;
@@ -30,7 +32,12 @@ export const config: WebdriverIO.Config = {
         {
             maxInstances: 1,
             "tauri:options": {
-                application: path.resolve(VACS_ROOT, "target", "debug", `vacs-client${binaryExt}`),
+                application: path.resolve(
+                    VACS_ROOT,
+                    "target",
+                    "debug",
+                    `${appBinaryName}${binaryExt}`,
+                ),
             },
         } as WebdriverIO.Capabilities,
     ],
@@ -47,14 +54,19 @@ export const config: WebdriverIO.Config = {
         // otherwise expect it on PATH (e.g. via cargo install).
         if (process.env.VATSIM_API_ROOT) {
             console.log("Building vatsim-mock binary...");
-            spawnSync("cargo", ["build", "--bin", "vatsim-mock", "--features", "mock-bin"], {
-                cwd: process.env.VATSIM_API_ROOT,
-                stdio: "inherit",
-            });
+            const mock = spawnSync(
+                "cargo",
+                ["build", "--bin", "vatsim-mock", "--features", "mock-bin"],
+                {
+                    cwd: process.env.VATSIM_API_ROOT,
+                    stdio: "inherit",
+                },
+            );
+            if (mock.status !== 0) throw new Error("vatsim-mock build failed");
         }
 
         console.log("Building vacs-client with e2e feature...");
-        spawnSync(
+        const client = spawnSync(
             "npm",
             ["run", "tauri", "build", "--", "--features", "e2e", "--debug", "--no-bundle"],
             {
@@ -62,12 +74,14 @@ export const config: WebdriverIO.Config = {
                 stdio: "inherit",
             },
         );
+        if (client.status !== 0) throw new Error("vacs-client build failed");
 
         console.log("Building vacs-server...");
-        spawnSync("cargo", ["build", "-p", "vacs-server"], {
+        const server = spawnSync("cargo", ["build", "-p", "vacs-server"], {
             cwd: VACS_ROOT,
             stdio: "inherit",
         });
+        if (server.status !== 0) throw new Error("vacs-server build failed");
     },
 
     async beforeSession() {
