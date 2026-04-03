@@ -55,6 +55,7 @@ export const config: WebdriverIO.MultiremoteConfig = {
         ui: "bdd",
         timeout: 60_000,
     },
+    waitforTimeout: 10_000,
     logLevel: "warn",
 
     onPrepare() {
