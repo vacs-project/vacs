@@ -10,8 +10,6 @@ const VACS_DATA_DIR = process.env.VACS_DATA_DIR || path.resolve(VACS_ROOT, "..",
 
 const isWindows = process.platform === "win32";
 const binaryExt = isWindows ? ".exe" : "";
-// tauri build uses productName ("vacs") on Windows but the cargo bin name on Linux
-const appBinaryName = isWindows ? "vacs" : "vacs-client";
 
 const MOCK_VATSIM_PORT = 4567;
 const VACS_SERVER_PORT = 4568;
@@ -32,12 +30,7 @@ export const config: WebdriverIO.Config = {
         {
             maxInstances: 1,
             "tauri:options": {
-                application: path.resolve(
-                    VACS_ROOT,
-                    "target",
-                    "debug",
-                    `${appBinaryName}${binaryExt}`,
-                ),
+                application: path.resolve(VACS_ROOT, "target", "debug", `vacs-client${binaryExt}`),
             },
         } as WebdriverIO.Capabilities,
     ],
