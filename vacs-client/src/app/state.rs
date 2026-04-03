@@ -20,7 +20,6 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 use tokio_util::sync::CancellationToken;
-use vacs_audio::backend::cpal::CpalBackend;
 use vacs_signaling::client::SignalingClient;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
 use vacs_signaling::protocol::ws::server;
@@ -60,7 +59,11 @@ impl AppStateInner {
         let config = AppConfig::parse(&config_dir).map_startup_err(StartupError::Config)?;
         let shutdown_token = CancellationToken::new();
 
-        let audio_backend: AudioBackendHandle = Arc::new(CpalBackend);
+        #[cfg(feature = "mock-audio")]
+        let audio_backend: AudioBackendHandle =
+            Arc::new(vacs_audio::backend::mock::MockBackend::default());
+        #[cfg(not(feature = "mock-audio"))]
+        let audio_backend: AudioBackendHandle = Arc::new(vacs_audio::backend::cpal::CpalBackend);
 
         Ok(Self {
             config: config.clone(),
