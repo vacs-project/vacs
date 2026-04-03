@@ -9281,6 +9281,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 [[package]]
 name = "vatsim-api"
 version = "0.1.0"
+source = "git+https://github.com/MorpheusXAUT/vatsim-api?branch=main#299fb617d343c1c83f9f4fea040f0b66afe5ae7e"
 dependencies = [
  "axum",
  "chrono",
