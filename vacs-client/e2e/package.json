@@ -1,0 +1,22 @@
+{
+  "name": "vacs-client-e2e",
+  "private": true,
+  "version": "2.1.0",
+  "license": "(MIT OR Apache-2.0)",
+  "repository": "https://github.com/vacs-project/vacs",
+  "type": "module",
+  "scripts": {
+    "test": "wdio run wdio.conf.ts"
+  },
+  "dependencies": {
+    "@wdio/cli": "^9.27.0"
+  },
+  "devDependencies": {
+    "@wdio/local-runner": "^9.27.0",
+    "@wdio/mocha-framework": "^9.27.0",
+    "@wdio/spec-reporter": "^9.27.0",
+    "@wdio/types": "^9.27.0",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.2"
+  }
+}
