@@ -5,13 +5,22 @@ use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct MockTokenProvider {
-    client_id: usize,
+    token: String,
     delay: Option<Duration>,
 }
 
 impl MockTokenProvider {
     pub fn new(client_id: usize, delay: Option<Duration>) -> Self {
-        Self { client_id, delay }
+        let token = if client_id == usize::MAX {
+            String::new()
+        } else {
+            format!("token{client_id}")
+        };
+        Self { token, delay }
+    }
+
+    pub fn with_token(token: String, delay: Option<Duration>) -> Self {
+        Self { token, delay }
     }
 }
 
@@ -21,9 +30,6 @@ impl TokenProvider for MockTokenProvider {
         if let Some(delay) = self.delay {
             tokio::time::sleep(delay).await;
         }
-        if self.client_id == usize::MAX {
-            return Ok("".to_string());
-        }
-        Ok(format!("token{}", self.client_id))
+        Ok(self.token.clone())
     }
 }
