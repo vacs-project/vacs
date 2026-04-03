@@ -60,6 +60,7 @@ export const config: WebdriverIO.Config = {
                 {
                     cwd: process.env.VATSIM_API_ROOT,
                     stdio: "inherit",
+                    shell: true,
                 },
             );
             if (mock.status !== 0) throw new Error("vatsim-mock build failed");
@@ -72,6 +73,7 @@ export const config: WebdriverIO.Config = {
             {
                 cwd: VACS_CLIENT_ROOT,
                 stdio: "inherit",
+                shell: true,
             },
         );
         if (client.status !== 0) throw new Error("vacs-client build failed");
@@ -80,6 +82,7 @@ export const config: WebdriverIO.Config = {
         const server = spawnSync("cargo", ["build", "-p", "vacs-server"], {
             cwd: VACS_ROOT,
             stdio: "inherit",
+            shell: true,
         });
         if (server.status !== 0) throw new Error("vacs-server build failed");
     },
