@@ -73,13 +73,12 @@ jobs:
           }
           throw "Memurai did not become available within 30s"
 
-      - name: Install Edge WebDriver (Windows)
+      - name: Add Edge WebDriver to PATH (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          cargo install --git https://github.com/nickkname/msedgedriver-tool --locked
-          & "$HOME/.cargo/bin/msedgedriver-tool.exe"
-          $PWD.Path >> $env:GITHUB_PATH
+          Write-Host "EdgeDriver location: $env:EDGEWEBDRIVER"
+          $env:EDGEWEBDRIVER >> $env:GITHUB_PATH
 
       - name: Setup Node (LTS)
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
