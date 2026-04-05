@@ -77,9 +77,13 @@ export function useClickAndHold({
 
     useEffect(() => {
         window.addEventListener("mouseup", stopHold);
+        window.addEventListener("touchend", stopHold);
+        window.addEventListener("touchcancel", stopHold);
 
         return () => {
             window.removeEventListener("mouseup", stopHold);
+            window.removeEventListener("touchend", stopHold);
+            window.removeEventListener("touchcancel", stopHold);
             stopHold();
         };
     }, [stopHold]);

@@ -1,5 +1,5 @@
 import {clsx} from "clsx";
-import {Fragment, JSX, TargetedMouseEvent} from "preact";
+import {Fragment, JSX, TargetedMouseEvent, TargetedTouchEvent} from "preact";
 import {useCallback, useEffect, useRef, useState} from "preact/hooks";
 import {invokeSafe} from "../../error.ts";
 import {useClickAndHold} from "../../hooks/click-and-hold-hook.ts";
@@ -201,13 +201,11 @@ function ScrollBar({
         },
     });
 
-    const handleScrollBarMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
-        if (event.button !== 0) return;
-
+    const startScrollBarHold = (clientY: number) => {
         const maxOffset = maxScrollOffsetRef.current;
         if (maxOffset <= 0) return;
 
-        const newPos = getNormalizedScrollPosition(event.clientY);
+        const newPos = getNormalizedScrollPosition(clientY);
         if (newPos === null) return;
 
         const targetOffset = Math.round(newPos * maxOffset);
@@ -218,17 +216,39 @@ function ScrollBar({
         startTrackHold();
     };
 
-    const handleScrollHandleMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
-        event.stopPropagation();
+    const handleScrollBarMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
         if (event.button !== 0) return;
+        startScrollBarHold(event.clientY);
+    };
+
+    const handleScrollBarTouchStart = (event: TargetedTouchEvent<HTMLDivElement>) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        event.preventDefault();
+        startScrollBarHold(touch.clientY);
+    };
+
+    const startScrollHandleDrag = () => {
         isDraggingRef.current = true;
         setDragging(true);
     };
 
+    const handleScrollHandleMouseDown = (event: TargetedMouseEvent<HTMLDivElement>) => {
+        event.stopPropagation();
+        if (event.button !== 0) return;
+        startScrollHandleDrag();
+    };
+
+    const handleScrollHandleTouchStart = (event: TargetedTouchEvent<HTMLDivElement>) => {
+        event.stopPropagation();
+        event.preventDefault();
+        startScrollHandleDrag();
+    };
+
     useEffect(() => {
-        const handleWindowMouseMove = (event: MouseEvent) => {
+        const handleWindowMove = (clientY: number) => {
             if (isDraggingRef.current) {
-                updateOffsetFromClientY(event.clientY);
+                updateOffsetFromClientY(clientY);
             }
 
             if (!isTrackHoldingRef.current) return;
@@ -236,23 +256,40 @@ function ScrollBar({
             const maxOffset = maxScrollOffsetRef.current;
             if (maxOffset <= 0) return;
 
-            const newPos = getNormalizedScrollPosition(event.clientY);
+            const newPos = getNormalizedScrollPosition(clientY);
             if (newPos === null) return;
 
             trackHoldTargetRef.current = Math.round(newPos * maxOffset);
         };
 
-        const handleWindowMouseUp = () => {
+        const handleWindowMouseMove = (event: MouseEvent) => {
+            handleWindowMove(event.clientY);
+        };
+
+        const handleWindowTouchMove = (event: TouchEvent) => {
+            const touch = event.touches[0];
+            if (!touch) return;
+            if (isDraggingRef.current) event.preventDefault();
+            handleWindowMove(touch.clientY);
+        };
+
+        const handleWindowUp = () => {
             isDraggingRef.current = false;
             setDragging(false);
         };
 
-        window.addEventListener("mouseup", handleWindowMouseUp);
+        window.addEventListener("mouseup", handleWindowUp);
         window.addEventListener("mousemove", handleWindowMouseMove);
+        window.addEventListener("touchmove", handleWindowTouchMove, {passive: false});
+        window.addEventListener("touchend", handleWindowUp);
+        window.addEventListener("touchcancel", handleWindowUp);
 
         return () => {
-            window.removeEventListener("mouseup", handleWindowMouseUp);
+            window.removeEventListener("mouseup", handleWindowUp);
             window.removeEventListener("mousemove", handleWindowMouseMove);
+            window.removeEventListener("touchmove", handleWindowTouchMove);
+            window.removeEventListener("touchend", handleWindowUp);
+            window.removeEventListener("touchcancel", handleWindowUp);
         };
     }, [isTrackHoldingRef, updateOffsetFromClientY]);
 
@@ -260,7 +297,9 @@ function ScrollBar({
         <div className="bg-gray-300" style={{gridRow: `span ${rowSpan} / span ${rowSpan}`}}>
             <div
                 onMouseDown={handleScrollBarMouseDown}
+                onTouchStart={handleScrollBarTouchStart}
                 onMouseUp={handleScrollBarMouseUp}
+                onContextMenu={e => e.preventDefault()}
                 ref={containerRef}
                 className="relative h-full w-full px-4 py-7"
             >
@@ -269,6 +308,7 @@ function ScrollBar({
                     <div
                         onClick={e => e.stopPropagation()}
                         onMouseDown={handleScrollHandleMouseDown}
+                        onTouchStart={handleScrollHandleTouchStart}
                         className={clsx(
                             "dotted-background-gray absolute translate-y-[-50%] left-0 w-full h-13 rounded-md cursor-pointer bg-gray-300 border",
                             !dragging &&
@@ -300,14 +340,26 @@ function ScrollButtonRow({
         onHoldTick: onClick,
     });
 
+    const handleDown = useCallback(() => {
+        void invokeSafe("audio_play_ui_click");
+        onClick();
+        startHold();
+    }, [startHold, onClick]);
+
     const handleOnMouseDown = useCallback(
         (event: TargetedMouseEvent<HTMLDivElement>) => {
             if (event.button !== 0) return;
-            void invokeSafe("audio_play_ui_click");
-            onClick();
-            startHold();
+            handleDown();
         },
-        [startHold, onClick],
+        [handleDown],
+    );
+
+    const handleOnTouchStart = useCallback(
+        (event: TargetedTouchEvent<HTMLDivElement>) => {
+            event.preventDefault();
+            handleDown();
+        },
+        [handleDown],
     );
 
     return (
@@ -315,7 +367,9 @@ function ScrollButtonRow({
             className="relative bg-gray-300"
             style={{cursor: enabled ? "pointer" : "not-allowed"}}
             onMouseDown={enabled ? handleOnMouseDown : undefined}
+            onTouchStart={enabled ? handleOnTouchStart : undefined}
             onMouseUp={handleOnMouseUp}
+            onContextMenu={e => e.preventDefault()}
         >
             <svg
                 className={clsx(
