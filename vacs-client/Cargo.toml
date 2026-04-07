@@ -17,6 +17,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 # Release candidate builds, automatically connect to dev backend and allow dev_position_id usage
 rc = []
+# Use mock audio backends instead of CPAL implementations, allowing for integration/E2E tests without real audio devices
+mock-audio = ["vacs-audio/mock-audio"]
+# Enable for end-to-end tests, includes mock-audio and E2E-specific config and utilities
+e2e = ["mock-audio"]
 
 [build-dependencies]
 tauri-build = { workspace = true, features = [] }

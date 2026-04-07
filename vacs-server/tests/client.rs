@@ -6,12 +6,12 @@ use tokio_tungstenite::tungstenite::Bytes;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{self, ServerMessage};
-use vacs_server::test_utils::{TestApp, TestClient, setup_n_test_clients};
+use vacs_server::test_utils::{TestClient, TestEnv, cid};
 
 #[test(tokio::test)]
 async fn client_connected() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
     let client_count = clients.len();
 
     for (i, client) in clients.iter_mut().enumerate() {
@@ -26,7 +26,7 @@ async fn client_connected() -> anyhow::Result<()> {
         );
 
         let expected_ids: Vec<_> = (i + 2..=client_count)
-            .map(|i| ClientId::from(format!("client{i}")))
+            .map(|i| ClientId::from(cid(i)))
             .collect();
 
         for message in messages {
@@ -48,8 +48,8 @@ async fn client_connected() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn client_disconnected() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
     let initial_client_count = clients.len();
 
     clients
@@ -76,7 +76,7 @@ async fn client_disconnected() -> anyhow::Result<()> {
         );
 
         let expected_ids: Vec<_> = (i + 2..=initial_client_count)
-            .map(|i| ClientId::from(format!("client{i}")))
+            .map(|i| ClientId::from(cid(i)))
             .collect();
 
         for message in messages {
@@ -92,7 +92,7 @@ async fn client_disconnected() -> anyhow::Result<()> {
                 ServerMessage::ClientDisconnected(server::ClientDisconnected { client_id }) => {
                     assert_eq!(
                         client_id,
-                        ClientId::from(format!("client{initial_client_count}")),
+                        ClientId::from(cid(initial_client_count)),
                         "Unexpected client ID: {:?}",
                         client_id
                     );
@@ -109,8 +109,8 @@ async fn client_disconnected() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn client_dropped() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
     let initial_client_count = clients.len();
     clients.pop();
 
@@ -126,7 +126,7 @@ async fn client_dropped() -> anyhow::Result<()> {
         );
 
         let expected_ids: Vec<_> = (i + 2..=initial_client_count)
-            .map(|i| ClientId::from(format!("client{i}")))
+            .map(|i| ClientId::from(cid(i)))
             .collect();
 
         for message in messages {
@@ -142,7 +142,7 @@ async fn client_dropped() -> anyhow::Result<()> {
                 ServerMessage::ClientDisconnected(server::ClientDisconnected { client_id }) => {
                     assert_eq!(
                         client_id,
-                        ClientId::from(format!("client{initial_client_count}")),
+                        ClientId::from(cid(initial_client_count)),
                         "Unexpected client ID: {:?}",
                         client_id
                     );
@@ -159,11 +159,12 @@ async fn client_dropped() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn control_messages() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(1).build().await;
+    let token = env.ws_token_for(cid(1)).await.unwrap();
     let mut client = TestClient::new_with_login(
-        test_app.addr(),
-        "client1",
-        "token1",
+        env.ws_url(),
+        cid(1).as_str(),
+        &token,
         |_, _| Ok(()),
         |_| Ok(()),
         |_| Ok(()),

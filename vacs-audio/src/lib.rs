@@ -1,3 +1,4 @@
+pub mod backend;
 pub mod device;
 mod dsp;
 pub mod error;

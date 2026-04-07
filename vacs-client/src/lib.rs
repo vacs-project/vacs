@@ -16,7 +16,7 @@ use crate::app::state::audio::AppStateAudioExt;
 use crate::app::state::http::HttpState;
 use crate::app::state::keybinds::AppStateKeybindsExt;
 use crate::app::state::{AppState, AppStateInner};
-use crate::audio::manager::AudioManagerHandle;
+use crate::audio::manager::{AudioBackendHandle, AudioManagerHandle};
 use crate::build::VersionInfo;
 use crate::config::{CLIENT_SETTINGS_FILE_NAME, Persistable, PersistedClientConfig};
 use crate::error::{StartupError, StartupErrorExt};
@@ -24,11 +24,11 @@ use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
 use crate::remote::{RemoteServer, RemoteServerHandle};
 use tauri::{App, Manager, RunEvent, WindowEvent};
-use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex as TokioMutex;
 
 pub fn run() {
-    tauri::Builder::default()
+    #[cfg_attr(feature = "e2e", allow(unused_mut))]
+    let mut builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .max_file_size(1_000_000)
@@ -43,11 +43,6 @@ pub fn run() {
                 .level_for("trackaudio", log::LevelFilter::Trace)
                 .build(),
         )
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _| {
-            if let Some(url) = argv.get(1) {
-                app::handle_deep_link(app.clone(), url.to_string());
-            }
-        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
@@ -61,8 +56,10 @@ pub fn run() {
                 return Err(anyhow::anyhow!("Failed to install rustls crypto provider").into());
             }
 
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", not(feature = "e2e")))]
             {
+                use tauri_plugin_deep_link::DeepLinkExt;
+
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     if let Some(url) = event.urls().first() {
@@ -72,9 +69,10 @@ pub fn run() {
             }
 
             async fn setup(app: &mut App) -> Result<(), StartupError> {
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(not(any(target_os = "macos", feature = "e2e")))]
                 {
                     use anyhow::Context;
+                    use tauri_plugin_deep_link::DeepLinkExt;
 
                     app.deep_link()
                         .register_all()
@@ -92,6 +90,7 @@ pub fn run() {
                 let remote_config = state.config.client.remote.clone();
 
                 app.manage::<HttpState>(HttpState::new(app.handle())?);
+                app.manage::<AudioBackendHandle>(state.audio_backend_handle());
                 app.manage::<AudioManagerHandle>(state.audio_manager_handle());
                 app.manage::<AppState>(TokioMutex::new(state));
 
@@ -163,6 +162,8 @@ pub fn run() {
             auth::commands::auth_check_session,
             auth::commands::auth_logout,
             auth::commands::auth_open_oauth_url,
+            #[cfg(feature = "e2e")]
+            auth::commands::auth_login_test,
             keybinds::commands::keybinds_get_external_binding,
             keybinds::commands::keybinds_get_keybinds_config,
             keybinds::commands::keybinds_get_radio_config,
@@ -186,8 +187,18 @@ pub fn run() {
             remote::commands::remote_get_config,
             remote::commands::remote_is_enabled,
             remote::commands::remote_set_config,
-        ])
-        .build(tauri::generate_context!())
+        ]);
+
+    #[cfg(not(feature = "e2e"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _| {
+            if let Some(url) = argv.get(1) {
+                app::handle_deep_link(app.clone(), url.to_string());
+            }
+        }));
+    }
+
+    builder.build(tauri::generate_context!())
         .expect("Failed to build tauri application")
         .run(move |app_handle, event| {
             if let RunEvent::WindowEvent {event: WindowEvent::CloseRequested {..}, ..} = event {

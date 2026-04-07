@@ -1,0 +1,123 @@
+name: CI • E2E
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  e2e:
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: vacs-client
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Checkout dataset
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: vacs-project/vacs-data
+          path: vacs-data
+          sparse-checkout: dataset
+          persist-credentials: false
+
+      - name: Start Valkey (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          docker run -d --name valkey -p 6379:6379 \
+            --health-cmd "valkey-cli ping" \
+            --health-interval 2s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            valkey/valkey:9-alpine
+          until [ "$(docker inspect --format='{{.State.Health.Status}}' valkey)" = "healthy" ]; do sleep 1; done
+        working-directory: .
+
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            libssl-dev libasound2-dev libgtk-3-dev libopus-dev \
+            cmake patchelf xvfb webkit2gtk-driver
+
+      - name: Install Memurai (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install memurai-developer -y --no-progress
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 6379)
+              $tcp.Close()
+              Write-Host "Memurai is ready on port 6379"
+              exit 0
+            } catch {
+              Start-Sleep -Milliseconds 500
+            }
+          }
+          throw "Memurai did not become available within 30s"
+
+      - name: Add Edge WebDriver to PATH (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          Write-Host "EdgeDriver location: $env:EDGEWEBDRIVER"
+          $env:EDGEWEBDRIVER >> $env:GITHUB_PATH
+
+      - name: Setup Node (LTS)
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+          cache-dependency-path: vacs-client/package-lock.json
+
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --no-self-update
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: e2e-${{ matrix.platform }}
+
+      - name: Install tauri-driver and vatsim-mock
+        run: |
+          cargo install tauri-driver --locked
+          # Switch to crates.io version of vatsim-api once the crate is published - install from git until then
+          cargo install --git https://github.com/MorpheusXAUT/vatsim-api --features mock-bin --bin vatsim-mock --locked
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: E2E tests (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: xvfb-run npm test -w e2e
+        env:
+          RUST_BACKTRACE: "1"
+          VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
+
+      - name: E2E tests (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: npm test -w e2e
+        env:
+          RUST_BACKTRACE: "1"
+          VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
+
+      - name: Summary
+        shell: bash
+        run: echo "### ✅ E2E tests passed (${{ matrix.platform }})" >> "$GITHUB_STEP_SUMMARY"

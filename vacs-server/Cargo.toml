@@ -9,7 +9,7 @@ publish.workspace = true
 
 [features]
 default = []
-test-utils = ["vacs-vatsim/test-utils"]
+test-utils = ["dep:vatsim-api", "vacs-vatsim/test-utils"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -55,6 +55,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 vacs-protocol = { workspace = true, features = ["http", "ws"] }
+vatsim-api = { workspace = true, features = ["mock"], optional = true }
 vacs-vatsim = { workspace = true, features = [
     "coverage",
     "data-feed",

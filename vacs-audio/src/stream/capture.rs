@@ -1,10 +1,10 @@
+use crate::backend::AudioStream;
 use crate::device::{DeviceType, StreamDevice};
 use crate::dsp::{MicProcessor, downmix_interleaved_to_mono};
 use crate::error::AudioError;
 use crate::{EncodedAudioFrame, FRAME_SIZE, TARGET_SAMPLE_RATE};
 use anyhow::Context;
 use bytes::Bytes;
-use cpal::traits::StreamTrait;
 use parking_lot::lock_api::Mutex;
 use ringbuf::HeapRb;
 use ringbuf::consumer::Consumer;
@@ -31,7 +31,7 @@ const INPUT_VOLUME_OPS_PER_DATA_CALLBACK: usize = 16;
 type InputVolumeOp = Box<dyn Fn(&mut f32) + Send>;
 
 pub struct CaptureStream {
-    _stream: cpal::Stream,
+    _stream: Box<dyn AudioStream>,
     volume_ops: parking_lot::Mutex<ringbuf::HeapProd<InputVolumeOp>>,
     muted: Arc<AtomicBool>,
     cancel: Option<CancellationToken>,
@@ -62,7 +62,7 @@ impl CaptureStream {
         let mut mono_buf: Vec<f32> = Vec::with_capacity(MIN_INPUT_BUFFER_SIZE);
 
         let stream = device.build_input_stream(
-            move |input: &[f32], _| {
+            Box::new(move |input: &[f32]| {
                 // downmix to mono if necessary
                 let mono: &[f32] = if device.config.channels > 1 {
                     downmix_interleaved_to_mono(
@@ -95,13 +95,13 @@ impl CaptureStream {
                 if overflows > 0 {
                     tracing::warn!(?overflows, "Dropped input samples during this callback");
                 }
-            },
-            move |err| {
+            }),
+            Box::new(move |err| {
                 tracing::error!(?err, "CPAL capture stream error");
-                if let Err(err) = error_tx.try_send(err.into()) {
+                if let Err(err) = error_tx.try_send(err) {
                     tracing::warn!(?err, "Failed to send capture stream error");
                 }
-            },
+            }),
         )?;
 
         tracing::debug!("Starting capture on input stream");
@@ -250,7 +250,7 @@ impl CaptureStream {
             HeapRb::<InputVolumeOp>::new(INPUT_VOLUME_OPS_CAPACITY).split();
 
         let stream = device.build_input_stream(
-            move |input: &[f32], _| {
+            Box::new(move |input: &[f32]| {
                 for _ in 0..INPUT_VOLUME_OPS_PER_DATA_CALLBACK {
                     if let Some(op) = ops_cons.try_pop() {
                         op(&mut volume);
@@ -265,13 +265,13 @@ impl CaptureStream {
                         emit(level);
                     }
                 }
-            },
-            move |err| {
+            }),
+            Box::new(move |err| {
                 tracing::error!(?err, "CPAL capture stream level meter error");
-                if let Err(err) = error_tx.try_send(err.into()) {
+                if let Err(err) = error_tx.try_send(err) {
                     tracing::warn!(?err, "Failed to send capture stream level meter error");
                 }
-            },
+            }),
         )?;
 
         stream.play()?;

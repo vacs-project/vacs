@@ -21,6 +21,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       node: ${{ steps.filter.outputs.node }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -46,8 +47,12 @@ jobs:
               - "vacs-client/frontend/package.json"
               - "vacs-client/frontend/tsconfig*.json"
               - "vacs-client/package.json"
+              - "vacs-client/package-lock.json"
               - ".github/workflows/ci-node.yml"
               - ".github/workflows/ci-gate.yml"
+            e2e:
+              - "vacs-client/e2e/**"
+              - ".github/workflows/ci-e2e.yml"
 
   rust:
     needs: changes
@@ -63,9 +68,16 @@ jobs:
     permissions:
       contents: read
 
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.node == 'true' || needs.changes.outputs.e2e == 'true'
+    uses: ./.github/workflows/ci-e2e.yml
+    permissions:
+      contents: read
+
   gate:
     name: "CI \u2713"
-    needs: [rust, node]
+    needs: [rust, node, e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -75,9 +87,10 @@ jobs:
         env:
           RUST_RESULT: ${{ needs.rust.result }}
           NODE_RESULT: ${{ needs.node.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           failed=false
-          for name in rust node; do
+          for name in rust node e2e; do
             var="${name^^}_RESULT"
             result="${!var}"
             case "$result" in
@@ -100,6 +113,7 @@ jobs:
         env:
           RUST_RESULT: ${{ needs.rust.result }}
           NODE_RESULT: ${{ needs.node.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           icon() { case "$1" in success) echo "✅";; skipped) echo "⏭️";; *) echo "❌";; esac }
 
@@ -109,3 +123,4 @@ jobs:
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Rust | $(icon "$RUST_RESULT") $RUST_RESULT |" >> $GITHUB_STEP_SUMMARY
           echo "| Node | $(icon "$NODE_RESULT") $NODE_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| E2E | $(icon "$E2E_RESULT") $E2E_RESULT |" >> $GITHUB_STEP_SUMMARY

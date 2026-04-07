@@ -1,12 +1,10 @@
 use crate::app::state::AppState;
-use crate::auth;
 use crate::config::BackendEndpoint;
-use crate::error::{Error, FrontendError};
+use crate::error::Error;
 use anyhow::Context;
 use rfd::{MessageButtons, MessageDialogResult};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
@@ -15,12 +13,16 @@ pub(crate) mod commands;
 pub(crate) mod state;
 pub(crate) mod window;
 
+#[cfg(not(feature = "e2e"))]
 pub fn handle_deep_link(app: AppHandle, url: String) {
+    use tauri::Emitter;
+
     let url = url.to_string();
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = auth::handle_auth_callback(&app, &url).await {
-            app.emit("auth:error", Value::Null).ok();
-            app.emit::<FrontendError>("error", err.into()).ok();
+        if let Err(err) = crate::auth::handle_auth_callback(&app, &url).await {
+            app.emit("auth:error", serde_json::Value::Null).ok();
+            app.emit::<crate::error::FrontendError>("error", err.into())
+                .ok();
         }
     });
 }

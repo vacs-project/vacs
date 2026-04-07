@@ -1,8 +1,8 @@
+use crate::backend::AudioStream;
 use crate::device::{DeviceType, StreamDevice};
 use crate::error::AudioError;
 use crate::mixer::Mixer;
 use crate::sources::{AudioSource, AudioSourceId};
-use cpal::traits::StreamTrait;
 use parking_lot::Mutex;
 use ringbuf::HeapRb;
 use ringbuf::consumer::Consumer;
@@ -20,7 +20,7 @@ const MIXER_OPS_CAPACITY: usize = 256;
 const MIXER_OPS_PER_DATA_CALLBACK: usize = 32;
 
 pub struct PlaybackStream {
-    _stream: cpal::Stream,
+    _stream: Box<dyn AudioStream>,
     mixer_ops: Mutex<ringbuf::HeapProd<MixerOp>>,
     next_audio_source_id: atomic::AtomicUsize,
     deafened: Arc<AtomicBool>,
@@ -42,7 +42,7 @@ impl PlaybackStream {
         let deafened_clone = deafened.clone();
 
         let stream = device.build_output_stream(
-            move |output, _| {
+            Box::new(move |output: &mut [f32]| {
                 for _ in 0..MIXER_OPS_PER_DATA_CALLBACK {
                     if let Some(op) = ops_cons.try_pop() {
                         op(&mut mixer);
@@ -51,13 +51,13 @@ impl PlaybackStream {
                     }
                 }
                 mixer.mix(output);
-            },
-            move |err| {
+            }),
+            Box::new(move |err| {
                 tracing::error!(?err, "CPAL playback stream error");
-                if let Err(err) = error_tx.try_send(err.into()) {
+                if let Err(err) = error_tx.try_send(err) {
                     tracing::warn!(?err, "Failed to send playback stream error");
                 }
-            },
+            }),
         )?;
 
         stream.play()?;

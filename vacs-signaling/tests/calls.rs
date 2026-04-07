@@ -20,11 +20,11 @@ async fn call_offer_answer() {
             vacs_protocol::ws::shared::CallInvite {
                 call_id,
                 source: vacs_protocol::ws::shared::CallSource {
-                    client_id: ClientId::from("client0"),
+                    client_id: ClientId::from("1000001"),
                     position_id: None,
                     station_id: None,
                 },
-                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client1")),
+                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("1000002")),
                 prio: false,
             },
         ))
@@ -38,7 +38,7 @@ async fn call_offer_answer() {
                 call_id: received_call_id,
                 source,
                 ..
-            })) if *received_call_id == call_id && source.client_id.as_str() == "client0")
+            })) if *received_call_id == call_id && source.client_id.as_str() == "1000001")
         })
         .await;
     assert!(event.is_some());
@@ -49,7 +49,7 @@ async fn call_offer_answer() {
         .send(ClientMessage::CallAccept(
             vacs_protocol::ws::shared::CallAccept {
                 call_id,
-                accepting_client_id: ClientId::from("client1"),
+                accepting_client_id: ClientId::from("1000002"),
             },
         ))
         .await
@@ -62,7 +62,7 @@ async fn call_offer_answer() {
                 call_id: received_call_id,
                 accepting_client_id,
                 ..
-            })) if *received_call_id == call_id && accepting_client_id.as_str() == "client1")
+            })) if *received_call_id == call_id && accepting_client_id.as_str() == "1000002")
         })
         .await;
     assert!(event.is_some());
@@ -73,8 +73,8 @@ async fn call_offer_answer() {
         .send(ClientMessage::WebrtcOffer(
             vacs_protocol::ws::shared::WebrtcOffer {
                 call_id,
-                from_client_id: ClientId::from("client0"),
-                to_client_id: ClientId::from("client1"),
+                from_client_id: ClientId::from("1000001"),
+                to_client_id: ClientId::from("1000002"),
                 sdp: "sdp0".to_string(),
             },
         ))
@@ -88,7 +88,7 @@ async fn call_offer_answer() {
                 from_client_id,
                 sdp,
                 ..
-            })) if from_client_id.as_str() == "client0" && sdp == "sdp0")
+            })) if from_client_id.as_str() == "1000001" && sdp == "sdp0")
         })
         .await;
     assert!(event.is_some());
@@ -99,8 +99,8 @@ async fn call_offer_answer() {
         .send(ClientMessage::WebrtcAnswer(
             vacs_protocol::ws::shared::WebrtcAnswer {
                 call_id,
-                from_client_id: ClientId::from("client1"),
-                to_client_id: ClientId::from("client0"),
+                from_client_id: ClientId::from("1000002"),
+                to_client_id: ClientId::from("1000001"),
                 sdp: "sdp1".to_string(),
             },
         ))
@@ -114,7 +114,7 @@ async fn call_offer_answer() {
                 from_client_id,
                 sdp,
                 ..
-            })) if from_client_id.as_str() == "client1" && sdp == "sdp1")
+            })) if from_client_id.as_str() == "1000002" && sdp == "sdp1")
         })
         .await;
     assert!(event.is_some());

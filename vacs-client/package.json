@@ -6,7 +6,8 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "frontend"
+    "frontend",
+    "e2e"
   ],
   "scripts": {
     "dev": "tauri dev",

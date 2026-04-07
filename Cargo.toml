@@ -97,6 +97,8 @@ tracing = { version = "0.1.44", features = ["log"] }
 trackaudio = "0.2.1"
 url = "2.5.8"
 uuid = { version = "1.23.0", features = ["v7", "serde"] }
+# TODO update to published crate
+vatsim-api = { git = "https://github.com/MorpheusXAUT/vatsim-api", branch = "main", default-features = false }
 vacs-audio = { path = "vacs-audio" }
 vacs-macros = { path = "vacs-macros" }
 vacs-protocol = { path = "vacs-protocol" }
