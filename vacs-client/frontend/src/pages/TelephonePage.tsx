@@ -7,6 +7,7 @@ import CallList from "../components/telephone/CallList.tsx";
 import {invokeSafe} from "../error.ts";
 import IgnoreList from "../components/telephone/IgnoreList.tsx";
 import TelephoneDirectory from "../components/telephone/TelephoneDirectory.tsx";
+import {CloseButton} from "./SettingsPage.tsx";
 
 type Page = "dir" | "call-list" | "dial-pad" | "ign";
 
@@ -43,27 +44,30 @@ function TelephonePage() {
                         <IgnoreList />
                     )}
                 </div>
-                <div className="w-19 h-full shrink-0 pt-12 flex flex-col gap-[2px]">
-                    <TelephonePageButton page="dir" activePage={page} setPage={setPage}>
-                        <p>Dir.</p>
-                    </TelephonePageButton>
-                    <TelephonePageButton page="call-list" activePage={page} setPage={setPage}>
-                        <p>
-                            Call
-                            <br />
-                            List
-                        </p>
-                    </TelephonePageButton>
-                    <TelephonePageButton page="dial-pad" activePage={page} setPage={setPage}>
-                        <p>
-                            Dial
-                            <br />
-                            Pad
-                        </p>
-                    </TelephonePageButton>
-                    <TelephonePageButton page="ign" activePage={page} setPage={setPage}>
-                        <p>Ign.</p>
-                    </TelephonePageButton>
+                <div className="w-19 h-full shrink-0 pt-12 pb-1 flex flex-col justify-between items-center gap-[2px]">
+                    <div>
+                        <TelephonePageButton page="dir" activePage={page} setPage={setPage}>
+                            <p>Dir.</p>
+                        </TelephonePageButton>
+                        <TelephonePageButton page="call-list" activePage={page} setPage={setPage}>
+                            <p>
+                                Call
+                                <br />
+                                List
+                            </p>
+                        </TelephonePageButton>
+                        <TelephonePageButton page="dial-pad" activePage={page} setPage={setPage}>
+                            <p>
+                                Dial
+                                <br />
+                                Pad
+                            </p>
+                        </TelephonePageButton>
+                        <TelephonePageButton page="ign" activePage={page} setPage={setPage}>
+                            <p>Ign.</p>
+                        </TelephonePageButton>
+                    </div>
+                    <CloseButton className="h-16" />
                 </div>
             </div>
         </div>
