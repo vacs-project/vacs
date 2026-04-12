@@ -15,6 +15,7 @@ import HotkeysConfigPage from "../components/settings/HotkeysConfigPage.tsx";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import CallConfigPage from "../components/settings/CallConfigPage.tsx";
 import AdvancedPage from "../components/settings/AdvancedPage.tsx";
+import {clsx} from "clsx";
 
 function SettingsPage() {
     return (
@@ -152,9 +153,10 @@ function AppControlButtons() {
             >
                 Logout
             </Button>
-            <Button color="salmon" muted={true} className="text-sm ml-3" onClick={handleQuitClick}>
+            <Button color="salmon" muted={true} className="text-sm mr-3" onClick={handleQuitClick}>
                 Quit
             </Button>
+            <CloseButton />
         </div>
     );
 }
@@ -311,9 +313,13 @@ function WindowStateButtons() {
     );
 }
 
-export function CloseButton() {
+export function CloseButton({target, className}: {target?: string; className?: string}) {
     return (
-        <Button color="gray" className="w-18!" onClick={() => navigate("/settings")}>
+        <Button
+            color="gray"
+            className={clsx(className, "w-18!")}
+            onClick={() => navigate(target ?? "/")}
+        >
             <svg
                 width="26"
                 height="26"
