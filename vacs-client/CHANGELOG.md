@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.2.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.1.0...vacs-client-v2.2.0) (2026-04-12)
+
+
+### Features
+
+* add custom button colors ([#707](https://github.com/vacs-project/vacs/issues/707)) ([b8b91ca](https://github.com/vacs-project/vacs/commit/b8b91ca6648c905e0f0385fa057c627151952952))
+* add snow and azure custom button color ([#711](https://github.com/vacs-project/vacs/issues/711)) ([0f85d53](https://github.com/vacs-project/vacs/commit/0f85d53fe61a53addf894fef16382c486e746a38))
+* update to latest cpal version with device ID handling ([#696](https://github.com/vacs-project/vacs/issues/696)) ([01ff105](https://github.com/vacs-project/vacs/commit/01ff105d50c40ccfaf7ae2c212f318e67df15360))
+* **vacs-client:** add close button to settings and telephone page ([#736](https://github.com/vacs-project/vacs/issues/736)) ([a81082d](https://github.com/vacs-project/vacs/commit/a81082d4db3c6def6151540695ad740f2e9eaf42))
+* **vacs-client:** add optional speaker device for chime and ui sounds ([#712](https://github.com/vacs-project/vacs/issues/712)) ([6041c88](https://github.com/vacs-project/vacs/commit/6041c8802b7cc9175e2270d8901b9917aaf3473f))
+* **vacs-client:** improve list scroll ([#714](https://github.com/vacs-project/vacs/issues/714)) ([98886ea](https://github.com/vacs-project/vacs/commit/98886ea45a5298ce59d73e7aaa1fb1c1b3c46442))
+
+
+### Bug Fixes
+
+* **vacs-client:** remove vitest globals and cleanup test setup ([195155a](https://github.com/vacs-project/vacs/commit/195155a2086f52eaffe22202ec3223b20c63080a))
+
 ## [2.1.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.0.0...vacs-client-v2.1.0) (2026-03-24)
 
 
