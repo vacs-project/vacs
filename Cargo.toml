@@ -94,7 +94,7 @@ tower-sessions = { version = "0.15.0", features = ["signed"] }
 tower-sessions-redis-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", rev = "be0f230fadb4ca0496d4cabc946ae7778eee37e6" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tracing = { version = "0.1.44", features = ["log"] }
-trackaudio = "0.2.1"
+trackaudio = "0.2.2"
 url = "2.5.8"
 uuid = { version = "1.23.0", features = ["v7", "serde"] }
 vacs-audio = { path = "vacs-audio" }
