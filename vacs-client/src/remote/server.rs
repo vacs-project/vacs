@@ -394,6 +394,7 @@ async fn dispatch_command(
     use crate::audio::commands::*;
     use crate::auth::commands::*;
     use crate::keybinds::commands::*;
+    use crate::radio::commands::*;
     use crate::signaling::commands::*;
     use RemoteCommand::*;
 
@@ -578,6 +579,21 @@ async fn dispatch_command(
         KeybindsReconnectRadio => {
             let keybind_engine = app.state::<KeybindEngineHandle>();
             dispatch(keybinds_reconnect_radio(keybind_engine).await)
+        }
+
+        RadioAddStation => {
+            let callsign = args!(args, "callsign");
+            let keybind_engine = app.state::<KeybindEngineHandle>();
+            dispatch(radio_add_station(keybind_engine, callsign).await)
+        }
+        RadioSetStationState => {
+            let (frequency, update) = args!(args, "frequency", "update");
+            let keybind_engine = app.state::<KeybindEngineHandle>();
+            dispatch(radio_set_station_state(keybind_engine, frequency, update).await)
+        }
+        RadioGetStations => {
+            let keybind_engine = app.state::<KeybindEngineHandle>();
+            dispatch(radio_get_stations(keybind_engine).await)
         }
 
         SignalingConnect => {
