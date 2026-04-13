@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod push_to_talk;
 pub mod track_audio;
 
@@ -8,6 +9,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tauri::Emitter;
 use thiserror::Error;
+pub use trackaudio::Frequency;
 
 #[derive(Debug, Clone, Error)]
 pub enum RadioError {
@@ -15,6 +17,8 @@ pub enum RadioError {
     Integration(String),
     #[error("Radio transmit error: {0}")]
     Transmit(String),
+    #[error("Operation not supported by this radio integration")]
+    NotSupported,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -94,6 +98,40 @@ impl RadioState {
     }
 }
 
+/// A radio station with its current state, owned by vacs.
+///
+/// This is the vacs-canonical station representation, decoupled from any specific
+/// radio backend (e.g. TrackAudio). Backend-specific types are converted into this.
+#[derive(Debug, Clone, Serialize)]
+pub struct RadioStation {
+    pub callsign: Option<String>,
+    pub frequency: Frequency,
+    pub rx: bool,
+    pub tx: bool,
+    /// Read-only cross-coupling state computed by the radio backend (e.g. AFV-Native).
+    /// Not user-controllable. See [`xca`](Self::xca) for the user-settable variant.
+    pub xc: bool,
+    /// User-controllable "cross-couple across" mode. This is the only cross-coupling
+    /// field that can be set via [`StationStateUpdate`].
+    pub xca: bool,
+    pub headset: bool,
+    pub output_muted: bool,
+    pub is_available: bool,
+}
+
+/// Partial update for a station's state. Only provided (`Some`) fields are changed.
+///
+/// Note: `xc` is intentionally absent here. It is read-only state computed by the
+/// radio backend (e.g. AFV-Native). Only `xca` (cross-couple across) is user-controllable.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StationStateUpdate {
+    pub rx: Option<bool>,
+    pub tx: Option<bool>,
+    pub xca: Option<bool>,
+    pub headset: Option<bool>,
+    pub output_muted: Option<bool>,
+}
+
 #[async_trait::async_trait]
 pub trait Radio: Send + Sync + Debug + 'static {
     async fn transmit(&self, state: TransmissionState) -> Result<(), RadioError>;
@@ -102,6 +140,22 @@ pub trait Radio: Send + Sync + Debug + 'static {
     }
 
     fn state(&self) -> RadioState;
+
+    async fn add_station(&self, _callsign: &str) -> Result<RadioStation, RadioError> {
+        Err(RadioError::NotSupported)
+    }
+
+    async fn set_station_state(
+        &self,
+        _frequency: Frequency,
+        _update: StationStateUpdate,
+    ) -> Result<RadioStation, RadioError> {
+        Err(RadioError::NotSupported)
+    }
+
+    async fn get_stations(&self) -> Result<Vec<RadioStation>, RadioError> {
+        Err(RadioError::NotSupported)
+    }
 }
 
 pub type DynRadio = Arc<dyn Radio>;
