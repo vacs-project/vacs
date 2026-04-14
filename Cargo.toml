@@ -48,7 +48,7 @@ jsonwebtoken = "10.3.0"
 keyboard-types = { version = "0.8.3", features = ["serde"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-openssl"] }
 log = "0.4.29"
-lru = "0.16.3"
+lru = "0.16.4"
 metrics = "0.24.2"
 nonzero_ext = "0.3.0"
 notify-debouncer-full = "0.7.0"
