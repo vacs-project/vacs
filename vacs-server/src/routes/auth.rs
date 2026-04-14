@@ -11,6 +11,7 @@ use tower_sessions::Session;
 use vacs_protocol::http::auth::UserInfo;
 
 const VATSIM_OAUTH_CSRF_TOKEN_KEY: &str = "vatsim.oauth.csrf_token";
+const VATSIM_OAUTH_PKCE_VERIFIER_KEY: &str = "vatsim.oauth.pkce_verifier";
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -26,12 +27,20 @@ mod get {
     use vacs_protocol::http::auth::InitVatsimLogin;
 
     pub async fn vatsim(auth_session: AuthSession, session: Session) -> ApiResult<InitVatsimLogin> {
-        let (url, csrf_token) = auth_session.backend().authorize_url();
+        let (url, csrf_token, pkce_verifier) = auth_session.backend().authorize_url();
 
         session
             .insert(VATSIM_OAUTH_CSRF_TOKEN_KEY, csrf_token)
             .await
             .context("Failed to store CSRF token in session")?;
+
+        session
+            .insert(
+                VATSIM_OAUTH_PKCE_VERIFIER_KEY,
+                pkce_verifier.secret().to_string(),
+            )
+            .await
+            .context("Failed to store PKCE verifier in session")?;
 
         Ok(Json(InitVatsimLogin {
             url: url.to_string(),
@@ -62,10 +71,17 @@ mod post {
             .context("Failed to remove CSRF token from session")?
             .ok_or(AppError::Unauthorized("Missing CSRF token".to_string()))?;
 
+        let pkce_verifier = session
+            .remove::<String>(VATSIM_OAUTH_PKCE_VERIFIER_KEY)
+            .await
+            .context("Failed to remove PKCE verifier from session")?
+            .ok_or(AppError::Unauthorized("Missing PKCE verifier".to_string()))?;
+
         let creds = Credentials::OAuthCode {
             code,
             received_state: state,
             stored_state,
+            pkce_verifier,
         };
 
         tracing::debug!("Authenticating with VATSIM");
