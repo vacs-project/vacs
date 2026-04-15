@@ -2,16 +2,17 @@ import Button from "./Button.tsx";
 import {clsx} from "clsx";
 import {useRadioState} from "../../hooks/radio-state-hook.ts";
 import {useProfileType} from "../../stores/profile-store.ts";
+import {navigate} from "wouter/use-browser-location";
 
 function RadioButton() {
-    const {state, handleButtonClick} = useRadioState();
-    const disabled = state === "NotConfigured" || state === "Disconnected";
-    const textMuted = state === "NotConfigured";
+    const {radioState, handleButtonClick: reconnect} = useRadioState();
+    const disabled = radioState.state === "NotConfigured" || radioState.state === "Disconnected";
+    const textMuted = radioState.state === "NotConfigured";
 
     const collapsed = useProfileType() === "tabbed";
 
     const buttonColor = () => {
-        switch (state) {
+        switch (radioState.state) {
             case "NotConfigured":
             case "Disconnected":
                 return "gray";
@@ -31,10 +32,15 @@ function RadioButton() {
         }
     };
 
+    const handleButtonClick = () => {
+        navigate("/radio");
+        void reconnect();
+    };
+
     return (
         <Button
             color={buttonColor()}
-            disabled={state === "NotConfigured"}
+            disabled={radioState.state === "NotConfigured"}
             softDisabled={disabled}
             onClick={handleButtonClick}
             className={clsx(

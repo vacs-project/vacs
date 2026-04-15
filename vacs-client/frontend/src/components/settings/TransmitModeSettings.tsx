@@ -487,7 +487,7 @@ function RadioIntegrationSettings({
     );
 }
 
-const RadioStateAsIndicatorState: {[key in RadioState]: Status} = {
+const RadioStateAsIndicatorState: {[key in RadioState["state"]]: Status} = {
     NotConfigured: "gray",
     Disconnected: "red",
     Error: "red",
@@ -499,17 +499,17 @@ const RadioStateAsIndicatorState: {[key in RadioState]: Status} = {
 };
 
 function TrackAudioStatusIndicator() {
-    const {state, canReconnect, handleButtonClick} = useRadioState();
+    const {radioState, canReconnect, handleButtonClick} = useRadioState();
 
     const title = canReconnect
         ? "Reconnect to TrackAudio"
-        : state !== "NotConfigured"
+        : radioState.state !== "NotConfigured"
           ? "Connected to TrackAudio"
           : "Deactivated";
 
     return (
         <StatusIndicator
-            status={RadioStateAsIndicatorState[state]}
+            status={RadioStateAsIndicatorState[radioState.state]}
             className={canReconnect ? "cursor-pointer" : undefined}
             onClick={handleButtonClick}
             title={title}

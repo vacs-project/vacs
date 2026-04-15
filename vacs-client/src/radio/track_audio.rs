@@ -2,7 +2,7 @@ use crate::radio::{
     Frequency, Radio, RadioError, RadioState, RadioStation, StationStateUpdate, TransmissionState,
 };
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -129,13 +129,17 @@ impl TrackAudioRadio {
                 log::trace!("TrackAudio transmission ended");
                 state.set_transmitting(app, false);
             }
-            Event::RxBegin(_) => {
+            Event::RxBegin(rx_begin) => {
                 log::trace!("TrackAudio reception started");
-                state.set_receiving(app, true);
+                state.set_receiving(app, rx_begin.frequency, true);
             }
-            Event::RxEnd(_) => {
+            Event::RxEnd(rx_end) => {
                 log::trace!("TrackAudio reception ended");
-                state.set_receiving(app, false);
+                state.set_receiving(
+                    app,
+                    rx_end.frequency,
+                    !rx_end.active_transmitters.is_none_or(|t| t.is_empty()),
+                );
             }
             Event::VoiceConnectedState(payload) => {
                 log::trace!("TrackAudio voice connection state changed: {payload:?}");
@@ -352,7 +356,7 @@ struct TrackAudioState {
     connected: AtomicBool,
     voice_connected: AtomicBool,
     transmitting: AtomicBool,
-    receiving: AtomicBool,
+    receiving: RwLock<HashSet<Frequency>>,
     stations: RwLock<HashMap<Frequency, RadioStation>>,
 }
 
@@ -387,8 +391,11 @@ impl From<&TrackAudioState> for RadioState {
             return RadioState::TxActive;
         }
 
-        if value.receiving.load(Ordering::Relaxed) {
-            return RadioState::RxActive;
+        {
+            let receiving = value.receiving.read();
+            if !receiving.is_empty() {
+                return RadioState::RxActive(receiving.clone());
+            }
         }
 
         if value.stations.read().values().any(|s| s.rx) {
@@ -426,7 +433,7 @@ impl TrackAudioState {
         self.connected.store(false, Ordering::Relaxed);
         self.voice_connected.store(false, Ordering::Relaxed);
         self.transmitting.store(false, Ordering::Relaxed);
-        self.receiving.store(false, Ordering::Relaxed);
+        self.receiving.write().clear();
         self.stations.write().clear();
     }
 
@@ -435,8 +442,12 @@ impl TrackAudioState {
         self.emit(app);
     }
 
-    fn set_receiving(&self, app: &AppHandle, active: bool) {
-        self.receiving.store(active, Ordering::Relaxed);
+    fn set_receiving(&self, app: &AppHandle, frequency: Frequency, active: bool) {
+        if active {
+            self.receiving.write().insert(frequency);
+        } else {
+            self.receiving.write().remove(&frequency);
+        }
         self.emit(app);
     }
 
@@ -480,9 +491,13 @@ impl TrackAudioState {
             let mut stations = self.stations.write();
             if !station_state.is_available {
                 stations.remove(&frequency);
+                self.receiving.write().remove(&frequency);
                 app.emit("radio:station-removed", frequency).ok();
             } else if let Some(existing) = stations.get_mut(&frequency) {
                 if let Some(rx) = station_state.rx {
+                    if !rx {
+                        self.receiving.write().remove(&frequency);
+                    }
                     existing.rx = rx;
                 }
                 if let Some(tx) = station_state.tx {
@@ -517,6 +532,7 @@ impl TrackAudioState {
     fn remove_station(&self, app: &AppHandle, frequency: Frequency) {
         {
             self.stations.write().remove(&frequency);
+            self.receiving.write().remove(&frequency);
         }
 
         app.emit("radio:station-removed", frequency).ok();
@@ -534,6 +550,15 @@ impl TrackAudioState {
                 {
                     stations.insert(frequency, RadioStation::from(station_state));
                 }
+            }
+
+            {
+                let mut receiving = self.receiving.write();
+                *receiving = receiving
+                    .iter()
+                    .filter(|f| stations.contains_key(f))
+                    .cloned()
+                    .collect();
             }
         }
 

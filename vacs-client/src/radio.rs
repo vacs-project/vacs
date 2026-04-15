@@ -5,6 +5,7 @@ pub mod track_audio;
 use crate::platform::Capabilities;
 use keyboard_types::KeyState;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
 use tauri::Emitter;
@@ -62,7 +63,8 @@ impl From<KeyState> for TransmissionState {
 }
 
 /// Radio state representing the current operational status of the chosen radio integration.
-#[derive(Debug, Clone, Copy, Default, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(tag = "state", content = "data")]
 pub enum RadioState {
     #[default]
     /// No radio integration configured.
@@ -82,7 +84,7 @@ pub enum RadioState {
     RxIdle,
 
     /// Connected and receiving transmission from others.
-    RxActive,
+    RxActive(HashSet<Frequency>),
 
     /// Connected and actively transmitting.
     /// May or may not be receiving simultaneously (TX takes priority).

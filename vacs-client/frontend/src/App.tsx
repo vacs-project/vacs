@@ -35,6 +35,7 @@ import {useProfileType} from "./stores/profile-store.ts";
 import Button from "./components/ui/Button.tsx";
 import {fetchSettings} from "./stores/settings-store.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
+import RadioPage from "./pages/RadioPage.tsx";
 
 function App() {
     const connected = useConnectionStore(state => state.connectionState === "connected");
@@ -79,6 +80,7 @@ function App() {
                         <Switch>
                             <Route path="/settings" component={SettingsPage} nest />
                             <Route path="/mission" component={MissionPage} />
+                            <Route path="/radio" component={RadioPage} />
                             <Route path="/" nest>
                                 {authStatus === "loading" ? (
                                     <></>

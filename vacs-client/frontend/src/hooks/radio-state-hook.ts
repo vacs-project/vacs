@@ -5,20 +5,20 @@ import {listen} from "../transport";
 import {useAsyncDebounce} from "./debounce-hook.ts";
 
 export function useRadioState() {
-    const [state, setState] = useState<RadioState>("NotConfigured");
+    const [radioState, setRadioState] = useState<RadioState>({state: "NotConfigured"});
 
     useEffect(() => {
         const fetchState = async () => {
             try {
                 const state = await invokeStrict<RadioState>("keybinds_get_radio_state");
-                setState(state);
+                setRadioState(state);
             } catch {}
         };
 
         void fetchState();
 
         const unlisten = listen<RadioState>("radio:state", event => {
-            setState(event.payload);
+            setRadioState(event.payload);
         });
 
         return () => {
@@ -27,7 +27,8 @@ export function useRadioState() {
     }, []);
 
     const canReconnect =
-        state !== "NotConfigured" && (state === "Disconnected" || state === "Error");
+        radioState.state !== "NotConfigured" &&
+        (radioState.state === "Disconnected" || radioState.state === "Error");
 
     const handleButtonClick = useAsyncDebounce(async () => {
         if (canReconnect) {
@@ -35,5 +36,5 @@ export function useRadioState() {
         }
     });
 
-    return {state, canReconnect, handleButtonClick};
+    return {radioState, canReconnect, handleButtonClick};
 }

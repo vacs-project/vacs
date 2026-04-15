@@ -1,12 +1,15 @@
-export type RadioState =
-    | "NotConfigured"
-    | "Disconnected"
-    | "Connected"
-    | "VoiceConnected"
-    | "RxIdle"
-    | "RxActive"
-    | "TxActive"
-    | "Error";
+export type RadioState = {
+    state:
+        | "NotConfigured"
+        | "Disconnected"
+        | "Connected"
+        | "VoiceConnected"
+        | "RxIdle"
+        | "RxActive"
+        | "TxActive"
+        | "Error";
+    data?: number[];
+};
 
 export type RadioStation = {
     callsign?: string;
