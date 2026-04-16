@@ -36,6 +36,7 @@ import {fetchSettings} from "./stores/settings-store.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
 import RadioPage from "./pages/RadioPage.tsx";
 import CplButton from "./components/ui/CplButton.tsx";
+import {fetchRadioState, setupRadioListener} from "./listeners/radio-listener.ts";
 
 function App() {
     const connected = useConnectionStore(state => state.connectionState === "connected");
@@ -54,11 +55,13 @@ function App() {
         cleanups.push(setupSignalingListeners());
         cleanups.push(setupWebrtcListeners());
         cleanups.push(setupStoreSync());
+        cleanups.push(setupRadioListener());
 
         void invokeSafe("auth_check_session");
 
         void fetchCapabilities();
         void fetchSettings();
+        void fetchRadioState();
 
         return () => {
             cleanups.forEach(cleanup => cleanup());

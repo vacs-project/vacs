@@ -1,16 +1,15 @@
 import Button from "./Button.tsx";
 import {useRadioStore} from "../../stores/radio-store.ts";
-import {useRadioState} from "../../hooks/radio-state-hook.ts";
 import {clsx} from "clsx";
 import {useBlinkStore} from "../../stores/blink-store.ts";
 
 function CplButton() {
     const blink = useBlinkStore(state => state.blink);
     const cpl = useRadioStore(state => state.cpl);
+    const radioState = useRadioStore(state => state.radioState?.state ?? "NotConfigured");
     const setCpl = useRadioStore(state => state.setCpl);
-    const {radioState} = useRadioState();
-    const disabled = radioState.state === "NotConfigured" || radioState.state === "Disconnected";
-    const textMuted = radioState.state === "NotConfigured";
+    const disabled = radioState === "NotConfigured" || radioState === "Disconnected";
+    const textMuted = radioState === "NotConfigured";
 
     return (
         <Button

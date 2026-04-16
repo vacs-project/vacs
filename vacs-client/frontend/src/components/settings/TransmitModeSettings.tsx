@@ -17,9 +17,9 @@ import {clsx} from "clsx";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {TargetedEvent} from "preact";
 import {RadioState} from "../../types/radio.ts";
-import {useRadioState} from "../../hooks/radio-state-hook.ts";
 import {transmitModeToKeybind} from "../../types/keybinds.ts";
 import StatusIndicator, {Status} from "../ui/StatusIndicator.tsx";
+import {useRadioStore} from "../../stores/radio-store.ts";
 
 function TransmitModeSettings() {
     const capKeybindListener = useCapabilitiesStore(state => state.keybindListener);
@@ -499,17 +499,25 @@ const RadioStateAsIndicatorState: {[key in RadioState["state"]]: Status} = {
 };
 
 function TrackAudioStatusIndicator() {
-    const {radioState, canReconnect, handleButtonClick} = useRadioState();
+    const radioState = useRadioStore(state => state.radioState?.state ?? "NotConfigured");
+    const canReconnect =
+        radioState !== "NotConfigured" && (radioState === "Disconnected" || radioState === "Error");
+
+    const handleButtonClick = useAsyncDebounce(async () => {
+        if (canReconnect) {
+            await invokeStrict("keybinds_reconnect_radio");
+        }
+    });
 
     const title = canReconnect
         ? "Reconnect to TrackAudio"
-        : radioState.state !== "NotConfigured"
+        : radioState !== "NotConfigured"
           ? "Connected to TrackAudio"
           : "Deactivated";
 
     return (
         <StatusIndicator
-            status={RadioStateAsIndicatorState[radioState.state]}
+            status={RadioStateAsIndicatorState[radioState]}
             className={canReconnect ? "cursor-pointer" : undefined}
             onClick={handleButtonClick}
             title={title}

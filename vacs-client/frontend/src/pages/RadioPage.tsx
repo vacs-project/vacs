@@ -1,14 +1,15 @@
 import FrequencyObject from "../components/radio/FrequencyObject.tsx";
 import {useEffect, useState} from "preact/hooks";
 import {invokeSafe} from "../error.ts";
-import {RadioState, RadioStation} from "../types/radio.ts";
+import {RadioStation} from "../types/radio.ts";
 import {listen, UnlistenFn} from "../transport";
 import AddRadioStation from "../components/radio/AddRadioStation.tsx";
 import {sortCallsigns} from "../types/client.ts";
+import {useRadioStore} from "../stores/radio-store.ts";
 
 function RadioPage() {
     const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
-    const [radioState, setRadioState] = useState<RadioState | undefined>(undefined);
+    const radioState = useRadioStore(state => state.radioState);
 
     useEffect(() => {
         if (
@@ -24,10 +25,6 @@ function RadioPage() {
             const stations = await invokeSafe<RadioStation[]>("radio_get_stations");
             if (stations === undefined) return;
             setStations(new Map(stations.map(station => [station.frequency, station])));
-
-            const state = await invokeSafe<RadioState>("keybinds_get_radio_state");
-            if (state === undefined) return;
-            setRadioState(state);
         };
         void fetch();
 
@@ -49,7 +46,6 @@ function RadioPage() {
             listen<RadioStation[]>("radio:stations-synced", event =>
                 setStations(new Map(event.payload.map(station => [station.frequency, station]))),
             ),
-            listen<RadioState>("radio:state", event => setRadioState(event.payload)),
         );
 
         return () => {
