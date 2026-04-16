@@ -3,15 +3,18 @@ import {invokeStrict} from "../error.ts";
 import {CallConfig, ClockMode} from "../types/settings.ts";
 import {ClientPageConfig, ClientPageSettings} from "../types/client.ts";
 import {useStationsStore} from "./stations-store.ts";
+import {RadioConfig, RadioConfigWithLabels, withRadioLabels} from "../types/transmit.ts";
 
 type SettingsState = {
     callConfig: CallConfig;
     selectedClientPageConfig: ClientPageConfig & {name: string};
     clientPageConfigs: Record<string, ClientPageConfig>;
+    radioConfig: RadioConfigWithLabels | undefined;
     clockMode: ClockMode;
     setCallConfig: (config: CallConfig) => void;
     setClientPageConfig: (config: ClientPageConfig & {name: string}) => void;
     setClientPageSettings: (settings: ClientPageSettings) => void;
+    setRadioConfig: (config: RadioConfigWithLabels) => void;
     setClockMode: (mode: ClockMode) => void;
 };
 
@@ -33,6 +36,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     },
     selectedClientPageConfig: {...emptyClientPageConfig, name: "None"},
     clientPageConfigs: {},
+    radioConfig: undefined,
     clockMode: "Realtime",
     setCallConfig: config => {
         const defaultCallSourcesChanged =
@@ -62,6 +66,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
             }
         }
     },
+    setRadioConfig: config => set({radioConfig: config}),
     setClockMode: mode => set({clockMode: mode}),
 }));
 
@@ -81,6 +86,13 @@ async function fetchClientPageSettings() {
     } catch {}
 }
 
+async function fetchRadioConfig() {
+    try {
+        const radioConfig = await invokeStrict<RadioConfig>("keybinds_get_radio_config");
+        useSettingsStore.getState().setRadioConfig(await withRadioLabels(radioConfig));
+    } catch {}
+}
+
 async function fetchClockMode() {
     try {
         const clockMode = await invokeStrict<ClockMode>("app_get_clock_mode");
@@ -92,4 +104,5 @@ export async function fetchSettings() {
     void fetchCallConfig();
     void fetchClientPageSettings();
     void fetchClockMode();
+    void fetchRadioConfig();
 }

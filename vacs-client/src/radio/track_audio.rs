@@ -1,12 +1,15 @@
-use crate::radio::{Radio, RadioError, RadioState, TransmissionState};
+use crate::radio::{
+    Frequency, Radio, RadioError, RadioState, RadioStation, StationStateUpdate, TransmissionState,
+};
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
+use trackaudio::messages::commands::SetStationState;
 use trackaudio::messages::events::StationState;
 use trackaudio::{
     ClientEvent, ConnectionState, TrackAudioClient, TrackAudioConfig, TrackAudioError,
@@ -26,6 +29,7 @@ impl TrackAudioRadio {
     const TRANSMIT_TIMEOUT: Duration = Duration::from_millis(250);
     const VOICE_CONNECTED_STATE_TIMEOUT: Duration = Duration::from_millis(250);
     const STATION_STATES_TIMEOUT: Duration = Duration::from_millis(250);
+    const STATION_STATE_TIMEOUT: Duration = Duration::from_millis(250);
 
     pub async fn new(
         app: AppHandle,
@@ -119,23 +123,27 @@ impl TrackAudioRadio {
         match event {
             Event::TxBegin(_) => {
                 log::trace!("TrackAudio transmission started");
-                state.set_transmitting(true, app);
+                state.set_transmitting(app, true);
             }
             Event::TxEnd(_) => {
                 log::trace!("TrackAudio transmission ended");
-                state.set_transmitting(false, app);
+                state.set_transmitting(app, false);
             }
-            Event::RxBegin(_) => {
+            Event::RxBegin(rx_begin) => {
                 log::trace!("TrackAudio reception started");
-                state.set_receiving(true, app);
+                state.set_receiving(app, rx_begin.frequency, true);
             }
-            Event::RxEnd(_) => {
+            Event::RxEnd(rx_end) => {
                 log::trace!("TrackAudio reception ended");
-                state.set_receiving(false, app);
+                state.set_receiving(
+                    app,
+                    rx_end.frequency,
+                    !rx_end.active_transmitters.is_none_or(|t| t.is_empty()),
+                );
             }
             Event::VoiceConnectedState(payload) => {
                 log::trace!("TrackAudio voice connection state changed: {payload:?}");
-                state.set_voice_connected(payload.connected, app);
+                state.set_voice_connected(app, payload.connected);
 
                 let station_states = if payload.connected {
                     client
@@ -147,7 +155,7 @@ impl TrackAudioRadio {
                     vec![]
                 };
 
-                state.sync_stations(station_states, app);
+                state.sync_stations(app, station_states);
             }
             Event::Client(ClientEvent::ConnectionStateChanged(connection_state)) => {
                 Self::handle_connection_state(connection_state, state, app, client).await;
@@ -165,20 +173,22 @@ impl TrackAudioRadio {
             }
             Event::StationAdded(payload) => {
                 log::trace!("TrackAudio station added: {}", payload.callsign);
-                state.add_station(payload.callsign, app);
+                state.add_station(app, payload.callsign, payload.frequency);
             }
             Event::StationStateUpdate(payload) => {
                 log::trace!("TrackAudio station state update: {payload:?}");
-                if let Some(callsign) = payload.callsign {
-                    state.update_station(callsign, payload.rx, payload.is_available, app);
-                }
+                state.update_station(app, &payload);
             }
             Event::StationStates(payload) => {
                 log::trace!(
                     "Received full station states list for {} stations",
                     payload.stations.len()
                 );
-                state.sync_stations(payload.stations.into_iter().map(|s| s.value).collect(), app);
+                state.sync_stations(app, payload.stations.into_iter().map(|s| s.value).collect());
+            }
+            Event::FrequencyRemoved(payload) => {
+                log::trace!("TrackAudio frequency removed: {:?}", payload.frequency);
+                state.remove_station(app, payload.frequency);
             }
             _ => {
                 log::trace!("Received TrackAudio event: {event:?}");
@@ -195,7 +205,7 @@ impl TrackAudioRadio {
         match connection_state {
             ConnectionState::Connected => {
                 log::debug!("Successfully connected to TrackAudio");
-                state.set_connected(true, app); // This will emit, but we do more specific emissions after fetch
+                state.set_connected(app, true); // This will emit, but we do more specific emissions after fetch
 
                 let api = client.api();
                 let voice_connected = api
@@ -211,7 +221,7 @@ impl TrackAudioRadio {
                     .await
                     .unwrap_or_default();
 
-                state.sync_stations(station_states, app);
+                state.sync_stations(app, station_states);
             }
             ConnectionState::Connecting { .. } | ConnectionState::Reconnecting { .. } => {
                 state.clear();
@@ -268,6 +278,49 @@ impl Radio for TrackAudioRadio {
     fn state(&self) -> RadioState {
         self.state.as_ref().into()
     }
+
+    async fn add_station(&self, callsign: &str) -> Result<RadioStation, RadioError> {
+        self.client
+            .api()
+            .add_station(callsign, Some(Self::STATION_STATE_TIMEOUT))
+            .await
+            .map(|s| RadioStation::from(&s))
+            .map_err(|err| RadioError::Integration(format!("Failed to add station: {err}")))
+    }
+
+    async fn set_station_state(
+        &self,
+        frequency: Frequency,
+        update: StationStateUpdate,
+    ) -> Result<RadioStation, RadioError> {
+        let mut cmd = SetStationState::new(frequency);
+        if let Some(rx) = update.rx {
+            cmd = cmd.rx(rx);
+        }
+        if let Some(tx) = update.tx {
+            cmd = cmd.tx(tx);
+        }
+        if let Some(xca) = update.xca {
+            cmd = cmd.xca(xca);
+        }
+        if let Some(headset) = update.headset {
+            cmd = cmd.headset(headset);
+        }
+        if let Some(output_muted) = update.output_muted {
+            cmd = cmd.output_muted(output_muted);
+        }
+
+        self.client
+            .api()
+            .set_station_state(cmd, Some(Self::STATION_STATE_TIMEOUT))
+            .await
+            .map(|s| RadioStation::from(&s))
+            .map_err(|err| RadioError::Integration(format!("Failed to set station state: {err}")))
+    }
+
+    async fn get_stations(&self) -> Result<Vec<RadioStation>, RadioError> {
+        Ok(self.state.stations())
+    }
 }
 
 impl Debug for TrackAudioRadio {
@@ -303,8 +356,24 @@ struct TrackAudioState {
     connected: AtomicBool,
     voice_connected: AtomicBool,
     transmitting: AtomicBool,
-    receiving: AtomicBool,
-    stations: RwLock<HashMap<String, bool>>,
+    receiving: RwLock<HashSet<Frequency>>,
+    stations: RwLock<HashMap<Frequency, RadioStation>>,
+}
+
+impl From<&StationState> for RadioStation {
+    fn from(s: &StationState) -> Self {
+        Self {
+            callsign: s.callsign.clone(),
+            frequency: s.frequency.unwrap_or(Frequency::from_mhz(199.998)),
+            rx: s.rx.unwrap_or(false),
+            tx: s.tx.unwrap_or(false),
+            xc: s.xc.unwrap_or(false),
+            xca: s.xca.unwrap_or(false),
+            headset: s.headset.unwrap_or(true),
+            output_muted: s.is_output_muted.unwrap_or(false),
+            is_available: s.is_available,
+        }
+    }
 }
 
 impl From<&TrackAudioState> for RadioState {
@@ -322,11 +391,14 @@ impl From<&TrackAudioState> for RadioState {
             return RadioState::TxActive;
         }
 
-        if value.receiving.load(Ordering::Relaxed) {
-            return RadioState::RxActive;
+        {
+            let receiving = value.receiving.read();
+            if !receiving.is_empty() {
+                return RadioState::RxActive(receiving.clone());
+            }
         }
 
-        if value.stations.read().values().any(|&rx| rx) {
+        if value.stations.read().values().any(|s| s.rx) {
             return RadioState::RxIdle;
         }
 
@@ -361,73 +433,141 @@ impl TrackAudioState {
         self.connected.store(false, Ordering::Relaxed);
         self.voice_connected.store(false, Ordering::Relaxed);
         self.transmitting.store(false, Ordering::Relaxed);
-        self.receiving.store(false, Ordering::Relaxed);
+        self.receiving.write().clear();
         self.stations.write().clear();
     }
 
-    fn set_transmitting(&self, active: bool, app: &AppHandle) {
+    fn set_transmitting(&self, app: &AppHandle, active: bool) {
         self.transmitting.store(active, Ordering::Relaxed);
         self.emit(app);
     }
 
-    fn set_receiving(&self, active: bool, app: &AppHandle) {
-        self.receiving.store(active, Ordering::Relaxed);
+    fn set_receiving(&self, app: &AppHandle, frequency: Frequency, active: bool) {
+        if active {
+            self.receiving.write().insert(frequency);
+        } else {
+            self.receiving.write().remove(&frequency);
+        }
         self.emit(app);
     }
 
-    fn set_voice_connected(&self, connected: bool, app: &AppHandle) {
+    fn set_voice_connected(&self, app: &AppHandle, connected: bool) {
         self.voice_connected.store(connected, Ordering::Relaxed);
         self.emit(app);
     }
 
-    fn set_connected(&self, connected: bool, app: &AppHandle) {
+    fn set_connected(&self, app: &AppHandle, connected: bool) {
         self.connected.store(connected, Ordering::Relaxed);
         self.emit(app);
     }
 
-    fn add_station(&self, callsign: String, app: &AppHandle) {
+    fn add_station(&self, app: &AppHandle, callsign: String, frequency: Frequency) {
+        let station = RadioStation {
+            callsign: Some(callsign),
+            frequency,
+            rx: false,
+            tx: false,
+            xc: false,
+            xca: false,
+            headset: false,
+            output_muted: false,
+            is_available: true,
+        };
+
         {
-            self.stations.write().insert(callsign, false);
+            self.stations.write().insert(frequency, station.clone());
         }
 
+        app.emit("radio:station-added", &station).ok();
         self.emit(app);
     }
 
-    fn update_station(
-        &self,
-        callsign: String,
-        rx: Option<bool>,
-        is_available: bool,
-        app: &AppHandle,
-    ) {
+    fn update_station(&self, app: &AppHandle, station_state: &StationState) {
+        let Some(frequency) = station_state.frequency else {
+            return;
+        };
+
         {
             let mut stations = self.stations.write();
-            if !is_available {
-                stations.remove(&callsign);
-            } else if let Some(rx) = rx {
-                stations.insert(callsign, rx);
+            if !station_state.is_available {
+                stations.remove(&frequency);
+                self.receiving.write().remove(&frequency);
+                app.emit("radio:station-removed", frequency).ok();
+            } else if let Some(existing) = stations.get_mut(&frequency) {
+                if let Some(rx) = station_state.rx {
+                    if !rx {
+                        self.receiving.write().remove(&frequency);
+                    }
+                    existing.rx = rx;
+                }
+                if let Some(tx) = station_state.tx {
+                    existing.tx = tx;
+                }
+                if let Some(xc) = station_state.xc {
+                    existing.xc = xc;
+                }
+                if let Some(xca) = station_state.xca {
+                    existing.xca = xca;
+                }
+                if let Some(headset) = station_state.headset {
+                    existing.headset = headset;
+                }
+                if let Some(output_muted) = station_state.is_output_muted {
+                    existing.output_muted = output_muted;
+                }
+                if let Some(callsign) = &station_state.callsign {
+                    existing.callsign = Some(callsign.clone());
+                }
+                app.emit("radio:station-updated", &*existing).ok();
             } else {
-                stations.entry(callsign).or_insert(false);
+                let station = RadioStation::from(station_state);
+                app.emit("radio:station-added", &station).ok();
+                stations.insert(frequency, station);
             }
         }
 
         self.emit(app);
     }
 
-    fn sync_stations(&self, station_states: Vec<StationState>, app: &AppHandle) {
+    fn remove_station(&self, app: &AppHandle, frequency: Frequency) {
+        {
+            self.stations.write().remove(&frequency);
+            self.receiving.write().remove(&frequency);
+        }
+
+        app.emit("radio:station-removed", frequency).ok();
+        self.emit(app);
+    }
+
+    fn sync_stations(&self, app: &AppHandle, station_states: Vec<StationState>) {
         {
             let mut stations = self.stations.write();
             stations.clear();
 
-            for station_state in station_states {
+            for station_state in &station_states {
                 if station_state.is_available
-                    && let Some(callsign) = station_state.callsign
+                    && let Some(frequency) = station_state.frequency
                 {
-                    stations.insert(callsign, station_state.rx.unwrap_or(false));
+                    stations.insert(frequency, RadioStation::from(station_state));
                 }
+            }
+
+            {
+                let mut receiving = self.receiving.write();
+                *receiving = receiving
+                    .iter()
+                    .filter(|f| stations.contains_key(f))
+                    .cloned()
+                    .collect();
             }
         }
 
+        let synced: Vec<RadioStation> = self.stations.read().values().cloned().collect();
+        app.emit("radio:stations-synced", &synced).ok();
         self.emit(app);
+    }
+
+    fn stations(&self) -> Vec<RadioStation> {
+        self.stations.read().values().cloned().collect()
     }
 }

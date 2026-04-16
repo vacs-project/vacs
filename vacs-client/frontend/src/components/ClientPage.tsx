@@ -6,6 +6,7 @@ import {useFilterStore} from "../stores/filter-store.ts";
 import Button from "./ui/Button.tsx";
 import {useCallStore} from "../stores/call-store.ts";
 import {clsx} from "clsx";
+import {useBlinkStore} from "../stores/blink-store.ts";
 
 type ClientPageProps = {
     config: ClientPageConfig;
@@ -92,7 +93,7 @@ function ClientPageGroupKey({
     setFilter: (filter: string) => void;
 }) {
     const clients = useClientsStore(state => state.clients);
-    const blink = useCallStore(state => state.blink);
+    const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
 

@@ -1,0 +1,3 @@
+.override-gray {
+    --color-gray-700: var(--color-gray-600);
+}

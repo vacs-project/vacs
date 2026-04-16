@@ -30,6 +30,7 @@ export default defineConfig({
         "no-unsafe-type-assertion": "off",
         "no-unnecessary-type-arguments": "off",
         "no-shadow": "off",
+        "typescript/consistent-return": "off",
     },
     options: {
         typeAware: true,

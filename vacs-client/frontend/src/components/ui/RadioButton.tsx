@@ -1,17 +1,21 @@
 import Button from "./Button.tsx";
 import {clsx} from "clsx";
-import {useRadioState} from "../../hooks/radio-state-hook.ts";
 import {useProfileType} from "../../stores/profile-store.ts";
+import {navigate} from "wouter/use-browser-location";
+import {useRadioStore} from "../../stores/radio-store.ts";
+import {invokeStrict} from "../../error.ts";
+import {useSettingsStore} from "../../stores/settings-store.ts";
 
 function RadioButton() {
-    const {state, handleButtonClick} = useRadioState();
-    const disabled = state === "NotConfigured" || state === "Disconnected";
-    const textMuted = state === "NotConfigured";
+    const radioState = useRadioStore(state => state.radioState?.state ?? "NotConfigured");
+    const disabled = radioState === "NotConfigured" || radioState === "Disconnected";
+    const textMuted = radioState === "NotConfigured";
+    const radioIntegration = useSettingsStore(state => state.radioConfig?.integration);
 
     const collapsed = useProfileType() === "tabbed";
 
     const buttonColor = () => {
-        switch (state) {
+        switch (radioState) {
             case "NotConfigured":
             case "Disconnected":
                 return "gray";
@@ -31,10 +35,23 @@ function RadioButton() {
         }
     };
 
+    const handleButtonClick = () => {
+        if (!disabled && radioIntegration === "TrackAudio") {
+            navigate("/radio");
+        }
+
+        if (
+            radioState !== "NotConfigured" &&
+            (radioState === "Disconnected" || radioState === "Error")
+        ) {
+            void invokeStrict("keybinds_reconnect_radio");
+        }
+    };
+
     return (
         <Button
             color={buttonColor()}
-            disabled={state === "NotConfigured"}
+            disabled={radioState === "NotConfigured"}
             softDisabled={disabled}
             onClick={handleButtonClick}
             className={clsx(

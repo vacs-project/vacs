@@ -22,7 +22,6 @@ ignore = [
     { id = "RUSTSEC-2024-0411", reason = "tauri dependency" },
     { id = "RUSTSEC-2024-0417", reason = "tauri dependency" },
     { id = "RUSTSEC-2024-0414", reason = "tauri dependency" },
-    { id = "RUSTSEC-2024-0429", reason = "tauri dependency" },
     { id = "RUSTSEC-2024-0415", reason = "tauri dependency" },
     { id = "RUSTSEC-2024-0420", reason = "tauri dependency" },
     { id = "RUSTSEC-2024-0419", reason = "tauri dependency" },

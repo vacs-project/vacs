@@ -1,11 +1,11 @@
 import {act} from "@testing-library/preact";
-import {useCallStore} from "../src/stores/call-store.ts";
 import {CallId, ClientId, PositionId, StationId} from "../src/types/generic.ts";
 import {Call} from "../src/types/call.ts";
+import {useBlinkStore} from "../src/stores/blink-store.ts";
 
 export async function flipBlink() {
     await act(() => {
-        useCallStore.setState(s => ({blink: !s.blink}));
+        useBlinkStore.setState(s => ({blink: !s.blink}));
     });
 }
 

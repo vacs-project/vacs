@@ -14,9 +14,10 @@ import ButtonLabel from "./ui/ButtonLabel.tsx";
 import {useClientsStore} from "../stores/clients-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
+import {useBlinkStore} from "../stores/blink-store.ts";
 
 function CallQueue() {
-    const blink = useCallStore(state => state.blink);
+    const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
     const {endCall, dismissRejectedCall, dismissErrorCall, removeCall} = useCallStore(

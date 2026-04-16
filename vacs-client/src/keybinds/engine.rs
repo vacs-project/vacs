@@ -253,6 +253,10 @@ impl KeybindEngine {
         }
     }
 
+    pub fn radio(&self) -> Option<DynRadio> {
+        self.radio.read().clone()
+    }
+
     /// Get the external (OS-configured) key for a keybind, if available.
     ///
     /// On Wayland, keybinds are configured at the OS level via the XDG Global Shortcuts

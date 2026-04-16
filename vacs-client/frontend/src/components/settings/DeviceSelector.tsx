@@ -19,51 +19,55 @@ function DeviceSelector(props: DeviceSelectorProps) {
 
     const callDisplayType = useCallStore(state => state.callDisplay?.type);
 
-    const setAudioDevices = (audioDevices: AudioDevices) => {
-        const isFallback =
-            audioDevices.preferred?.length !== 0 && audioDevices.preferred !== audioDevices.picked;
-        const defaultDevice = {
-            value: "",
-            text: `Default (${audioDevices.default})`,
-            className: "text-initial",
-        };
+    const setAudioDevices = useCallback(
+        (audioDevices: AudioDevices) => {
+            const isFallback =
+                audioDevices.preferred?.length !== 0 &&
+                audioDevices.preferred !== audioDevices.picked;
+            const defaultDevice = {
+                value: "",
+                text: `Default (${audioDevices.default})`,
+                className: "text-initial",
+            };
 
-        let deviceList: SelectOption[] = audioDevices.all.map(deviceName => ({
-            value: deviceName,
-            text: deviceName,
-            className:
-                isFallback && deviceName === audioDevices.picked
-                    ? "text-green-700"
-                    : "text-initial",
-        }));
+            let deviceList: SelectOption[] = audioDevices.all.map(deviceName => ({
+                value: deviceName,
+                text: deviceName,
+                className:
+                    isFallback && deviceName === audioDevices.picked
+                        ? "text-green-700"
+                        : "text-initial",
+            }));
 
-        deviceList = [defaultDevice, ...deviceList];
+            deviceList = [defaultDevice, ...deviceList];
 
-        if (props.deviceType === "Speaker") {
-            deviceList = [
-                {
-                    value: NONE_DEVICE,
-                    text: "",
-                    hidden: false,
-                    disabled: false,
-                },
-                ...deviceList,
-            ];
-        }
+            if (props.deviceType === "Speaker") {
+                deviceList = [
+                    {
+                        value: NONE_DEVICE,
+                        text: "",
+                        hidden: false,
+                        disabled: false,
+                    },
+                    ...deviceList,
+                ];
+            }
 
-        if (audioDevices.preferred !== undefined && isFallback) {
-            deviceList.push({
-                value: audioDevices.preferred,
-                text: audioDevices.preferred,
-                hidden: true,
-                disabled: true,
-            });
-        }
+            if (audioDevices.preferred !== undefined && isFallback) {
+                deviceList.push({
+                    value: audioDevices.preferred,
+                    text: audioDevices.preferred,
+                    hidden: true,
+                    disabled: true,
+                });
+            }
 
-        setIsFallback(isFallback);
-        setDevice(audioDevices.preferred ?? NONE_DEVICE);
-        setDevices(deviceList);
-    };
+            setIsFallback(isFallback);
+            setDevice(audioDevices.preferred ?? NONE_DEVICE);
+            setDevices(deviceList);
+        },
+        [props.deviceType],
+    );
 
     const fetchDevices = useCallback(async () => {
         try {
@@ -72,7 +76,7 @@ function DeviceSelector(props: DeviceSelectorProps) {
             });
             setAudioDevices(audioDevices);
         } catch {}
-    }, [props.deviceType]);
+    }, [props.deviceType, setAudioDevices]);
 
     const handleOnChange = useAsyncDebounce(async (new_device: string) => {
         const previousDeviceName = device;

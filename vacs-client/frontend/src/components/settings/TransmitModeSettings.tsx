@@ -17,9 +17,10 @@ import {clsx} from "clsx";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {TargetedEvent} from "preact";
 import {RadioState} from "../../types/radio.ts";
-import {useRadioState} from "../../hooks/radio-state-hook.ts";
 import {transmitModeToKeybind} from "../../types/keybinds.ts";
 import StatusIndicator, {Status} from "../ui/StatusIndicator.tsx";
+import {useRadioStore} from "../../stores/radio-store.ts";
+import {useSettingsStore} from "../../stores/settings-store.ts";
 
 function TransmitModeSettings() {
     const capKeybindListener = useCapabilitiesStore(state => state.keybindListener);
@@ -27,17 +28,15 @@ function TransmitModeSettings() {
     const [transmitConfig, setTransmitConfig] = useState<TransmitConfigWithLabels | undefined>(
         undefined,
     );
-    const [radioConfig, setRadioConfig] = useState<RadioConfigWithLabels | undefined>(undefined);
+    const radioConfig = useSettingsStore(state => state.radioConfig);
+    const setRadioConfig = useSettingsStore(state => state.setRadioConfig);
 
     useEffect(() => {
         const fetchConfig = async () => {
             const transmitConfig = await invokeSafe<TransmitConfig>("keybinds_get_transmit_config");
             if (transmitConfig === undefined) return;
-            const radioConfig = await invokeSafe<RadioConfig>("keybinds_get_radio_config");
-            if (radioConfig === undefined) return;
 
             setTransmitConfig(await withTransmitLabels(transmitConfig));
-            setRadioConfig(await withRadioLabels(radioConfig));
         };
 
         if (capKeybindListener) {
@@ -324,7 +323,7 @@ function TransmitConfigSettings({transmitConfig, setTransmitConfig}: TransmitCon
 type RadioIntegrationSettingsProps = {
     transmitConfig: TransmitConfigWithLabels;
     radioConfig: RadioConfigWithLabels;
-    setRadioConfig: Dispatch<StateUpdater<RadioConfigWithLabels | undefined>>;
+    setRadioConfig: (config: RadioConfigWithLabels) => void;
 };
 
 function RadioIntegrationSettings({
@@ -487,7 +486,7 @@ function RadioIntegrationSettings({
     );
 }
 
-const RadioStateAsIndicatorState: {[key in RadioState]: Status} = {
+const RadioStateAsIndicatorState: {[key in RadioState["state"]]: Status} = {
     NotConfigured: "gray",
     Disconnected: "red",
     Error: "red",
@@ -499,17 +498,25 @@ const RadioStateAsIndicatorState: {[key in RadioState]: Status} = {
 };
 
 function TrackAudioStatusIndicator() {
-    const {state, canReconnect, handleButtonClick} = useRadioState();
+    const radioState = useRadioStore(state => state.radioState?.state ?? "NotConfigured");
+    const canReconnect =
+        radioState !== "NotConfigured" && (radioState === "Disconnected" || radioState === "Error");
+
+    const handleButtonClick = useAsyncDebounce(async () => {
+        if (canReconnect) {
+            await invokeStrict("keybinds_reconnect_radio");
+        }
+    });
 
     const title = canReconnect
         ? "Reconnect to TrackAudio"
-        : state !== "NotConfigured"
+        : radioState !== "NotConfigured"
           ? "Connected to TrackAudio"
           : "Deactivated";
 
     return (
         <StatusIndicator
-            status={RadioStateAsIndicatorState[state]}
+            status={RadioStateAsIndicatorState[radioState]}
             className={canReconnect ? "cursor-pointer" : undefined}
             onClick={handleButtonClick}
             title={title}
