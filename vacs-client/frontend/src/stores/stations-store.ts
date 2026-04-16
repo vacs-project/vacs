@@ -82,11 +82,15 @@ function checkStationSourcesAreOwn(
     stations: Map<StationId, boolean>,
     get: () => StationsState,
 ): [StationId | undefined, StationId | undefined] {
+    const useDefaultCallSources = useSettingsStore.getState().callConfig.useDefaultCallSources;
+
     let defaultSource = get().defaultSource;
     if (defaultSource !== undefined && !stations.get(defaultSource)) {
-        defaultSource = useSettingsStore.getState().callConfig.useDefaultCallSources
+        defaultSource = useDefaultCallSources
             ? get().positionDefaultSources.find(s => stations.get(s))
             : undefined;
+    } else if (defaultSource === undefined && useDefaultCallSources) {
+        defaultSource = get().positionDefaultSources.find(s => stations.get(s));
     }
 
     let temporarySource = get().temporarySource;
