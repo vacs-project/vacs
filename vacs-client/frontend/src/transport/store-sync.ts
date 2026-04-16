@@ -1,11 +1,13 @@
 import {invoke, isRemote, isTauri, listen} from "./index.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
-import {CallDisplay, shouldStopBlinking, useCallStore} from "../stores/call-store.ts";
+import {CallDisplay, useCallStore} from "../stores/call-store.ts";
 import {type CallListItem, useCallListStore} from "../stores/call-list-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import type {CallId, StationId} from "../types/generic.ts";
 import type {ClientPageConfig} from "../types/client.ts";
 import type {CallConfig, ClockMode} from "../types/settings.ts";
+import {shouldStopBlinking, startBlink, stopBlink} from "../stores/blink-store.ts";
+import {useRadioStore} from "../stores/radio-store.ts";
 
 type StationsSync = {
     defaultSource: StationId | undefined;
@@ -69,15 +71,21 @@ function applySync(payload: SyncPayload) {
         case "call": {
             const {
                 incomingCalls,
-                actions: {setPrio, startBlink, stopBlink},
+                actions: {setPrio},
             } = useCallStore.getState();
+            const {cpl} = useRadioStore.getState();
             const {prio, callDisplay} = payload.state;
+            // TODO: sync cpl button
             setPrio(prio);
 
             if (callDisplay !== null) {
                 useCallStore.setState({callDisplay});
 
-                const shouldStartBlink = !shouldStopBlinking(incomingCalls.length, callDisplay);
+                const shouldStartBlink = !shouldStopBlinking(
+                    incomingCalls.length,
+                    callDisplay,
+                    cpl,
+                );
                 if (shouldStartBlink) {
                     startBlink();
                 } else {

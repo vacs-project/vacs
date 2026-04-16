@@ -32,10 +32,10 @@ import PositionSelectOverlay from "./components/overlays/PositionSelectOverlay.t
 import MainPage from "./pages/MainPage.tsx";
 import Tabs from "./components/Tabs.tsx";
 import {useProfileType} from "./stores/profile-store.ts";
-import Button from "./components/ui/Button.tsx";
 import {fetchSettings} from "./stores/settings-store.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
 import RadioPage from "./pages/RadioPage.tsx";
+import CplButton from "./components/ui/CplButton.tsx";
 
 function App() {
     const connected = useConnectionStore(state => state.connectionState === "connected");
@@ -120,13 +120,7 @@ function App() {
                         ) : (
                             <>
                                 <RadioButton />
-                                <Button
-                                    color="cyan"
-                                    className="text-xl text-slate-400"
-                                    disabled={true}
-                                >
-                                    CPL
-                                </Button>
+                                <CplButton />
                                 <RadioPrioButton />
                                 <PhoneButton />
                             </>

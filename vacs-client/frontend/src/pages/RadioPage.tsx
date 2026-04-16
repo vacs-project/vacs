@@ -77,7 +77,7 @@ function RadioPage() {
     );
 }
 
-const PRIORITY = ["*_DEL", "*_GND", "*_TWR", "*_APP", "*_CTR", "*_FMP"];
+const PRIORITY = ["*_FMP", "*_CTR", "*_APP", "*_TWR", "*_GND", "*_DEL"];
 function sortRadioStations(a: [number, RadioStation], b: [number, RadioStation]): number {
     const aCallsign = a[1].callsign ?? "";
     const bCallsign = b[1].callsign ?? "";

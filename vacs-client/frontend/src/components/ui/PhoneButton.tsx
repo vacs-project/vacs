@@ -6,9 +6,10 @@ import {useProfileStore, useProfileType} from "../../stores/profile-store.ts";
 import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
+import {useBlinkStore} from "../../stores/blink-store.ts";
 
 function PhoneButton() {
-    const blink = useCallStore(state => state.blink);
+    const blink = useBlinkStore(state => state.blink);
     const callDisplayType = useCallStore(state => state.callDisplay?.type);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
     const outgoingPrio = useCallStore(state => state.callDisplay?.call.prio === true) && enablePrio;

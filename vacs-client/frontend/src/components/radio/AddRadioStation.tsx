@@ -41,6 +41,7 @@ function AddRadioStation() {
                     "w-full h-full px-2 py-1.5 border bg-gray-300 rounded text-sm focus:outline-none font-semibold placeholder:font-normal placeholder:text-gray-500",
                     "disabled:brightness-90 disabled:cursor-not-allowed border-gray-700 focus:border-blue-500",
                 )}
+                autoComplete="off"
                 placeholder="Callsign"
                 value={value}
                 onKeyDown={e => {

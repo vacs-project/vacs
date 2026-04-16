@@ -4,6 +4,9 @@ import {clsx} from "clsx";
 import {RadioStation, StationStateUpdate} from "../../types/radio.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {invokeSafe} from "../../error.ts";
+import {useRadioStore} from "../../stores/radio-store.ts";
+import xc from "../../assets/xc.svg";
+import speaker from "../../assets/speaker.svg";
 
 type FrequencyObjectProps = {
     station: RadioStation;
@@ -25,6 +28,11 @@ function FrequencyObject({station, rxActive, txActive}: FrequencyObjectProps) {
                 <Button
                     color="gray"
                     className="h-full w-full outline-0! rounded-tr-none rounded-br-none rounded-tl-md rounded-bl-md flex flex-col justify-center items-center font-semibold"
+                    onClick={() => {
+                        if (useRadioStore.getState().cpl) {
+                            void update({xca: !station.xca});
+                        }
+                    }}
                 >
                     <div className="flex-1 min-h-0 flex flex-col justify-center">
                         <p
@@ -39,18 +47,15 @@ function FrequencyObject({station, rxActive, txActive}: FrequencyObjectProps) {
                     </div>
                     <div className="w-full h-px bg-gray-700" />
                     <div className="w-full flex-1 min-h-0">
-                        <div className="h-full flex justify-between items-center p-4">
-                            <p
-                                className={clsx(!station.headset && "text-red-500")}
+                        <div className="h-full flex justify-between items-center pl-2.5 pr-3">
+                            <img
+                                src={speaker}
+                                alt="XC"
+                                className={clsx("w-6 h-6", station.headset && "opacity-50")}
                                 onClick={() => update({headset: !station.headset})}
-                            >
-                                S
-                            </p>
-                            <p
-                                className={clsx(station.xca && "text-green-500")}
-                                onClick={() => update({xca: !station.xca})}
-                            >
-                                XC
+                            />
+                            <p className={clsx(!station.xca && "hidden")}>
+                                <img src={xc} alt="XC" className="w-5.5 h-5.5" />
                             </p>
                         </div>
                     </div>

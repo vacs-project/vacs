@@ -6,6 +6,7 @@ import {startCall, useCallStore} from "../../stores/call-store.ts";
 import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
+import {useBlinkStore} from "../../stores/blink-store.ts";
 
 type DAKeyProps = {
     client: ClientInfo;
@@ -13,7 +14,7 @@ type DAKeyProps = {
 };
 
 function DirectAccessClientKey({client, config}: DAKeyProps) {
-    const blink = useCallStore(state => state.blink);
+    const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
     const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);

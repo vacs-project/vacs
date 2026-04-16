@@ -6,12 +6,13 @@ import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
 import {CustomButtonColor} from "../types/custom-button-colors.ts";
+import {useBlinkStore} from "../stores/blink-store.ts";
 
 export function useStationKeyInteraction(
     stationId: StationId | undefined,
     defaultColor?: CustomButtonColor,
 ) {
-    const blink = useCallStore(state => state.blink);
+    const blink = useBlinkStore(state => state.blink);
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
