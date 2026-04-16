@@ -4,11 +4,13 @@ import {useProfileType} from "../../stores/profile-store.ts";
 import {navigate} from "wouter/use-browser-location";
 import {useRadioStore} from "../../stores/radio-store.ts";
 import {invokeStrict} from "../../error.ts";
+import {useSettingsStore} from "../../stores/settings-store.ts";
 
 function RadioButton() {
     const radioState = useRadioStore(state => state.radioState?.state ?? "NotConfigured");
     const disabled = radioState === "NotConfigured" || radioState === "Disconnected";
     const textMuted = radioState === "NotConfigured";
+    const radioIntegration = useSettingsStore(state => state.radioConfig?.integration);
 
     const collapsed = useProfileType() === "tabbed";
 
@@ -34,7 +36,7 @@ function RadioButton() {
     };
 
     const handleButtonClick = () => {
-        if (!disabled) {
+        if (!disabled && radioIntegration === "TrackAudio") {
             navigate("/radio");
         }
 
