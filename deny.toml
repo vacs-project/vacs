@@ -32,8 +32,6 @@ ignore = [
     { id = "RUSTSEC-2025-0100", reason = "tauri dependency" },
     { id = "RUSTSEC-2025-0098", reason = "tauri dependency" },
     { id = "RUSTSEC-2024-0436", reason = "tower-sessions-redis-store dependency" },
-    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki already patched" },
-    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki already patched" },
 ]
 
 [licenses]
