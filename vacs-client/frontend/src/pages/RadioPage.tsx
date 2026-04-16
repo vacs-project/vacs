@@ -3,16 +3,27 @@ import {useEffect, useState} from "preact/hooks";
 import {invokeSafe} from "../error.ts";
 import {RadioState, RadioStation} from "../types/radio.ts";
 import {listen, UnlistenFn} from "../transport";
+import AddRadioStation from "../components/radio/AddRadioStation.tsx";
+import {sortCallsigns} from "../types/client.ts";
 
 function RadioPage() {
-    const [stations, setStations] = useState<RadioStation[]>([]);
-    const [radioState, setRadioState] = useState<RadioState>({state: "NotConfigured"});
+    const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
+    const [radioState, setRadioState] = useState<RadioState | undefined>(undefined);
+
+    useEffect(() => {
+        if (
+            radioState?.state !== undefined &&
+            (radioState.state === "NotConfigured" || radioState.state === "Disconnected")
+        ) {
+            window.history.back();
+        }
+    }, [radioState?.state]);
 
     useEffect(() => {
         const fetch = async () => {
             const stations = await invokeSafe<RadioStation[]>("radio_get_stations");
             if (stations === undefined) return;
-            setStations(stations);
+            setStations(new Map(stations.map(station => [station.frequency, station])));
 
             const state = await invokeSafe<RadioState>("keybinds_get_radio_state");
             if (state === undefined) return;
@@ -24,19 +35,20 @@ function RadioPage() {
 
         unlistenFns.push(
             listen<RadioStation>("radio:station-added", event => {
-                setStations(prev => [...prev, event.payload]);
+                setStations(prev => prev.set(event.payload.frequency, event.payload));
             }),
             listen<number>("radio:station-removed", event => {
-                setStations(prev => prev.filter(station => station.frequency !== event.payload));
+                setStations(prev => {
+                    prev.delete(event.payload);
+                    return prev;
+                });
             }),
             listen<RadioStation>("radio:station-updated", event => {
-                setStations(prev =>
-                    prev.map(station =>
-                        station.frequency === event.payload.frequency ? event.payload : station,
-                    ),
-                );
+                setStations(prev => prev.set(event.payload.frequency, event.payload));
             }),
-            listen<RadioStation[]>("radio:stations-synced", event => setStations(event.payload)),
+            listen<RadioStation[]>("radio:stations-synced", event =>
+                setStations(new Map(event.payload.map(station => [station.frequency, station]))),
+            ),
             listen<RadioState>("radio:state", event => setRadioState(event.payload)),
         );
 
@@ -47,19 +59,29 @@ function RadioPage() {
 
     return (
         <div className="w-full h-full p-1.5 pr-0 flex flex-wrap-reverse content-start gap-2 overflow-y-auto">
-            {stations.map(station => (
-                <FrequencyObject
-                    key={station.frequency}
-                    station={station}
-                    rxActive={
-                        radioState.state === "RxActive" &&
-                        (radioState.data?.includes(station.frequency) ?? false)
-                    }
-                    txActive={radioState.state === "TxActive"}
-                />
-            ))}
+            {Array.from(stations.entries())
+                .sort(sortRadioStations)
+                .map(([freq, station]) => (
+                    <FrequencyObject
+                        key={freq}
+                        station={station}
+                        rxActive={
+                            radioState?.state === "RxActive" &&
+                            (radioState?.data?.includes(freq) ?? false)
+                        }
+                        txActive={radioState?.state === "TxActive"}
+                    />
+                ))}
+            <AddRadioStation />
         </div>
     );
+}
+
+const PRIORITY = ["*_DEL", "*_GND", "*_TWR", "*_APP", "*_CTR", "*_FMP"];
+function sortRadioStations(a: [number, RadioStation], b: [number, RadioStation]): number {
+    const aCallsign = a[1].callsign ?? "";
+    const bCallsign = b[1].callsign ?? "";
+    return sortCallsigns(aCallsign, bCallsign, PRIORITY, true);
 }
 
 export default RadioPage;

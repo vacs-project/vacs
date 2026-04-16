@@ -72,34 +72,42 @@ function filterClients(clients: ClientInfo[], config: ClientPageConfig | undefin
 function sortClients(clients: ClientInfo[], config: ClientPageConfig | undefined): ClientInfo[] {
     if (!config) return clients;
 
-    return clients.sort((a, b) => {
-        const aPriorityIndex = findFirstMatchIndex(a.displayName, config.priority);
-        const bPriorityIndex = findFirstMatchIndex(b.displayName, config.priority);
+    return clients.sort((a, b) => sortCallsigns(a.displayName, b.displayName, config.priority));
+}
 
-        // 1. Sort by priority bucket (lower index = higher priority)
-        const aEffectivePriority = aPriorityIndex === -1 ? Number.MAX_SAFE_INTEGER : aPriorityIndex;
-        const bEffectivePriority = bPriorityIndex === -1 ? Number.MAX_SAFE_INTEGER : bPriorityIndex;
+export function sortCallsigns(
+    aCallsign: string,
+    bCallsign: string,
+    priority?: string[],
+    sortUnknownUpfront?: boolean,
+): number {
+    const aPriorityIndex = findFirstMatchIndex(aCallsign, priority);
+    const bPriorityIndex = findFirstMatchIndex(bCallsign, priority);
 
-        if (aEffectivePriority !== bEffectivePriority) {
-            return aEffectivePriority - bEffectivePriority;
-        }
+    // 1. Sort by priority bucket (lower index = higher priority)
+    const unknownPriority = sortUnknownUpfront ? Number.MIN_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+    const aEffectivePriority = aPriorityIndex === -1 ? unknownPriority : aPriorityIndex;
+    const bEffectivePriority = bPriorityIndex === -1 ? unknownPriority : bPriorityIndex;
 
-        const [aStationName, aStationType] = splitDisplayName(a.displayName);
-        const [bStationName, bStationType] = splitDisplayName(b.displayName);
+    if (aEffectivePriority !== bEffectivePriority) {
+        return aEffectivePriority - bEffectivePriority;
+    }
 
-        // 2. Sort non-prioritized station types before clients without any station type
-        if (aStationType.length === 0 && bStationType.length > 0) {
-            return 1;
-        } else if (aStationType.length > 0 && bStationType.length === 0) {
-            return -1;
-        }
+    const [aStationName, aStationType] = splitDisplayName(aCallsign);
+    const [bStationName, bStationType] = splitDisplayName(bCallsign);
 
-        // 3. Sort by station type alphabetically
-        const stationType = aStationType.localeCompare(bStationType);
+    // 2. Sort non-prioritized station types before clients without any station type
+    if (aStationType.length === 0 && bStationType.length > 0) {
+        return -1;
+    } else if (aStationType.length > 0 && bStationType.length === 0) {
+        return 1;
+    }
 
-        // 4. Sort by station name alphabetically
-        return stationType !== 0 ? stationType : aStationName.localeCompare(bStationName);
-    });
+    // 3. Sort by station type alphabetically
+    const stationType = aStationType.localeCompare(bStationType);
+
+    // 4. Sort by station name alphabetically
+    return stationType !== 0 ? stationType : aStationName.localeCompare(bStationName);
 }
 
 export function filterAndSortClients(clients: ClientInfo[], config: ClientPageConfig | undefined) {

@@ -33,7 +33,9 @@ function RadioButton() {
     };
 
     const handleButtonClick = () => {
-        navigate("/radio");
+        if (!disabled) {
+            navigate("/radio");
+        }
         void reconnect();
     };
 
