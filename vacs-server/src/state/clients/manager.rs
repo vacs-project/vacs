@@ -4,6 +4,7 @@ use crate::state::clients::session::ClientSession;
 use crate::state::clients::{ClientManagerError, Result};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tokio::sync::broadcast::error::SendError;
 use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::instrument;
@@ -16,6 +17,7 @@ use vacs_protocol::ws::server::{
 use vacs_vatsim::coverage::network::{Network, RelevantStations};
 use vacs_vatsim::coverage::position::Position;
 use vacs_vatsim::coverage::profile::Profile;
+use vacs_vatsim::data_feed::DataFeed;
 use vacs_vatsim::{ControllerInfo, FacilityType};
 
 /// # Lock ordering
@@ -29,8 +31,8 @@ use vacs_vatsim::{ControllerInfo, FacilityType};
 /// Read-only methods that only need a subset may skip unused locks but
 /// must never invert this order. Note that this strict order does not
 /// apply if a lock is dropped immediately again.
-#[derive(Debug)]
 pub struct ClientManager {
+    data_feed: Arc<dyn DataFeed>,
     broadcast_tx: broadcast::Sender<ServerMessage>,
     network: parking_lot::RwLock<Network>,
     clients: RwLock<HashMap<ClientId, ClientSession>>,
@@ -56,8 +58,13 @@ struct ClientPositionSync {
 }
 
 impl ClientManager {
-    pub fn new(broadcast_tx: broadcast::Sender<ServerMessage>, network: Network) -> Self {
+    pub fn new(
+        broadcast_tx: broadcast::Sender<ServerMessage>,
+        network: Network,
+        data_feed: Arc<dyn DataFeed>,
+    ) -> Self {
         Self {
+            data_feed,
             broadcast_tx,
             network: parking_lot::RwLock::new(network),
             clients: RwLock::new(HashMap::new()),
@@ -199,7 +206,8 @@ impl ClientManager {
                         "Updating online stations list after position addition"
                     );
                     self.update_online_stations(&all_changes).await;
-                    Self::client_visible_changes(&all_changes, &online_positions)
+                    let pos_keys: HashSet<&PositionId> = online_positions.keys().collect();
+                    Self::client_visible_changes(&all_changes, &pos_keys, &pos_keys)
                 }
             }
         } else {
@@ -244,34 +252,100 @@ impl ClientManager {
                 if online_positions.get(position_id).unwrap().len() == 1 {
                     tracing::trace!(?position_id, "Removing position from online positions list");
 
-                    let vatsim_only = self.vatsim_only_positions.read().await;
-                    let before_all: HashSet<&PositionId> =
-                        online_positions.keys().chain(vatsim_only.keys()).collect();
-                    let mut after_all = before_all.clone();
-                    after_all.remove(position_id);
-                    let all_changes = self.network.read().coverage_diff(&before_all, &after_all);
-                    drop(vatsim_only);
+                    // Check if the controller is still on VATSIM. If so, the
+                    // position transitions to VATSIM-only rather than going
+                    // fully offline.
+                    let became_vatsim_only = if let Ok(controllers) =
+                        self.data_feed.fetch_controller_info().await
+                    {
+                        let controllers = controllers
+                            .into_iter()
+                            .filter(|c| !c.callsign.ends_with("_SUP"))
+                            .map(|c| (c.cid.clone(), c))
+                            .collect();
+                        // Collect owned keys so the clients read guard
+                        // drops immediately, preserving lock ordering
+                        // (clients before online_positions).
+                        let vacs_client_ids: HashSet<ClientId> =
+                            self.clients.read().await.keys().cloned().collect();
+                        let vacs_client_ids: HashSet<&ClientId> = vacs_client_ids.iter().collect();
+                        let mut vacs_positions = online_positions.clone();
+                        vacs_positions.remove(position_id);
 
-                    tracing::trace!(
-                        ?position_id,
-                        "Updating online stations list after position removal"
-                    );
-                    self.update_online_stations(&all_changes).await;
-                    // Compute client-visible changes BEFORE removing the
-                    // position so that `client_visible_changes` still sees the
-                    // departing position as a vacs position (not VATSIM-only).
-                    // Otherwise Handoff events are incorrectly downgraded to
-                    // Online events.
-                    changes.extend(Self::client_visible_changes(
-                        &all_changes,
-                        &online_positions,
-                    ));
+                        let new_vatsim_only = self.rebuild_vatsim_only(
+                            &controllers,
+                            &vacs_client_ids,
+                            &vacs_positions,
+                        );
+
+                        // Only insert the departing position into
+                        // vatsim_only if it's still covered by a
+                        // non-vacs VATSIM controller. Don't replace
+                        // the entire map - other entries stay
+                        // untouched until the next sync cycle.
+                        if let Some(cids) = new_vatsim_only.get(position_id) {
+                            self.vatsim_only_positions
+                                .write()
+                                .await
+                                .insert(position_id.clone(), cids.clone());
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if became_vatsim_only {
+                        // The position transitions from vacs to vatsim-only.
+                        // The total set of online positions hasn't changed, so
+                        // there are no coverage changes and online_stations
+                        // stays intact. However, stations controlled by this
+                        // position are no longer callable by vacs clients and
+                        // need Offline events.
+                        tracing::debug!(
+                            ?position_id,
+                            "Position still on VATSIM, transitioning to VATSIM-only"
+                        );
+                        let online_stations = self.online_stations.read().await;
+                        changes.extend(
+                            online_stations
+                                .iter()
+                                .filter(|(_, controlling_pos)| *controlling_pos == position_id)
+                                .map(|(station_id, _)| StationChange::Offline {
+                                    station_id: station_id.clone(),
+                                }),
+                        );
+                    } else {
+                        // Position goes fully offline
+                        let vatsim_only = self.vatsim_only_positions.read().await;
+                        let before_all: HashSet<&PositionId> =
+                            online_positions.keys().chain(vatsim_only.keys()).collect();
+                        let mut after_all = before_all.clone();
+                        after_all.remove(position_id);
+                        let all_changes =
+                            self.network.read().coverage_diff(&before_all, &after_all);
+                        drop(vatsim_only);
+
+                        tracing::trace!(
+                            ?position_id,
+                            "Updating online stations list after position removal"
+                        );
+                        self.update_online_stations(&all_changes).await;
+                        // Compute client-visible changes BEFORE removing the
+                        // position so that `client_visible_changes` still sees
+                        // the departing position as a vacs position (not
+                        // VATSIM-only). Otherwise Handoff events are
+                        // incorrectly downgraded to Online events.
+                        let pos_keys: HashSet<&PositionId> = online_positions.keys().collect();
+                        changes.extend(Self::client_visible_changes(
+                            &all_changes,
+                            &pos_keys,
+                            &pos_keys,
+                        ));
+                    }
 
                     online_positions.remove(position_id);
-                    // If a VATSIM-only controller covers this position,
-                    // vatsim_only_positions will be stale until the next
-                    // sync cycle corrects as we don't have an up-to-date
-                    // datafeed snapshot here.
                 } else {
                     tracing::trace!(
                         ?position_id,
@@ -630,7 +704,8 @@ impl ClientManager {
 
         let all_changes = Self::compute_station_diff(&old_online_stations, &new_online_stations);
         self.update_online_stations(&all_changes).await;
-        let station_changes = Self::client_visible_changes(&all_changes, &online_positions);
+        let pos_keys: HashSet<&PositionId> = online_positions.keys().collect();
+        let station_changes = Self::client_visible_changes(&all_changes, &pos_keys, &pos_keys);
 
         drop(vatsim_only);
         drop(clients);
@@ -680,6 +755,11 @@ impl ClientManager {
                 .cloned()
                 .collect();
 
+            // Capture online position keys before sync_client_positions mutates them.
+            // Used as the "from" set in client_visible_changes so that handoffs from
+            // positions that are removed during sync are still classified correctly.
+            let start_online_keys: HashSet<PositionId> = online_positions.keys().cloned().collect();
+
             let mut sync = self.sync_client_positions(
                 controllers,
                 pending_disconnect,
@@ -710,9 +790,12 @@ impl ClientManager {
 
                 let all_changes = self.network.read().coverage_diff(&start_all, &end_all);
                 self.update_online_stations(&all_changes).await;
+                let from_online: HashSet<&PositionId> = start_online_keys.iter().collect();
+                let to_online: HashSet<&PositionId> = online_positions.keys().collect();
                 coverage_changes.extend(Self::client_visible_changes(
                     &all_changes,
-                    &online_positions,
+                    &from_online,
+                    &to_online,
                 ));
             }
 
@@ -1109,15 +1192,25 @@ impl ClientManager {
     ///   was VATSIM-only. Clients handle duplicate/unknown `Offline` events gracefully.
     /// - `Handoff` to a VATSIM-only position becomes `Offline` (station leaves vacs coverage)
     /// - `Handoff` from a VATSIM-only position becomes `Online` (station enters vacs coverage)
+    ///
+    /// `from_online_positions` is the set of position IDs that were in `online_positions`
+    /// before the change (used for `from_position_id` lookups in handoffs).
+    /// `to_online_positions` is the set of position IDs in `online_positions` after the
+    /// change (used for `Online` events and `to_position_id` lookups in handoffs).
+    ///
+    /// When no positions are added or removed between the before/after snapshots
+    /// (e.g. in `add_client` and `remove_client`), both parameters point to the
+    /// same set.
     fn client_visible_changes(
         changes: &[StationChange],
-        online_positions: &HashMap<PositionId, HashSet<ClientId>>,
+        from_online_positions: &HashSet<&PositionId>,
+        to_online_positions: &HashSet<&PositionId>,
     ) -> Vec<StationChange> {
         changes
             .iter()
             .filter_map(|change| match change {
                 StationChange::Online { position_id, .. } => {
-                    if online_positions.contains_key(position_id) {
+                    if to_online_positions.contains(position_id) {
                         Some(change.clone())
                     } else {
                         None
@@ -1128,8 +1221,8 @@ impl ClientManager {
                     from_position_id,
                     to_position_id,
                 } => {
-                    let from_vacs = online_positions.contains_key(from_position_id);
-                    let to_vacs = online_positions.contains_key(to_position_id);
+                    let from_vacs = from_online_positions.contains(from_position_id);
+                    let to_vacs = to_online_positions.contains(to_position_id);
                     match (from_vacs, to_vacs) {
                         // vacs -> vacs: normal handoff
                         (true, true) => Some(change.clone()),
@@ -1360,7 +1453,8 @@ mod tests {
 
     fn client_manager(network: Network) -> ClientManager {
         let (tx, _) = broadcast::channel(64);
-        ClientManager::new(tx, network)
+        let data_feed = Arc::new(vacs_vatsim::data_feed::mock::MockDataFeed::new(Vec::new()));
+        ClientManager::new(tx, network, data_feed)
     }
 
     struct DrainedMessages {
@@ -1394,8 +1488,9 @@ mod tests {
             position_id: pos("LOWW_TWR"),
         }];
         let positions = online_positions(&["LOWW_TWR"]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert_eq!(result, changes);
     }
 
@@ -1406,8 +1501,9 @@ mod tests {
             position_id: pos("LOWW_TWR"),
         }];
         let positions = online_positions(&[]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert!(result.is_empty());
     }
 
@@ -1419,8 +1515,9 @@ mod tests {
             to_position_id: pos("LOWW_APP"),
         }];
         let positions = online_positions(&["LOVV_CTR", "LOWW_APP"]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert_eq!(result, changes);
     }
 
@@ -1432,8 +1529,9 @@ mod tests {
             to_position_id: pos("LOWW_TWR"),
         }];
         let positions = online_positions(&["LOWW_APP"]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert_eq!(
             result,
             vec![StationChange::Offline {
@@ -1450,8 +1548,9 @@ mod tests {
             to_position_id: pos("LOWW_APP"),
         }];
         let positions = online_positions(&["LOWW_APP"]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert_eq!(
             result,
             vec![StationChange::Online {
@@ -1469,8 +1568,9 @@ mod tests {
             to_position_id: pos("LOWW_APP"),
         }];
         let positions = online_positions(&[]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert!(result.is_empty());
     }
 
@@ -1480,9 +1580,63 @@ mod tests {
             station_id: station("LOWW_TWR"),
         }];
         let positions = online_positions(&[]);
+        let pos_keys: HashSet<&PositionId> = positions.keys().collect();
 
-        let result = ClientManager::client_visible_changes(&changes, &positions);
+        let result = ClientManager::client_visible_changes(&changes, &pos_keys, &pos_keys);
         assert_eq!(result, changes);
+    }
+
+    #[test]
+    fn handoff_from_removed_vacs_position_stays_handoff() {
+        // Simulates the sync_vatsim_state scenario: a position was in
+        // online_positions before sync but got removed. The handoff from
+        // that position to another vacs position should remain a Handoff,
+        // not become an Online (which would happen if we used the mutated
+        // post-sync positions for both from and to lookups).
+        let changes = vec![StationChange::Handoff {
+            station_id: station("LOWW_APP"),
+            from_position_id: pos("LOVV_CTR"),
+            to_position_id: pos("LOWW_APP"),
+        }];
+
+        // Before sync: both positions online
+        let before = online_positions(&["LOVV_CTR", "LOWW_APP"]);
+        let from_keys: HashSet<&PositionId> = before.keys().collect();
+
+        // After sync: LOVV_CTR removed
+        let after = online_positions(&["LOWW_APP"]);
+        let to_keys: HashSet<&PositionId> = after.keys().collect();
+
+        let result = ClientManager::client_visible_changes(&changes, &from_keys, &to_keys);
+        assert_eq!(
+            result, changes,
+            "handoff should stay a handoff, not become Online"
+        );
+    }
+
+    #[test]
+    fn handoff_from_removed_vacs_to_vatsim_only_becomes_offline() {
+        // After sync, from_position removed and to_position is vatsim-only.
+        // Should become Offline (station leaves vacs coverage).
+        let changes = vec![StationChange::Handoff {
+            station_id: station("LOWW_TWR"),
+            from_position_id: pos("LOWW_APP"),
+            to_position_id: pos("LOWW_TWR"),
+        }];
+
+        let before = online_positions(&["LOWW_APP"]);
+        let from_keys: HashSet<&PositionId> = before.keys().collect();
+
+        let after = online_positions(&[]);
+        let to_keys: HashSet<&PositionId> = after.keys().collect();
+
+        let result = ClientManager::client_visible_changes(&changes, &from_keys, &to_keys);
+        assert_eq!(
+            result,
+            vec![StationChange::Offline {
+                station_id: station("LOWW_TWR"),
+            }]
+        );
     }
 
     #[tokio::test]

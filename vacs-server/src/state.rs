@@ -66,7 +66,7 @@ impl AppState {
             ice_config_provider,
             store,
             calls: CallManager::new(),
-            clients: ClientManager::new(broadcast_tx.clone(), network),
+            clients: ClientManager::new(broadcast_tx.clone(), network, data_feed.clone()),
             dataset,
             broadcast_tx,
             slurper,
