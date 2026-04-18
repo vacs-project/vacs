@@ -122,19 +122,15 @@ impl TrackAudioRadio {
 
         match event {
             Event::TxBegin(_) => {
-                log::trace!("TrackAudio transmission started");
                 state.set_transmitting(app, true);
             }
             Event::TxEnd(_) => {
-                log::trace!("TrackAudio transmission ended");
                 state.set_transmitting(app, false);
             }
             Event::RxBegin(rx_begin) => {
-                log::trace!("TrackAudio reception started");
                 state.set_receiving(app, rx_begin.frequency, true);
             }
             Event::RxEnd(rx_end) => {
-                log::trace!("TrackAudio reception ended");
                 state.set_receiving(
                     app,
                     rx_end.frequency,
