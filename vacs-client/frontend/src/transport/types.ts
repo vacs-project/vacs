@@ -45,6 +45,7 @@ export type RemoteCommand =
     | "keybinds_set_binding"
     | "keybinds_set_radio_config"
     | "keybinds_set_transmit_config"
+    | "keybinds_capture_joystick_button"
     | "radio_add_station"
     | "radio_get_stations"
     | "radio_set_station_state"

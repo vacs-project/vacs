@@ -173,6 +173,7 @@ pub fn run() {
             keybinds::commands::keybinds_set_binding,
             keybinds::commands::keybinds_set_radio_config,
             keybinds::commands::keybinds_set_transmit_config,
+            keybinds::commands::keybinds_capture_joystick_button,
             radio::commands::radio_add_station,
             radio::commands::radio_set_station_state,
             radio::commands::radio_get_stations,

@@ -2,7 +2,7 @@ use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::webrtc::AppStateWebrtcExt;
 use crate::audio::manager::AudioManagerHandle;
-use crate::config::{KeybindsConfig, RadioConfig, TransmitConfig, TransmitMode};
+use crate::config::{InputCode, KeybindsConfig, RadioConfig, TransmitConfig, TransmitMode};
 use crate::error::Error;
 use crate::keybinds::runtime::{DynKeybindListener, KeybindListener, PlatformListener};
 use crate::keybinds::{KeyEvent, Keybind};
@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::RwLock as TokioRwLock;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_util::sync::CancellationToken;
 
 #[cfg(target_os = "linux")]
@@ -23,7 +23,7 @@ use crate::platform::Platform;
 #[derive(Debug)]
 pub struct KeybindEngine {
     mode: TransmitMode,
-    transmit_code: Option<Code>,
+    transmit_code: Option<InputCode>,
     accept_call_code: Option<Code>,
     end_call_code: Option<Code>,
     toggle_radio_prio_code: Option<Code>,
@@ -32,6 +32,8 @@ pub struct KeybindEngine {
     listener: RwLock<Option<DynKeybindListener>>,
     radio: RwLock<Option<DynRadio>>,
     rx_task: Option<JoinHandle<()>>,
+    forward_task: Option<JoinHandle<()>>,
+    joystick_task: Option<JoinHandle<()>>,
     shutdown_token: CancellationToken,
     stop_token: Option<CancellationToken>,
     pressed: Arc<AtomicBool>,
@@ -61,6 +63,8 @@ impl KeybindEngine {
             listener: RwLock::new(None),
             radio: RwLock::new(None),
             rx_task: None,
+            forward_task: None,
+            joystick_task: None,
             shutdown_token,
             stop_token: None,
             pressed: Arc::new(AtomicBool::new(false)),
@@ -93,7 +97,7 @@ impl KeybindEngine {
 
         self.stop_token = Some(self.shutdown_token.child_token());
 
-        let (listener, rx) = PlatformListener::start().await?;
+        let (listener, keyboard_rx) = PlatformListener::start().await?;
         *self.listener.write() = Some(Arc::new(listener));
 
         if self.mode == TransmitMode::RadioIntegration {
@@ -103,7 +107,13 @@ impl KeybindEngine {
             self.app.emit("radio:integration-available", false).ok();
         }
 
-        self.spawn_rx_loop(rx);
+        // Create a merged channel that both keyboard and joystick feed into.
+        // The main rx loop only needs to know about KeyEvent — source doesn't matter.
+        let (merged_tx, merged_rx) = tokio::sync::mpsc::unbounded_channel::<KeyEvent>();
+
+        self.spawn_forward_task(keyboard_rx, merged_tx.clone());
+        self.spawn_joystick_task(merged_tx);
+        self.spawn_rx_loop(merged_rx);
 
         Ok(())
     }
@@ -125,6 +135,14 @@ impl KeybindEngine {
 
         if let Some(rx_task) = self.rx_task.take() {
             rx_task.abort();
+        }
+
+        if let Some(forward_task) = self.forward_task.take() {
+            forward_task.abort();
+        }
+
+        if let Some(joystick_task) = self.joystick_task.take() {
+            joystick_task.abort();
         }
     }
 
@@ -370,6 +388,87 @@ impl KeybindEngine {
         }
     }
 
+    /// Forward keyboard events from the platform listener into the merged channel.
+    /// This lets the joystick task share the same channel without touching the rx loop.
+    fn spawn_forward_task(
+        &mut self,
+        mut keyboard_rx: UnboundedReceiver<KeyEvent>,
+        tx: UnboundedSender<KeyEvent>,
+    ) {
+        let stop_token = self
+            .stop_token
+            .clone()
+            .unwrap_or(self.shutdown_token.child_token());
+
+        let handle = tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = stop_token.cancelled() => break,
+                    res = keyboard_rx.recv() => {
+                        let Some(event) = res else { break; };
+                        // If receiver is gone the engine is shutting down — drop silently.
+                        let _ = tx.send(event);
+                    }
+                }
+            }
+            log::trace!("Keyboard forward task finished");
+        });
+
+        self.forward_task = Some(handle);
+    }
+
+    /// Spawn a blocking thread that polls gilrs for joystick button events and
+    /// converts them into `KeyEvent`s (using `Code::Gamepad0`–`Code::Gamepad19`)
+    /// before sending them into the merged channel.
+    ///
+    /// gilrs has no async API — it must be polled. We use `spawn_blocking` so we
+    /// don't block the Tokio runtime. The poll loop sleeps 8 ms between ticks
+    /// (~120 Hz), which is responsive enough for PTT use.
+    ///
+    /// # Button → Code mapping
+    ///
+    /// Each `gilrs::Button` variant maps to a `Code::GamepadN` (N = 0..=18).
+    /// The frontend stores and sends these codes as strings like `"Gamepad0"`,
+    /// `"Gamepad8"`, etc. — no protocol change is needed.
+    ///
+    /// | gilrs::Button      | Code        | Typical label         |
+    /// |--------------------|-------------|-----------------------|
+    /// | South              | Gamepad0    | A / Cross             |
+    /// | East               | Gamepad1    | B / Circle            |
+    /// | North              | Gamepad2    | Y / Triangle          |
+    /// | West               | Gamepad3    | X / Square            |
+    /// | C                  | Gamepad4    | C (some controllers)  |
+    /// | Z                  | Gamepad5    | Z (some controllers)  |
+    /// | LeftTrigger        | Gamepad6    | LB / L1               |
+    /// | LeftTrigger2       | Gamepad7    | LT / L2               |
+    /// | RightTrigger       | Gamepad8    | RB / R1               |
+    /// | RightTrigger2      | Gamepad9    | RT / R2               |
+    /// | Select             | Gamepad10   | Back / Select / Share |
+    /// | Start              | Gamepad11   | Start / Menu          |
+    /// | Mode               | Gamepad12   | Guide / PS / Xbox     |
+    /// | LeftThumb          | Gamepad13   | L3 (left stick click) |
+    /// | RightThumb         | Gamepad14   | R3 (right stick click)|
+    /// | DPadUp             | Gamepad15   | D-pad up              |
+    /// | DPadDown           | Gamepad16   | D-pad down            |
+    /// | DPadLeft           | Gamepad17   | D-pad left            |
+    /// | DPadRight          | Gamepad18   | D-pad right           |
+    fn spawn_joystick_task(&mut self, tx: UnboundedSender<KeyEvent>) {
+        let stop_token = self
+            .stop_token
+            .clone()
+            .unwrap_or(self.shutdown_token.child_token());
+
+        let handle = tauri::async_runtime::spawn(async move {
+            let _ = tokio::task::spawn_blocking(move || {
+                joystick_poll_loop(tx, stop_token);
+            })
+                .await;
+        });
+
+        self.joystick_task = Some(handle);
+    }
+
     fn spawn_rx_loop(&mut self, mut rx: UnboundedReceiver<KeyEvent>) {
         let app = self.app.clone();
         let transmit = self.transmit_code;
@@ -412,7 +511,13 @@ impl KeybindEngine {
                             Self::handle_call_control_event(&app, &event.code, &accept_call, &end_call, &toggle_radio_prio).await;
                         }
 
-                        if transmit.is_none_or(|c| c != event.code) {
+                        let matches_transmit = match transmit {
+                            None => false,
+                            Some(InputCode::Key(c)) => c == event.code,
+                            Some(InputCode::Joystick(n)) => event.code == joystick_sentinel(n),
+                        };
+
+                        if !matches_transmit {
                             continue;
                         }
 
@@ -483,7 +588,7 @@ impl KeybindEngine {
     }
 
     #[inline]
-    fn select_active_transmit_code(config: &TransmitConfig) -> Option<Code> {
+    fn select_active_transmit_code(config: &TransmitConfig) -> Option<InputCode> {
         #[cfg(target_os = "linux")]
         if matches!(Platform::get(), Platform::LinuxWayland) {
             // Wayland Code Mapping Strategy:
@@ -579,4 +684,129 @@ impl Drop for KeybindEngine {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Joystick support (gilrs)
+// ---------------------------------------------------------------------------
+
+fn joystick_sentinel(n: u8) -> Code {
+    format!("F{}", 13 + n).parse::<Code>().unwrap_or(Code::Unidentified)
+}
+
+/// Map a `gilrs::Button` to a `keyboard_types::Code` in the `Gamepad0`–`Gamepad18` range.
+///
+/// Returns `None` for unmapped variants (e.g. `Unknown`).
+/// Maps a gilrs button to a sentinel Code for use in KeyEvent.
+/// We use F13–F30 (18 buttons) as they exist in keyboard_types
+/// and are never produced by real keyboards. F31–F35 are reserved
+/// for Wayland portal shortcuts so we stay below F31.
+fn gilrs_button_to_code(button: gilrs::Button) -> Option<Code> {
+    let idx: u8 = match button {
+        gilrs::Button::South => 0,
+        gilrs::Button::East => 1,
+        gilrs::Button::North => 2,
+        gilrs::Button::West => 3,
+        gilrs::Button::C => 4,
+        gilrs::Button::Z => 5,
+        gilrs::Button::LeftTrigger => 6,
+        gilrs::Button::LeftTrigger2 => 7,
+        gilrs::Button::RightTrigger => 8,
+        gilrs::Button::RightTrigger2 => 9,
+        gilrs::Button::Select => 10,
+        gilrs::Button::Start => 11,
+        gilrs::Button::Mode => 12,
+        gilrs::Button::LeftThumb => 13,
+        gilrs::Button::DPadUp => 14,
+        gilrs::Button::DPadDown => 15,
+        gilrs::Button::DPadLeft => 16,
+        gilrs::Button::DPadRight => 17,
+        _ => return None,
+    };
+    // F13 + 0 = F13, F13 + 17 = F30. All safe.
+    format!("F{}", 13 + idx).parse::<Code>().ok()
+}
+
+/// Blocking poll loop for joystick events.
+///
+/// Must be called from a `spawn_blocking` context — gilrs is not async-safe and
+/// will block the calling thread for the duration of each `next_event` call.
+///
+/// Events are converted to `KeyEvent` and forwarded over `tx`. The loop exits
+/// cleanly when either the `CancellationToken` is cancelled or `tx` is closed.
+fn joystick_poll_loop(tx: UnboundedSender<KeyEvent>, stop_token: CancellationToken) {
+    let mut gilrs = match gilrs::Gilrs::new() {
+        Ok(g) => g,
+        Err(err) => {
+            log::warn!("Failed to initialize gilrs joystick support: {err}");
+            return;
+        }
+    };
+
+    log::debug!(
+        "Joystick task started, {} gamepad(s) connected",
+        gilrs.gamepads().count()
+    );
+
+    if stop_token.is_cancelled() {
+        log::trace!("Joystick task: stop token already cancelled after init, exiting");
+        return;
+    }
+
+    let mut pressed_state: std::collections::HashMap<(gilrs::GamepadId, gilrs::Button), bool> =
+        std::collections::HashMap::new();
+
+    loop {
+        if stop_token.is_cancelled() {
+            break;
+        }
+
+        while let Some(gilrs::Event { event, id, .. }) = gilrs.next_event() {
+            let (button, key_state) = match event {
+                gilrs::EventType::ButtonPressed(b, _) => {
+                    pressed_state.insert((id, b), true);
+                    (b, KeyState::Down)
+                }
+                gilrs::EventType::ButtonReleased(b, _) => {
+                    pressed_state.insert((id, b), false);
+                    (b, KeyState::Up)
+                }
+                gilrs::EventType::ButtonChanged(b, value, _) => {
+                    let new_pressed = value >= 0.5;
+                    let Some(was_pressed) = pressed_state.get(&(id, b)).copied() else {
+                        // Prime local analog state without emitting a synthetic edge.
+                        pressed_state.insert((id, b), new_pressed);
+                        continue;
+                    };
+                    if new_pressed == was_pressed {
+                        continue;
+                    }
+                    pressed_state.insert((id, b), new_pressed);
+                    let state = if new_pressed { KeyState::Down } else { KeyState::Up };
+                    (b, state)
+                }
+                gilrs::EventType::Connected => {
+                    log::info!("Joystick connected: gamepad {id:?}");
+                    continue;
+                }
+                gilrs::EventType::Disconnected => {
+                    log::info!("Joystick disconnected: gamepad {id:?}");
+                    pressed_state.retain(|(gid, _), _| *gid != id);
+                    continue;
+                }
+                _ => continue,
+            };
+
+            if let Some(code) = gilrs_button_to_code(button) {
+                if tx.send(KeyEvent { code, label: format!("{code:?}"), state: key_state }).is_err() {
+                    log::trace!("Joystick task: merged channel closed, exiting");
+                    return;
+                }
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(8));
+    }
+
+    log::debug!("Joystick task finished");
 }
