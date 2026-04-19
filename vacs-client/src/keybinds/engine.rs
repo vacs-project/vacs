@@ -463,7 +463,7 @@ impl KeybindEngine {
             let _ = tokio::task::spawn_blocking(move || {
                 joystick_poll_loop(tx, stop_token);
             })
-                .await;
+            .await;
         });
 
         self.joystick_task = Some(handle);
@@ -691,7 +691,9 @@ impl Drop for KeybindEngine {
 // ---------------------------------------------------------------------------
 
 fn joystick_sentinel(n: u8) -> Code {
-    format!("F{}", 13 + n).parse::<Code>().unwrap_or(Code::Unidentified)
+    format!("F{}", 13 + n)
+        .parse::<Code>()
+        .unwrap_or(Code::Unidentified)
 }
 
 /// Map a `gilrs::Button` to a `keyboard_types::Code` in the `Gamepad0`–`Gamepad18` range.
@@ -782,7 +784,11 @@ fn joystick_poll_loop(tx: UnboundedSender<KeyEvent>, stop_token: CancellationTok
                         continue;
                     }
                     pressed_state.insert((id, b), new_pressed);
-                    let state = if new_pressed { KeyState::Down } else { KeyState::Up };
+                    let state = if new_pressed {
+                        KeyState::Down
+                    } else {
+                        KeyState::Up
+                    };
                     (b, state)
                 }
                 gilrs::EventType::Connected => {
@@ -797,11 +803,17 @@ fn joystick_poll_loop(tx: UnboundedSender<KeyEvent>, stop_token: CancellationTok
                 _ => continue,
             };
 
-            if let Some(code) = gilrs_button_to_code(button) {
-                if tx.send(KeyEvent { code, label: format!("{code:?}"), state: key_state }).is_err() {
-                    log::trace!("Joystick task: merged channel closed, exiting");
-                    return;
-                }
+            if let Some(code) = gilrs_button_to_code(button)
+                && tx
+                    .send(KeyEvent {
+                        code,
+                        label: format!("{code:?}"),
+                        state: key_state,
+                    })
+                    .is_err()
+            {
+                log::trace!("Joystick task: merged channel closed, exiting");
+                return;
             }
         }
 

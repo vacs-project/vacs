@@ -1,5 +1,9 @@
 use crate::app::state::AppState;
-use crate::config::{CLIENT_SETTINGS_FILE_NAME, FrontendKeybindsConfig, FrontendRadioConfig, FrontendTransmitConfig, KeybindsConfig, Persistable, PersistedClientConfig, RadioConfig, TransmitConfig, TransmitMode, InputCode};
+use crate::config::{
+    CLIENT_SETTINGS_FILE_NAME, FrontendKeybindsConfig, FrontendRadioConfig, FrontendTransmitConfig,
+    InputCode, KeybindsConfig, Persistable, PersistedClientConfig, RadioConfig, TransmitConfig,
+    TransmitMode,
+};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::keybinds::{Keybind, KeybindsError};
@@ -244,9 +248,8 @@ fn validate_afv_radio_integration_config(
 #[vacs_macros::log_err]
 pub async fn keybinds_capture_joystick_button() -> Result<Option<String>, Error> {
     let result = tokio::task::spawn_blocking(|| {
-        let mut gilrs = gilrs::Gilrs::new().map_err(|e| {
-            Error::Other(Box::new(anyhow::anyhow!("gilrs init failed: {e}")))
-        })?;
+        let mut gilrs = gilrs::Gilrs::new()
+            .map_err(|e| Error::Other(Box::new(anyhow::anyhow!("gilrs init failed: {e}"))))?;
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
 
@@ -283,16 +286,15 @@ pub async fn keybinds_capture_joystick_button() -> Result<Option<String>, Error>
                     gilrs::Button::DPadRight => 17,
                     _ => continue,
                 };
-                
+
                 return Ok(Some(format!("Joystick:{idx}")));
             }
 
             std::thread::sleep(std::time::Duration::from_millis(8));
         }
     })
-        .await
-        .map_err(|e| Error::Other(Box::new(anyhow::anyhow!("join error: {e}"))))??;
+    .await
+    .map_err(|e| Error::Other(Box::new(anyhow::anyhow!("join error: {e}"))))??;
 
     Ok(result)
 }
-

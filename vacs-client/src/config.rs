@@ -521,7 +521,9 @@ impl From<TransmitConfig> for FrontendTransmitConfig {
             mode: transmit_config.mode,
             push_to_talk: transmit_config.push_to_talk.map(|c| c.to_display_string()),
             push_to_mute: transmit_config.push_to_mute.map(|c| c.to_display_string()),
-            radio_push_to_talk: transmit_config.radio_push_to_talk.map(|c| c.to_display_string()),
+            radio_push_to_talk: transmit_config
+                .radio_push_to_talk
+                .map(|c| c.to_display_string()),
         }
     }
 }
@@ -532,9 +534,21 @@ impl TryFrom<FrontendTransmitConfig> for TransmitConfig {
     fn try_from(value: FrontendTransmitConfig) -> Result<Self, Self::Error> {
         Ok(Self {
             mode: value.mode,
-            push_to_talk: value.push_to_talk.as_deref().map(InputCode::from_str).transpose()?,
-            push_to_mute: value.push_to_mute.as_deref().map(InputCode::from_str).transpose()?,
-            radio_push_to_talk: value.radio_push_to_talk.as_deref().map(InputCode::from_str).transpose()?,
+            push_to_talk: value
+                .push_to_talk
+                .as_deref()
+                .map(InputCode::from_str)
+                .transpose()?,
+            push_to_mute: value
+                .push_to_mute
+                .as_deref()
+                .map(InputCode::from_str)
+                .transpose()?,
+            radio_push_to_talk: value
+                .radio_push_to_talk
+                .as_deref()
+                .map(InputCode::from_str)
+                .transpose()?,
         })
     }
 }
@@ -563,7 +577,10 @@ impl<'de> serde::Deserialize<'de> for InputCode {
                     .map_err(|_| E::custom(format!("unknown key code: {v}")))
             }
 
-            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<InputCode, A::Error> {
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<InputCode, A::Error> {
                 use serde::de::Error as _;
                 let mut typ: Option<String> = None;
                 let mut val_str: Option<String> = None;
@@ -581,7 +598,9 @@ impl<'de> serde::Deserialize<'de> for InputCode {
                                 _ => {}
                             }
                         }
-                        _ => { map.next_value::<serde::de::IgnoredAny>()?; }
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
                     }
                 }
 
@@ -593,10 +612,11 @@ impl<'de> serde::Deserialize<'de> for InputCode {
                             .map_err(|_| A::Error::custom(format!("unknown key code: {s}")))
                     }
                     Some("Joystick") => {
-                        let n = val_int.ok_or_else(|| A::Error::custom("missing value for Joystick"))?;
+                        let n = val_int
+                            .ok_or_else(|| A::Error::custom("missing value for Joystick"))?;
                         Ok(InputCode::Joystick(n))
                     }
-                    _ => Err(A::Error::custom("invalid InputCode"))
+                    _ => Err(A::Error::custom("invalid InputCode")),
                 }
             }
         }
