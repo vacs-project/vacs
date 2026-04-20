@@ -95,7 +95,6 @@ export type RemoteEvent =
     | "signaling:force-call-end"
     | "signaling:accept-incoming-call"
     | "signaling:add-incoming-to-call-list"
-    | "signaling:update-call-list"
     | "signaling:test-profile"
     | "signaling:client-page-config"
     | "store:sync"

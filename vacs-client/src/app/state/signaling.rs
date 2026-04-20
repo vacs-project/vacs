@@ -655,7 +655,7 @@ impl AppStateInner {
                 let mut state = state.lock().await;
 
                 if !state.cleanup_call(&call_id).await {
-                    log::debug!("Received call end message for peer that is not active");
+                    log::debug!("Received call end message for call that is not active");
                 }
 
                 state.remove_incoming_call(&call_id);
@@ -675,7 +675,7 @@ impl AppStateInner {
                 let mut state = state.lock().await;
 
                 if !state.cleanup_call(&call_id).await {
-                    log::debug!("Received call end message for call that is not active");
+                    log::debug!("Received call error message for call that is not active");
                 }
 
                 state.remove_outgoing_call(&call_id);
