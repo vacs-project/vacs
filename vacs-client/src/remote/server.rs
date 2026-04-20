@@ -654,10 +654,11 @@ async fn dispatch_command(
             // Mirrors the Tauri command in remote/commands.rs - both emit the same
             // event, but this path is used by remote (WS) clients while the command
             // is used by the desktop (IPC) frontend.
-            let (store, state): (String, serde_json::Value) = args!(args, "store", "state");
+            let (store, state, source_id): (String, serde_json::Value, String) =
+                args!(args, "store", "state", "sourceId");
             app.emit(
                 "store:sync",
-                serde_json::json!({"store": store, "state": state}),
+                serde_json::json!({"store": store, "state": state, "sourceId": source_id}),
             )
             .ok();
             DispatchResult::Ok(serde_json::Value::Null)

@@ -18,10 +18,11 @@ pub async fn remote_broadcast_store_sync(
     app: AppHandle,
     store: String,
     state: serde_json::Value,
+    source_id: String,
 ) -> Result<(), Error> {
     app.emit(
         "store:sync",
-        serde_json::json!({"store": store, "state": state}),
+        serde_json::json!({"store": store, "state": state, "sourceId": source_id}),
     )
     .ok();
     Ok(())
