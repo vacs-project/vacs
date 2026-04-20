@@ -1,4 +1,5 @@
 mod admin;
+mod assets;
 mod auth;
 mod debug;
 mod root;
@@ -35,6 +36,7 @@ where
 {
     let mut app = Router::new()
         .nest("/admin", admin::routes())
+        .nest("/assets", assets::routes())
         .nest("/auth", auth::routes())
         .nest("/ws", ws::routes().merge(crate::ws::routes()))
         .nest("/version", version::routes())

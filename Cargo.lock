@@ -8482,6 +8482,7 @@ dependencies = [
  "tower-sessions-redis-store",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "vacs-protocol",
  "vacs-vatsim",

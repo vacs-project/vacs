@@ -55,6 +55,8 @@ impl AppConfig {
             anyhow::bail!("Session signing key is empty");
         }
 
+        url::Url::parse(&config.auth.oauth.deep_link_url).context("Invalid OAuth deep link URL")?;
+
         Ok(config)
     }
 }
@@ -155,6 +157,7 @@ pub struct OAuthConfig {
     pub auth_url: String,
     pub token_url: String,
     pub redirect_url: String,
+    pub deep_link_url: String,
     pub client_id: String,
     pub client_secret: String,
 }
@@ -164,7 +167,8 @@ impl Default for OAuthConfig {
         Self {
             auth_url: "https://auth-dev.vatsim.net/oauth/authorize".to_string(),
             token_url: "https://auth-dev.vatsim.net/oauth/token".to_string(),
-            redirect_url: "vacs://auth/vatsim/callback".to_string(),
+            redirect_url: "http://localhost:3000/auth/vatsim/redirect".to_string(),
+            deep_link_url: "vacs://auth/vatsim/callback".to_string(),
             client_id: "".to_string(),
             client_secret: "".to_string(),
         }

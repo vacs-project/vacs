@@ -17,14 +17,51 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/vatsim", get(get::vatsim))
         .route("/vatsim/callback", post(post::vatsim_callback))
+        .route("/vatsim/redirect", get(get::vatsim_redirect))
         .route("/vatsim/token", post(post::vatsim_token))
         .route("/user", get(get::user_info))
         .route("/logout", post(post::logout))
 }
 
+const AUTH_REDIRECT_TEMPLATE: &str = include_str!("../../static/auth_redirect.html");
+
 mod get {
     use super::*;
+    use axum::extract::{Query, State};
+    use axum::response::Html;
+    use serde::Deserialize;
     use vacs_protocol::http::auth::InitVatsimLogin;
+
+    #[derive(Deserialize)]
+    pub struct VatsimRedirectParams {
+        code: String,
+        state: String,
+    }
+
+    pub async fn vatsim_redirect(
+        State(state): State<Arc<AppState>>,
+        Query(VatsimRedirectParams {
+            code,
+            state: oauth_state,
+        }): Query<VatsimRedirectParams>,
+    ) -> Html<String> {
+        let mut deep_link = url::Url::parse(&state.config.auth.oauth.deep_link_url)
+            .expect("deep link URL is valid");
+        deep_link
+            .query_pairs_mut()
+            .append_pair("code", &code)
+            .append_pair("state", &oauth_state);
+        let deep_link = deep_link.as_str();
+
+        let html = AUTH_REDIRECT_TEMPLATE
+            .replace(
+                "__DEEP_LINK_JSON__",
+                &serde_json::to_string(deep_link).unwrap_or_default(),
+            )
+            .replace("__DEEP_LINK_HREF__", &deep_link.replace('&', "&amp;"));
+
+        Html(html)
+    }
 
     pub async fn vatsim(auth_session: AuthSession, session: Session) -> ApiResult<InitVatsimLogin> {
         let (url, csrf_token, pkce_verifier) = auth_session.backend().authorize_url();

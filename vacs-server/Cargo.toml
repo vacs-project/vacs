@@ -48,6 +48,7 @@ tar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 toml = { workspace = true }
+url = { workspace = true }
 tower-http = { workspace = true, features = ["trace", "timeout"] }
 tower-sessions = { workspace = true }
 tower-sessions-redis-store = { workspace = true }
