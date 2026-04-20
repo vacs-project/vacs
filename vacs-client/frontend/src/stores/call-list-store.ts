@@ -41,8 +41,6 @@ type CallListState = {
     };
 };
 
-// TODO: Should we store source and target?
-
 export const useCallListStore = create<CallListState>()((set, get) => ({
     callList: new Map(),
     actions: {

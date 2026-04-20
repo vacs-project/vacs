@@ -96,27 +96,15 @@ function CallRow(props: CallRowProps) {
         <>
             <div
                 className={clsx(
-                    "p-0.5 text-center flex flex-col justify-between items-center leading-4",
+                    "p-0.5 text-center flex flex-col justify-between items-center h-0 min-h-full",
                     color,
                 )}
                 onClick={props.onClick}
             >
-                {props.call !== undefined ? (
-                    props.call.type === "IN" ? (
-                        props.call.answered !== false ? (
-                            <img src={incoming} alt="IN" className="h-6" />
-                        ) : (
-                            <img src={incomingX} alt="IN X" className="h-6" />
-                        )
-                    ) : props.call.answered !== false ? (
-                        <img src={outgoing} alt="OUT" className="h-6" />
-                    ) : (
-                        <img src={outgoingX} alt="OUT X" className="h-6" />
-                    )
-                ) : (
-                    <></>
-                )}
-                <p className="tracking-wider font-semibold">{props.call?.time ?? ""}</p>
+                <CallRowStatus call={props.call} />
+                <p className="tracking-wider font-semibold leading-3.5 pb-px">
+                    {props.call?.time ?? ""}
+                </p>
             </div>
             <div
                 className={clsx("px-0.5 flex items-center font-semibold", color)}
@@ -131,6 +119,23 @@ function CallRow(props: CallRowProps) {
                 {props.call?.clientId ?? ""}
             </div>
         </>
+    );
+}
+
+function CallRowStatus({call}: {call: CallListItem | undefined}) {
+    if (call === undefined) return <></>;
+
+    const status =
+        call.type === "IN"
+            ? call.answered !== false
+                ? [incoming, "IN", "Incoming"]
+                : [incomingX, "IN X", "Incoming - Unanswered"]
+            : call.answered !== false
+              ? [outgoing, "OUT", "Outgoing"]
+              : [outgoingX, "OUT X", "Outgoing - Unanswered"];
+
+    return (
+        <img src={status[0]} alt={status[1]} title={status[2]} className="flex-1 max-h-6 min-h-4" />
     );
 }
 
