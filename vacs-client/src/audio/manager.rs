@@ -560,13 +560,13 @@ impl AudioManager {
                         let mut audio_manager = audio_manager.write();
 
                         if speaker {
-                            audio_manager.switch_output_device(
+                            audio_manager.switch_speaker_device(
                                 app.clone(),
                                 &audio_config_clone,
                                 true,
                             )
                         } else {
-                            audio_manager.switch_speaker_device(
+                            audio_manager.switch_output_device(
                                 app.clone(),
                                 &audio_config_clone,
                                 true,
