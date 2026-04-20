@@ -20,6 +20,12 @@
       }
     },
     {
+      "expire_grace_period": { "client_id": "10000000" }
+    },
+    {
+      "expire_grace_period": { "client_id": "10000001" }
+    },
+    {
       "datafeed": {
         "controllers": [
           { "cid": 10000000, "callsign": "LOVV_N_APP", "frequency": "123.725" },

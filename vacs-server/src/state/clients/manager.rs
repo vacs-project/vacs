@@ -982,12 +982,27 @@ impl ClientManager {
                             .unwrap_or((None, Vec::new()));
 
                         if old_position_id != new_position_id {
-                            tracing::debug!(
-                                ?cid,
-                                ?new_position_id,
-                                ?old_position_id,
-                                "Client position changed"
-                            );
+                            // During the grace period after connecting, ignore
+                            // position changes from the datafeed. The slurper
+                            // resolves the correct position immediately, but the
+                            // datafeed may still report a stale frequency for a
+                            // few update cycles.
+                            if session.is_within_position_grace_period() {
+                                tracing::debug!(
+                                    ?cid,
+                                    ?old_position_id,
+                                    ?new_position_id,
+                                    "Ignoring position change during grace period"
+                                );
+                                continue;
+                            } else {
+                                tracing::debug!(
+                                    ?cid,
+                                    ?new_position_id,
+                                    ?old_position_id,
+                                    "Client position changed"
+                                );
+                            }
 
                             session.set_position_id(new_position_id.clone());
 
@@ -1403,6 +1418,13 @@ impl ClientManager {
                 facility_type,
                 facility_counts.get(facility_type).copied().unwrap_or(0),
             );
+        }
+    }
+
+    #[cfg(test)]
+    pub async fn expire_position_grace_period(&self, client_id: &ClientId) {
+        if let Some(session) = self.clients.write().await.get_mut(client_id) {
+            session.expire_position_grace_period();
         }
     }
 }
@@ -3627,6 +3649,9 @@ controlled_by = ["LOWW_DEL"]
         // Drain any initial messages (ClientConnected, etc.)
         drain_messages(&mut rx);
 
+        // Expire grace period so the sync can update the position.
+        manager.expire_position_grace_period(&cid("client0")).await;
+
         // Datafeed now has the client's correct frequency for LOWW_APP.
         let controllers = HashMap::from([
             (
@@ -3705,6 +3730,9 @@ controlled_by = ["LOWW_DEL"]
             .unwrap();
         drain_messages(&mut rx);
 
+        // Expire grace period so syncs can update the position.
+        manager.expire_position_grace_period(&cid("client0")).await;
+
         // First sync: datafeed now has client as LOVV_CTR. Position changes
         // from None to LOVV_CTR, profile from None to CTR_PROFILE.
         let controllers = HashMap::from([
@@ -3751,6 +3779,98 @@ controlled_by = ["LOWW_DEL"]
             messages2.station_lists.len(),
             1,
             "Client should receive StationList on position change"
+        );
+    }
+
+    /// During the position grace period after connecting, the datafeed sync
+    /// should not change the client's position even if the datafeed reports a
+    /// different frequency.
+    #[tokio::test]
+    async fn sync_ignores_position_change_during_grace_period() {
+        let dir = tempfile::tempdir().unwrap();
+        let network = create_lovv_network_with_profiles(dir.path());
+        let manager = client_manager(network);
+
+        // Client connects as LOWW_APP via the slurper.
+        let (_client, mut rx) = manager
+            .add_client(
+                client_info("client0", "LOWW_APP", "134.675"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+        drain_messages(&mut rx);
+
+        // Datafeed still has the old frequency (maps to LOVV_CTR), but grace
+        // period should prevent the position from changing.
+        let controllers = HashMap::from([(
+            cid("client0"),
+            controller("client0", "LOVV_CTR", "132.600", FacilityType::Enroute),
+        )]);
+        manager
+            .sync_vatsim_state(&controllers, &mut HashSet::new(), false)
+            .await;
+
+        let messages = drain_messages(&mut rx);
+        assert!(
+            messages.session_infos.is_empty(),
+            "No SessionInfo should be sent during grace period"
+        );
+        assert!(
+            messages.station_lists.is_empty(),
+            "No StationList should be sent during grace period"
+        );
+
+        // Position should still be LOWW_APP.
+        let client = manager.get_client(&cid("client0")).await.unwrap();
+        assert_eq!(
+            client.position_id(),
+            Some(&pos("LOWW_APP")),
+            "Position should remain LOWW_APP during grace period"
+        );
+    }
+
+    /// After the grace period expires, the datafeed sync should apply position
+    /// changes normally.
+    #[tokio::test]
+    async fn sync_applies_position_change_after_grace_period() {
+        let dir = tempfile::tempdir().unwrap();
+        let network = create_lovv_network_with_profiles(dir.path());
+        let manager = client_manager(network);
+
+        let (_client, mut rx) = manager
+            .add_client(
+                client_info("client0", "LOWW_APP", "134.675"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+        drain_messages(&mut rx);
+
+        manager.expire_position_grace_period(&cid("client0")).await;
+
+        let controllers = HashMap::from([(
+            cid("client0"),
+            controller("client0", "LOVV_CTR", "132.600", FacilityType::Enroute),
+        )]);
+        manager
+            .sync_vatsim_state(&controllers, &mut HashSet::new(), false)
+            .await;
+
+        let messages = drain_messages(&mut rx);
+        assert_eq!(
+            messages.session_infos.len(),
+            1,
+            "SessionInfo should be sent after grace period expires"
+        );
+
+        let client = manager.get_client(&cid("client0")).await.unwrap();
+        assert_eq!(
+            client.position_id(),
+            Some(&pos("LOVV_CTR")),
+            "Position should change to LOVV_CTR after grace period"
         );
     }
 
@@ -3948,6 +4068,9 @@ controlled_by = ["LOWW_DEL"]
             .unwrap();
         drain_messages(&mut rx);
 
+        // Expire grace period so the sync can move client0 between positions.
+        manager.expire_position_grace_period(&cid("client0")).await;
+
         // First sync: establish LOWW_TWR as vatsim-only
         let controllers1 = HashMap::from([
             (
@@ -4112,6 +4235,7 @@ controlled_by = ["LOWW_DEL"]
             Connect(ConnectStep),
             ConnectWithoutPosition(ConnectWithoutPositionStep),
             Disconnect(DisconnectStep),
+            ExpireGracePeriod(ExpireGracePeriodStep),
             Datafeed(DatafeedStep),
             DatafeedFile(String),
             DrainMessages(DrainMessagesStep),
@@ -4141,6 +4265,11 @@ controlled_by = ["LOWW_DEL"]
 
         #[derive(Debug, Deserialize)]
         pub struct DisconnectStep {
+            pub client_id: String,
+        }
+
+        #[derive(Debug, Deserialize)]
+        pub struct ExpireGracePeriodStep {
             pub client_id: String,
         }
 
@@ -4473,6 +4602,11 @@ controlled_by = ["LOWW_DEL"]
                             .remove_client(cid(&s.client_id), Some(DisconnectReason::Terminated))
                             .await;
                         ctx.receivers.remove(&s.client_id);
+                    }
+                    Step::ExpireGracePeriod(s) => {
+                        ctx.manager
+                            .expire_position_grace_period(&cid(&s.client_id))
+                            .await;
                     }
                     Step::Datafeed(s) => {
                         let controllers = controllers_from_vec(&s.controllers);

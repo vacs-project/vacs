@@ -14,6 +14,9 @@ pub const CLIENT_WEBSOCKET_TASK_CHANNEL_CAPACITY: usize = 100;
 pub const CLIENT_WEBSOCKET_PING_INTERVAL: Duration = Duration::from_secs(10);
 pub const CLIENT_WEBSOCKET_PONG_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
+/// After connecting, a client's position is frozen for this duration to allow the
+/// VATSIM datafeed to catch up with the slurper-derived position assignment.
+pub const POSITION_GRACE_PERIOD: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AppConfig {

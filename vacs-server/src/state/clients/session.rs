@@ -30,6 +30,7 @@ pub struct ClientSession {
     tx: mpsc::Sender<ServerMessage>,
     client_shutdown_tx: watch::Sender<Option<DisconnectReason>>,
     client_connection_guard: Arc<Mutex<ClientConnectionGuard>>,
+    connected_at: Instant,
 }
 
 impl ClientSession {
@@ -46,6 +47,7 @@ impl ClientSession {
             tx,
             client_shutdown_tx,
             client_connection_guard: Arc::new(Mutex::new(client_connection_guard)),
+            connected_at: Instant::now(),
         }
     }
 
@@ -57,6 +59,14 @@ impl ClientSession {
     #[inline]
     pub fn position_id(&self) -> Option<&PositionId> {
         self.client_info.position_id.as_ref()
+    }
+
+    /// Returns `true` if the client connected recently enough that position
+    /// changes from the datafeed should be ignored (the datafeed may not have
+    /// caught up with the slurper-derived position yet).
+    #[inline]
+    pub fn is_within_position_grace_period(&self) -> bool {
+        self.connected_at.elapsed() < config::POSITION_GRACE_PERIOD
     }
 
     #[inline]
@@ -484,6 +494,11 @@ impl ClientSession {
         );
 
         (join_handle, ping_shutdown_rx)
+    }
+
+    #[cfg(test)]
+    pub fn expire_position_grace_period(&mut self) {
+        self.connected_at = Instant::now() - crate::config::POSITION_GRACE_PERIOD;
     }
 }
 
