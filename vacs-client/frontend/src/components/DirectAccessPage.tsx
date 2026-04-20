@@ -7,6 +7,7 @@ import Button from "./ui/Button.tsx";
 import {useProfileStore} from "../stores/profile-store.ts";
 import {useCallState} from "../hooks/call-state-hook.ts";
 import ClientPage from "./ClientPage.tsx";
+import {CustomButtonColor} from "../types/custom-button-colors.ts";
 
 type DirectAccessPageProps = {
     data: DirectAccessPageModel;
@@ -27,6 +28,7 @@ function DirectAccessPage({data}: DirectAccessPageProps) {
                                 key={index}
                                 label={key.label}
                                 page={key.page}
+                                color={key.color}
                                 parent={data}
                             />
                         ) : (
@@ -55,11 +57,12 @@ type DirectAccessSubpageKeyProps = {
     label: string[];
     page: DirectAccessPageModel;
     parent: DirectAccessPageModel;
+    color: CustomButtonColor | undefined;
     className?: string;
 };
 
 function DirectAccessSubpageKey(props: DirectAccessSubpageKeyProps) {
-    const {beingCalled, isRejected, color} = useCallState(props.page);
+    const {beingCalled, isRejected, color} = useCallState(props.page, props.color);
     const setSubpage = useProfileStore(state => state.setSubpage);
 
     return (
