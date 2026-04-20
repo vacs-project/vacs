@@ -74,7 +74,7 @@ export const useCallListStore = create<CallListState>()((set, get) => ({
                     entry.target.client,
                 ),
                 target: entry.target,
-                clientId: undefined,
+                clientId: entry.target.client,
                 answered: undefined,
             });
 
