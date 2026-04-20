@@ -131,6 +131,13 @@ impl AppStateWebrtcExt for AppStateInner {
                                 {
                                     call.peer.pause();
                                     let mut audio_manager = state.audio_manager.write();
+
+                                    if state.config.client.call.enable_call_end_sound
+                                        && audio_manager.is_input_device_attached()
+                                    {
+                                        audio_manager.restart(SourceType::CallEnd);
+                                    }
+
                                     audio_manager.detach_call_output();
                                     audio_manager.detach_input_device();
                                 }
@@ -157,10 +164,6 @@ impl AppStateWebrtcExt for AppStateInner {
 
                                 let app_state = app.state::<AppState>();
                                 let mut state = app_state.lock().await;
-
-                                if state.config.client.call.enable_call_end_sound {
-                                    state.audio_manager.read().restart(SourceType::CallEnd);
-                                }
 
                                 state.cleanup_call(&call_id).await;
                                 app.emit("signaling:call-end", &call_id).ok();
@@ -260,6 +263,11 @@ impl AppStateWebrtcExt for AppStateInner {
         {
             {
                 let mut audio_manager = self.audio_manager.write();
+                if self.config.client.call.enable_call_end_sound
+                    && audio_manager.is_input_device_attached()
+                {
+                    audio_manager.restart(SourceType::CallEnd);
+                }
                 audio_manager.detach_call_output();
                 audio_manager.detach_input_device();
             }
