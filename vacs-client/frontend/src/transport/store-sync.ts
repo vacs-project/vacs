@@ -29,11 +29,16 @@ type SettingsSync = {
     clockMode: ClockMode;
 };
 
+type RadioSync = {
+    cpl: boolean;
+};
+
 type SyncMap = {
     stations: StationsSync;
     call: CallSync;
     callList: CallListSync;
     settings: SettingsSync;
+    radio: RadioSync;
 };
 
 type SyncStoreName = keyof SyncMap;
@@ -75,7 +80,6 @@ function applySync(payload: SyncPayload) {
             } = useCallStore.getState();
             const {cpl} = useRadioStore.getState();
             const {prio, callDisplay} = payload.state;
-            // TODO: sync cpl button
             setPrio(prio);
 
             if (callDisplay !== null) {
@@ -105,6 +109,22 @@ function applySync(payload: SyncPayload) {
                 clockMode: payload.state.clockMode,
             });
             break;
+        }
+        case "radio": {
+            const {incomingCalls, callDisplay} = useCallStore.getState();
+
+            useRadioStore.setState({cpl: payload.state.cpl});
+
+            const shouldStartBlink = !shouldStopBlinking(
+                incomingCalls.length,
+                callDisplay,
+                payload.state.cpl,
+            );
+            if (shouldStartBlink) {
+                startBlink();
+            } else {
+                stopBlink();
+            }
         }
     }
 }
@@ -160,6 +180,12 @@ function startSync(): () => void {
         })),
     );
 
+    unlistenFns.push(
+        subscribeFields(useRadioStore, "radio", s => ({
+            cpl: s.cpl,
+        })),
+    );
+
     const unlistenSync = listen<SyncPayload>("store:sync", event => {
         applying = true;
         try {
@@ -209,5 +235,10 @@ function broadcastAllStoreState() {
         callConfig: settings.callConfig,
         selectedClientPageConfig: settings.selectedClientPageConfig,
         clockMode: settings.clockMode,
+    });
+
+    const radio = useRadioStore.getState();
+    broadcast("radio", {
+        cpl: radio.cpl,
     });
 }
