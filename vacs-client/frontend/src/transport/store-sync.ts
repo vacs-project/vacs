@@ -43,7 +43,12 @@ type SyncMap = {
 
 type SyncStoreName = keyof SyncMap;
 
-type SyncPayload = {[K in SyncStoreName]: {store: K; state: SyncMap[K]}}[SyncStoreName];
+type SyncPayload = {
+    [K in SyncStoreName]: {store: K; state: SyncMap[K]; sourceId: string};
+}[SyncStoreName];
+
+// Unique ID for this client instance so we can ignore our own broadcasts.
+const instanceId = crypto.randomUUID();
 
 // set to `true` while applying an incoming sync to prevent re-broadcast
 let applying = false;
@@ -60,7 +65,11 @@ function subscribeFields<K extends SyncStoreName, S>(
         if (next === prev) return;
         prev = next;
         if (applying) return;
-        void invoke("remote_broadcast_store_sync", {store: name, state: JSON.parse(next)});
+        void invoke("remote_broadcast_store_sync", {
+            store: name,
+            state: JSON.parse(next),
+            sourceId: instanceId,
+        });
     });
 }
 
@@ -160,7 +169,10 @@ function startSync(): () => void {
         subscribeFields(useCallStore, "call", s => ({
             prio: s.prio,
             callDisplay:
-                s.callDisplay === undefined || s.callDisplay.type === "outgoing"
+                s.callDisplay === undefined ||
+                s.callDisplay.type === "outgoing" ||
+                s.callDisplay.type === "error" ||
+                s.callDisplay.type === "rejected"
                     ? s.callDisplay
                     : null,
         })),
@@ -187,6 +199,7 @@ function startSync(): () => void {
     );
 
     const unlistenSync = listen<SyncPayload>("store:sync", event => {
+        if (event.payload.sourceId === instanceId) return;
         applying = true;
         try {
             applySync(event.payload);
@@ -210,7 +223,7 @@ function startSync(): () => void {
 
 function broadcastAllStoreState() {
     const broadcast = <K extends SyncStoreName>(name: K, state: SyncMap[K]) => {
-        void invoke("remote_broadcast_store_sync", {store: name, state});
+        void invoke("remote_broadcast_store_sync", {store: name, state, sourceId: instanceId});
     };
 
     const stations = useStationsStore.getState();
