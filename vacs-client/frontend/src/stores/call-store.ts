@@ -73,6 +73,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 stopBlink();
             }
 
+            answerCallInCallList(callId);
+
             set({
                 callDisplay: {
                     type: "accepted",
@@ -103,6 +105,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
             ) {
                 stopBlink();
             }
+
+            answerCallInCallList(callId, targetClientId);
 
             set({
                 callDisplay: nextCallDisplay,
@@ -139,6 +143,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 callDisplay = undefined;
             }
 
+            rejectCallInCallListIfUnanswered(callId);
+
             if (
                 shouldStopBlinking(incomingCalls.length, callDisplay, useRadioStore.getState().cpl)
             ) {
@@ -159,6 +165,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 get().actions.removeCall(callId);
                 return;
             }
+
+            rejectCallInCallListIfUnanswered(callId);
 
             set({
                 callDisplay: {type: "rejected", call: callDisplay.call, connectionState: undefined},
@@ -200,6 +208,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 },
             });
 
+            rejectCallInCallListIfUnanswered(callId);
+
             startBlink();
         },
         dismissErrorCall: () => {
@@ -234,6 +244,16 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
     },
 }));
+
+const answerCallInCallList = (callId: CallId, targetClientId?: ClientId) =>
+    useCallListStore
+        .getState()
+        .actions.updateCall(callId, {answered: true, clientId: targetClientId});
+
+const rejectCallInCallListIfUnanswered = (callId: CallId) =>
+    useCallListStore
+        .getState()
+        .actions.updateCall(callId, state => ({answered: state.answered || false}));
 
 export const startCall = async (target: CallTarget) => {
     const {cid} = useAuthStore.getState();

@@ -7,6 +7,10 @@ import List from "../ui/List.tsx";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {invokeSafe} from "../../error.ts";
 import {useConnectionStore} from "../../stores/connection-store.ts";
+import incoming from "../../assets/call-list/incoming.svg";
+import incomingX from "../../assets/call-list/incoming-x.svg";
+import outgoing from "../../assets/call-list/outgoing.svg";
+import outgoingX from "../../assets/call-list/outgoing-x.svg";
 
 function CallList() {
     const calls = useCallListArray();
@@ -39,7 +43,7 @@ function CallList() {
                 itemsCount={calls.length}
                 selectedItem={selectedCall}
                 setSelectedItem={setSelectedCall}
-                defaultRows={11}
+                defaultRows={10}
                 row={callRow}
                 header={[{title: "Name", className: "col-span-2"}, {title: "Number"}]}
                 columnWidths={["minmax(3.5rem,auto)", "1fr", "1fr"]}
@@ -91,10 +95,27 @@ function CallRow(props: CallRowProps) {
     return (
         <>
             <div
-                className={clsx("p-0.5 text-center flex flex-col justify-between leading-4", color)}
+                className={clsx(
+                    "p-0.5 text-center flex flex-col justify-between items-center leading-4",
+                    color,
+                )}
                 onClick={props.onClick}
             >
-                <p>{props.call?.type ?? ""}</p>
+                {props.call !== undefined ? (
+                    props.call.type === "IN" ? (
+                        props.call.answered !== false ? (
+                            <img src={incoming} alt="IN" className="h-6" />
+                        ) : (
+                            <img src={incomingX} alt="IN X" className="h-6" />
+                        )
+                    ) : props.call.answered !== false ? (
+                        <img src={outgoing} alt="OUT" className="h-6" />
+                    ) : (
+                        <img src={outgoingX} alt="OUT X" className="h-6" />
+                    )
+                ) : (
+                    <></>
+                )}
                 <p className="tracking-wider font-semibold">{props.call?.time ?? ""}</p>
             </div>
             <div

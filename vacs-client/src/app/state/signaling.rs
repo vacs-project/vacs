@@ -60,12 +60,6 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         call_id: &CallId,
         source: &CallSource,
     );
-    fn update_accepted_call_in_call_list(
-        &mut self,
-        app: &AppHandle,
-        call_id: &CallId,
-        client_id: Option<&ClientId>,
-    );
     fn new_signaling_client(
         app: AppHandle,
         ws_url: &str,
@@ -209,26 +203,6 @@ impl AppStateSignalingExt for AppStateInner {
         app.emit(
             "signaling:add-incoming-to-call-list",
             IncomingCallListEntry { call_id, source },
-        )
-        .ok();
-    }
-
-    fn update_accepted_call_in_call_list(
-        &mut self,
-        app: &AppHandle,
-        call_id: &CallId,
-        client_id: Option<&ClientId>,
-    ) {
-        #[derive(Clone, Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct CallListUpdate<'a> {
-            call_id: &'a CallId,
-            client_id: Option<&'a ClientId>,
-        }
-
-        app.emit(
-            "signaling:update-call-list",
-            CallListUpdate { call_id, client_id },
         )
         .ok();
     }
@@ -559,11 +533,6 @@ impl AppStateInner {
                 state.cancel_unanswered_call_timer(call_id);
                 let res = if state.remove_outgoing_call(call_id) {
                     app.emit("signaling:outgoing-call-accepted", msg).ok();
-                    state.update_accepted_call_in_call_list(
-                        app,
-                        call_id,
-                        Some(accepting_client_id),
-                    );
 
                     match state
                         .init_call(app.clone(), *call_id, accepting_client_id.clone(), None)

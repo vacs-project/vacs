@@ -2,11 +2,7 @@ import {listen, UnlistenFn} from "../transport";
 import {useClientsStore} from "../stores/clients-store.ts";
 import {ClientInfo, ClientPageSettings, SessionInfo} from "../types/client.ts";
 import {useCallStore} from "../stores/call-store.ts";
-import {
-    IncomingCallListEntry,
-    CallListUpdate,
-    useCallListStore,
-} from "../stores/call-list-store.ts";
+import {IncomingCallListEntry, useCallListStore} from "../stores/call-list-store.ts";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import {CallId, ClientId, PositionId} from "../types/generic.ts";
 import {useProfileStore} from "../stores/profile-store.ts";
@@ -35,11 +31,8 @@ export function setupSignalingListeners() {
         setOutgoingCallAccepted,
         reset: resetCallStore,
     } = useCallStore.getState().actions;
-    const {
-        addIncomingCall: addIncomingCallToCallList,
-        updateCall: updateCallInCallList,
-        clearCallList,
-    } = useCallListStore.getState().actions;
+    const {addIncomingCall: addIncomingCallToCallList, clearCallList} =
+        useCallListStore.getState().actions;
     const {setConnectionState, setConnectionInfo, setPositionsToSelect} =
         useConnectionStore.getState();
     const {setProfile, reset: resetProfileStore} = useProfileStore.getState();
@@ -128,9 +121,6 @@ export function setupSignalingListeners() {
             }),
             listen<IncomingCallListEntry>("signaling:add-incoming-to-call-list", event => {
                 addIncomingCallToCallList(event.payload);
-            }),
-            listen<CallListUpdate>("signaling:update-call-list", event => {
-                updateCallInCallList(event.payload);
             }),
             listen<Profile>("signaling:test-profile", event => {
                 closeErrorOverlayIfTitle("Profile error");
