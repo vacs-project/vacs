@@ -120,7 +120,7 @@ export const useCallListArray = () =>
 
 export const useLastDialledClientId = () =>
     useCallListStore(state => {
-        const calls = state.callList.values();
+        const calls = Array.from(state.callList.values()).reverse();
 
         for (const call of calls) {
             if (call.type === "OUT") {
