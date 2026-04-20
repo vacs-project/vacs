@@ -182,6 +182,7 @@ _SPDX_NAMES: dict[str, str] = {
     "ISC": "ISC License",
     "MIT": "MIT License",
     "MPL-2.0": "Mozilla Public License 2.0",
+    "OFL-1.1": "SIL Open Font License 1.1",
     "OpenSSL": "OpenSSL License",
     "Python-2.0": "Python License 2.0",
     "Unicode-3.0": "Unicode License v3",
@@ -198,6 +199,44 @@ def _normalize_spdx_id(raw: str) -> str:
 
 def _spdx_display_name(spdx_id: str) -> str:
     return _SPDX_NAMES.get(spdx_id, spdx_id)
+
+
+# ---------------------------------------------------------------------------
+# Other (manually-tracked) licenses — fonts, vendored assets, etc.
+# ---------------------------------------------------------------------------
+
+# Each entry: (spdx_id, name, version, repository, license_file_relative_to_workspace_root)
+_OTHER_ASSETS: list[tuple[str, str, str, str, str]] = [
+    (
+        "OFL-1.1",
+        "Noto Sans Mono",
+        "",
+        "https://github.com/notofonts/latin-greek-cyrillic",
+        "vacs-client/frontend/src/assets/fonts/OFL-noto.txt",
+    ),
+]
+
+
+def other_licenses() -> list[dict]:
+    """Return license entries for manually-tracked assets (fonts, vendored files, etc.)."""
+    result: list[dict] = []
+    for spdx_id, name, version, repo, lic_path in _OTHER_ASSETS:
+        text = (WORKSPACE_ROOT / lic_path).read_text(errors="replace")
+        result.append({
+            "name": _spdx_display_name(spdx_id),
+            "id": spdx_id,
+            "text": text,
+            "used_by": [{
+                "crate": {
+                    "name": name,
+                    "version": version,
+                    "repository": repo,
+                },
+                "source": "asset",
+            }],
+        })
+    print(f"  other assets: {len(result)} entries")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +262,7 @@ def _aggregate_overview(entries: list[dict]) -> list[dict]:
 def render_html(
     rust: list[dict],
     node: list[dict],
+    other: list[dict] | None = None,
     title: str = "Third-Party Licenses",
 ) -> str:
     """Render a standalone HTML page from the license data.
@@ -234,14 +274,17 @@ def render_html(
       variant.
     """
 
-    all_entries = rust + node
+    all_entries = rust + node + (other or [])
     overview = _aggregate_overview(all_entries)
 
     rust_count = sum(len(e["used_by"]) for e in rust)
     node_count = sum(len(e["used_by"]) for e in node)
+    other_count = sum(len(e["used_by"]) for e in (other or []))
     subtitle = f"{rust_count} Rust crates"
     if node_count:
         subtitle += f" and {node_count} Node packages"
+    if other_count:
+        subtitle += f" and {other_count} other asset(s)"
 
     # --- Overview list ---
     overview_items: list[str] = []
@@ -336,19 +379,22 @@ def main() -> None:
     print(f"Generating third-party licenses for {args.package}...")
     print()
 
-    print("[1/2] Collecting Rust crate licenses...")
+    print("[1/3] Collecting Rust crate licenses...")
     rust = rust_licenses(args.package)
 
     node: list[dict] = []
     if npm_dir is not None:
-        print("[2/2] Collecting Node package licenses...")
+        print("[2/3] Collecting Node package licenses...")
         node = node_licenses(npm_dir)
     else:
-        print("[2/2] Skipping Node package licenses (no npm directory)")
+        print("[2/3] Skipping Node package licenses (no npm directory)")
+
+    print("[3/3] Collecting other asset licenses...")
+    other = other_licenses()
 
     print()
     print("Rendering HTML...")
-    html = render_html(rust, node)
+    html = render_html(rust, node, other)
 
     out = Path(args.output)
     out.write_text(html, encoding="utf-8")
