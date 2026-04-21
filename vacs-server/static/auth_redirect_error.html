@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vacs - Login failed</title>
+    <style>
+        @font-face {
+            font-family: 'Noto Sans Mono';
+            src: url('/assets/font.ttf') format('truetype');
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans Mono', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 2rem 2.5rem;
+            max-width: 440px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        h1 {
+            margin: 0 0 0.5rem;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #f87171;
+        }
+
+        p {
+            margin: 0.5rem 0 0;
+            color: #94a3b8;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .error-detail {
+            margin-top: 1rem;
+            background: #0f172a;
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            text-align: left;
+            word-break: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Login failed</h1>
+        <p>An error occurred during the VATSIM login process. You can close this tab and try again.</p>
+        <div class="error-detail">__ERROR_DESCRIPTION__</div>
+    </div>
+</body>
+</html>

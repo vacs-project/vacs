@@ -24,18 +24,29 @@ pub fn routes() -> Router<Arc<AppState>> {
 }
 
 const AUTH_REDIRECT_TEMPLATE: &str = include_str!("../../static/auth_redirect.html");
+const AUTH_REDIRECT_ERROR_TEMPLATE: &str = include_str!("../../static/auth_redirect_error.html");
 
 mod get {
     use super::*;
     use axum::extract::{Query, State};
-    use axum::response::Html;
+    use axum::http::StatusCode;
+    use axum::response::{Html, IntoResponse, Response};
     use serde::Deserialize;
     use vacs_protocol::http::auth::InitVatsimLogin;
 
     #[derive(Deserialize)]
     pub struct VatsimRedirectParams {
-        code: String,
-        state: String,
+        code: Option<String>,
+        state: Option<String>,
+        error: Option<String>,
+        error_description: Option<String>,
+    }
+
+    fn html_escape(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
     }
 
     pub async fn vatsim_redirect(
@@ -43,8 +54,35 @@ mod get {
         Query(VatsimRedirectParams {
             code,
             state: oauth_state,
+            error,
+            error_description,
         }): Query<VatsimRedirectParams>,
-    ) -> Html<String> {
+    ) -> Response {
+        if let Some(error) = error {
+            let description = error_description.unwrap_or_else(|| error.clone());
+            tracing::warn!(error, "OAuth redirect received error from VATSIM");
+            return (
+                StatusCode::BAD_REQUEST,
+                Html(
+                    AUTH_REDIRECT_ERROR_TEMPLATE
+                        .replace("__ERROR_DESCRIPTION__", &html_escape(&description)),
+                ),
+            )
+                .into_response();
+        }
+
+        let (Some(code), Some(oauth_state)) = (code, oauth_state) else {
+            tracing::warn!("OAuth redirect received request without code or state");
+            return (
+                StatusCode::BAD_REQUEST,
+                Html(AUTH_REDIRECT_ERROR_TEMPLATE.replace(
+                    "__ERROR_DESCRIPTION__",
+                    "Missing authorization code or state parameter.",
+                )),
+            )
+                .into_response();
+        };
+
         let mut deep_link = url::Url::parse(&state.config.auth.oauth.deep_link_url)
             .expect("deep link URL is valid");
         deep_link
@@ -53,14 +91,15 @@ mod get {
             .append_pair("state", &oauth_state);
         let deep_link = deep_link.as_str();
 
-        let html = AUTH_REDIRECT_TEMPLATE
-            .replace(
-                "__DEEP_LINK_JSON__",
-                &serde_json::to_string(deep_link).unwrap_or_default(),
-            )
-            .replace("__DEEP_LINK_HREF__", &deep_link.replace('&', "&amp;"));
-
-        Html(html)
+        Html(
+            AUTH_REDIRECT_TEMPLATE
+                .replace(
+                    "__DEEP_LINK_JSON__",
+                    &serde_json::to_string(deep_link).unwrap_or_default(),
+                )
+                .replace("__DEEP_LINK_HREF__", &html_escape(deep_link)),
+        )
+        .into_response()
     }
 
     pub async fn vatsim(auth_session: AuthSession, session: Session) -> ApiResult<InitVatsimLogin> {
