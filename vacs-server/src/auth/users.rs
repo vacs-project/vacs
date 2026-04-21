@@ -29,7 +29,7 @@ impl AuthUser for User {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub enum Credentials {
     OAuthCode {
         code: String,
@@ -40,6 +40,15 @@ pub enum Credentials {
     AccessToken {
         access_token: String,
     },
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OAuthCode { .. } => f.debug_struct("OAuthCode").finish_non_exhaustive(),
+            Self::AccessToken { .. } => f.debug_struct("AccessToken").finish_non_exhaustive(),
+        }
+    }
 }
 
 pub type VatsimOAuthClient =
@@ -78,7 +87,7 @@ impl Backend {
     }
 
     async fn fetch_user_details(&self, access_token: &str) -> Result<User, AppError> {
-        tracing::trace!(?access_token, "Fetching user details");
+        tracing::trace!("Fetching user details");
         let response = self
             .http_client
             .get(self.vatsim_user_details_endpoint_url.clone())
