@@ -47,8 +47,17 @@ type SyncPayload = {
     [K in SyncStoreName]: {store: K; state: SyncMap[K]; sourceId: string};
 }[SyncStoreName];
 
+function createInstanceId(): string {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+
+    // Fallback for older browsers: good enough for a handful of instances.
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 // Unique ID for this client instance so we can ignore our own broadcasts.
-const instanceId = crypto.randomUUID();
+const instanceId = createInstanceId();
 
 // set to `true` while applying an incoming sync to prevent re-broadcast
 let applying = false;
