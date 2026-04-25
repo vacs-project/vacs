@@ -118,6 +118,7 @@ function App() {
                             <>
                                 <RadioButton />
                                 <PhoneButton />
+                                <CplButton />
                                 <RadioPrioButton />
                             </>
                         ) : (
