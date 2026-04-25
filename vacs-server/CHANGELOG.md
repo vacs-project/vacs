@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.0.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.2.0...vacs-server-v1.0.0) (2026-04-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* implement station coverage calculations and calling ([#452](https://github.com/vacs-project/vacs/issues/452))
+* overhaul UI with geo/tabbed layout and station-based calling ([#531](https://github.com/vacs-project/vacs/issues/531))
+
+### Features
+
+* add priority calls ([#504](https://github.com/vacs-project/vacs/issues/504)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* automatically set default call source for position ([#650](https://github.com/vacs-project/vacs/issues/650)) ([3e3f2e5](https://github.com/vacs-project/vacs/commit/3e3f2e51fe459aa97714071e1f3edc617f5b64b5))
+* implement basic rate limiting ([e814366](https://github.com/vacs-project/vacs/commit/e814366e4aeb96b7ea7f825f661bc2b8d03e3c64))
+* implement station coverage calculations and calling ([#452](https://github.com/vacs-project/vacs/issues/452)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* overhaul UI with geo/tabbed layout and station-based calling ([#531](https://github.com/vacs-project/vacs/issues/531)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* provide TURN servers for traversing restrictive networks ([#248](https://github.com/vacs-project/vacs/issues/248)) ([e4b8b91](https://github.com/vacs-project/vacs/commit/e4b8b91320fd6d072ef4ba1c98de56ad14c8dcfe))
+* **vacs-client:** add call start and end sounds ([#505](https://github.com/vacs-project/vacs/issues/505)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-client:** add keybind for toggling radio prio ([#500](https://github.com/vacs-project/vacs/issues/500)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-client:** add profile select to mission page ([ad36dc5](https://github.com/vacs-project/vacs/commit/ad36dc55e2e42619eff9c0163e869f64910998bb))
+* **vacs-client:** add station filter and aliasing ([#233](https://github.com/vacs-project/vacs/issues/233)) ([ad36dc5](https://github.com/vacs-project/vacs/commit/ad36dc55e2e42619eff9c0163e869f64910998bb))
+* **vacs-client:** add window zoom hotkeys ([#522](https://github.com/vacs-project/vacs/issues/522)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-client:** implement telephone directory ([#490](https://github.com/vacs-project/vacs/issues/490)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-client:** load ICE config after signaling connect ([e4b8b91](https://github.com/vacs-project/vacs/commit/e4b8b91320fd6d072ef4ba1c98de56ad14c8dcfe))
+* **vacs-server:** add coturn ice provider ([#652](https://github.com/vacs-project/vacs/issues/652)) ([6acce64](https://github.com/vacs-project/vacs/commit/6acce640e223df2bab8b34610af4151cf023a4ad))
+* **vacs-server:** add coverage debug endpoints ([#623](https://github.com/vacs-project/vacs/issues/623)) ([b609bb0](https://github.com/vacs-project/vacs/commit/b609bb0dd95a54d5e8883466e2281cd50022156e))
+* **vacs-server:** add OAuth login redirect page ([#802](https://github.com/vacs-project/vacs/issues/802)) ([a65414d](https://github.com/vacs-project/vacs/commit/a65414dfac72ef61c6a957e948220a11620b524f))
+* **vacs-server:** add PKCE support for VATSIM Connect ([a65414d](https://github.com/vacs-project/vacs/commit/a65414dfac72ef61c6a957e948220a11620b524f))
+* **vacs-server:** add token-based authentication ([#615](https://github.com/vacs-project/vacs/issues/615)) ([f79ee01](https://github.com/vacs-project/vacs/commit/f79ee01b6d8b56bf7ed270ff5d9b4f888538527a))
+* **vacs-server:** extend metrics to include call routing and coverage ([#624](https://github.com/vacs-project/vacs/issues/624)) ([e60a0a3](https://github.com/vacs-project/vacs/commit/e60a0a3a3cb5f029dfb6e2a0daf68e28ba28e424))
+* **vacs-server:** implement dataset reloading ([#555](https://github.com/vacs-project/vacs/issues/555)) ([5652687](https://github.com/vacs-project/vacs/commit/5652687fadc439188b67554b1a3d722ae320f1f8))
+* **vacs-server:** implement GitHub release catalog ([#258](https://github.com/vacs-project/vacs/issues/258)) ([6dac184](https://github.com/vacs-project/vacs/commit/6dac18498899760e654fe7485bce4944a8a723ac))
+* **vacs-server:** implement Prometheus metrics ([#251](https://github.com/vacs-project/vacs/issues/251)) ([b6d72fd](https://github.com/vacs-project/vacs/commit/b6d72fd6bfa719380efa966d55c02b85800978f6))
+* **vacs-server:** reduce controller update interval to 30s ([55b8ca9](https://github.com/vacs-project/vacs/commit/55b8ca9707b8ddd51fd4312cf8c8cbc56591672c))
+* **vacs-webrtc:** use shared IceConfig types ([e4b8b91](https://github.com/vacs-project/vacs/commit/e4b8b91320fd6d072ef4ba1c98de56ad14c8dcfe))
+
+
+### Bug Fixes
+
+* **vacs-client:** fix DA key overflow and sorting ([#204](https://github.com/vacs-project/vacs/issues/204)) ([c1b2da5](https://github.com/vacs-project/vacs/commit/c1b2da5e39126b033fa24251eb725001c244080a))
+* **vacs-client:** fix error while switching to exclusive audio device ([#498](https://github.com/vacs-project/vacs/issues/498)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-client:** prevent call queue from shrinking ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-client:** remove spammy updater progress log ([6dac184](https://github.com/vacs-project/vacs/commit/6dac18498899760e654fe7485bce4944a8a723ac))
+* **vacs-server:** correct coverage event classification during position changes ([#765](https://github.com/vacs-project/vacs/issues/765)) ([c09a028](https://github.com/vacs-project/vacs/commit/c09a02809b93723b1820396ef521aea1703cb28d))
+* **vacs-server:** correct station handoff handling in coverage state sync ([#630](https://github.com/vacs-project/vacs/issues/630)) ([5ed1aae](https://github.com/vacs-project/vacs/commit/5ed1aae0782454f001e2374c29a3c8de92442f99))
+* **vacs-server:** fix coverage calculations for VATSIM-only positions ([#550](https://github.com/vacs-project/vacs/issues/550)) ([5276570](https://github.com/vacs-project/vacs/commit/52765707c9a82b373affc5371dda7ef4ab2f7977))
+* **vacs-server:** fix deadlock during client removal with concurrent VATSIM sync ([#799](https://github.com/vacs-project/vacs/issues/799)) ([7338d98](https://github.com/vacs-project/vacs/commit/7338d98f4342994a891d822a03a92d559d918cc8))
+* **vacs-server:** fix delay in datafeed update unsetting position ([0d20d8e](https://github.com/vacs-project/vacs/commit/0d20d8e9ec301a28332c6caa0e802395f1b13a09))
+* **vacs-server:** ignore datafeed SUP connection ([#480](https://github.com/vacs-project/vacs/issues/480)) ([384131b](https://github.com/vacs-project/vacs/commit/384131bf18dbe8240602d6f4e0b226fb04effdf3))
+* **vacs-server:** prevent clients from sending signaling messages to own peer_id ([#244](https://github.com/vacs-project/vacs/issues/244)) ([098ec4c](https://github.com/vacs-project/vacs/commit/098ec4cd0d79225b8542710199f79f3e9e84dac0))
+* **vacs-server:** resolve annotated dataset tag to commit SHA ([#571](https://github.com/vacs-project/vacs/issues/571)) ([109b34d](https://github.com/vacs-project/vacs/commit/109b34d203182f78b59d1a0ab306235c10949295))
+* **vacs-server:** sync online stations on profile change ([#773](https://github.com/vacs-project/vacs/issues/773)) ([0d20d8e](https://github.com/vacs-project/vacs/commit/0d20d8e9ec301a28332c6caa0e802395f1b13a09))
+
 ## [2.1.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.0.0...vacs-server-v2.1.0) (2026-03-24)
 
 
