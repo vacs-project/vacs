@@ -247,6 +247,35 @@ impl ClientManager {
             return;
         };
 
+        // Pre-fetch the VATSIM datafeed and a snapshot of vacs client IDs
+        // BEFORE acquiring online_positions.write(). Doing the await and the
+        // clients.read() inside the online_positions.write() critical section
+        // would deadlock against sync_vatsim_state, which holds clients.write()
+        // while waiting for online_positions.write().
+        //
+        // We only need this data when the position is about to go offline
+        // (i.e. this is the last client on it), but we can't tell without
+        // peeking at online_positions first. The peek uses a read guard that
+        // is dropped before the write guard is acquired.
+        let prefetched_vatsim_transition = if let Some(position_id) = client.position_id() {
+            let needs_fetch = self
+                .online_positions
+                .read()
+                .await
+                .get(position_id)
+                .is_some_and(|c| c.len() == 1);
+            if needs_fetch {
+                let controllers = self.data_feed.fetch_controller_info().await.ok();
+                let vacs_client_ids: HashSet<ClientId> =
+                    self.clients.read().await.keys().cloned().collect();
+                Some((controllers, vacs_client_ids))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let changes = if let Some(position_id) = client.position_id() {
             let mut online_positions = self.online_positions.write().await;
 
@@ -256,22 +285,19 @@ impl ClientManager {
                 if online_positions.get(position_id).unwrap().len() == 1 {
                     tracing::trace!(?position_id, "Removing position from online positions list");
 
-                    // Check if the controller is still on VATSIM. If so, the
-                    // position transitions to VATSIM-only rather than going
-                    // fully offline.
-                    let became_vatsim_only = if let Ok(controllers) =
-                        self.data_feed.fetch_controller_info().await
+                    // Use the pre-fetched datafeed + clients snapshot to decide
+                    // whether the position transitions to VATSIM-only. Between
+                    // the prefetch and now, another sync may have raced ahead,
+                    // but the worst case is a slightly stale view that the next
+                    // periodic sync will reconcile.
+                    let became_vatsim_only = if let Some((Some(controllers), vacs_client_ids)) =
+                        prefetched_vatsim_transition
                     {
                         let controllers = controllers
                             .into_iter()
                             .filter(|c| !c.callsign.ends_with("_SUP"))
                             .map(|c| (c.cid.clone(), c))
                             .collect();
-                        // Collect owned keys so the clients read guard
-                        // drops immediately, preserving lock ordering
-                        // (clients before online_positions).
-                        let vacs_client_ids: HashSet<ClientId> =
-                            self.clients.read().await.keys().cloned().collect();
                         let vacs_client_ids: HashSet<&ClientId> = vacs_client_ids.iter().collect();
                         let mut vacs_positions = online_positions.clone();
                         vacs_positions.remove(position_id);
@@ -4185,6 +4211,209 @@ controlled_by = ["LOWW_DEL"]
         );
 
         assert!(add_result.is_ok());
+    }
+
+    /// A `DataFeed` whose `fetch_controller_info` blocks on a notify until
+    /// signalled, then returns the configured controllers. Used to
+    /// reproduce the deadlock window inside `remove_client` where the
+    /// datafeed call previously happened while holding `online_positions`.
+    #[derive(Debug)]
+    struct BlockingDataFeed {
+        gate: tokio::sync::Notify,
+        controllers: std::sync::Mutex<Vec<ControllerInfo>>,
+    }
+
+    impl BlockingDataFeed {
+        fn new(controllers: Vec<ControllerInfo>) -> std::sync::Arc<Self> {
+            std::sync::Arc::new(Self {
+                gate: tokio::sync::Notify::new(),
+                controllers: std::sync::Mutex::new(controllers),
+            })
+        }
+
+        fn release(&self) {
+            self.gate.notify_waiters();
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl vacs_vatsim::data_feed::DataFeed for BlockingDataFeed {
+        async fn fetch_controller_info(&self) -> vacs_vatsim::Result<Vec<ControllerInfo>> {
+            self.gate.notified().await;
+            Ok(self.controllers.lock().unwrap().clone())
+        }
+    }
+
+    fn client_manager_with_data_feed(
+        network: Network,
+        data_feed: std::sync::Arc<dyn vacs_vatsim::data_feed::DataFeed>,
+    ) -> ClientManager {
+        let (tx, _) = broadcast::channel(64);
+        ClientManager::new(tx, network, data_feed)
+    }
+
+    /// Regression test for the deadlock that occurred when the VATSIM
+    /// datafeed call inside `remove_client` was performed while holding
+    /// `online_positions.write()`.
+    ///
+    /// Deadlock pattern with the buggy code:
+    ///   - Task A (`remove_client`): holds `online_positions.write()`,
+    ///     awaits `data_feed.fetch_controller_info()`, then tries to
+    ///     acquire `clients.read()`.
+    ///   - Task B (`sync_vatsim_state`): acquires `clients.write()`
+    ///     (the first lock it takes), then blocks waiting for
+    ///     `online_positions.write()` which is held by A.
+    ///   - When A's datafeed fetch completes and A tries `clients.read()`,
+    ///     it blocks behind B's `clients.write()`. Both tasks are now
+    ///     stuck waiting on each other.
+    ///
+    /// `BlockingDataFeed` lets us suspend A inside the critical section
+    /// long enough for B to enter the deadlock pattern deterministically.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn remove_client_does_not_deadlock_with_concurrent_sync() {
+        let (_dir, network) = create_lovv_network();
+        let data_feed = BlockingDataFeed::new(Vec::new());
+        let manager =
+            std::sync::Arc::new(client_manager_with_data_feed(network, data_feed.clone()));
+
+        // Seed: a single vacs client on LOWW_TWR. Removing it triggers the
+        // "is this the last client on this position?" branch that calls
+        // data_feed.fetch_controller_info() while holding
+        // online_positions.write().
+        manager
+            .add_client(
+                client_info("victim", "LOWW_TWR", "119.400"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+        // Add a second client so the manager isn't empty after the removal
+        // (avoids the is_empty() shortcut that bypasses the buggy path).
+        manager
+            .add_client(
+                client_info("other", "LOVV_CTR", "132.600"),
+                ActiveProfile::Custom,
+                ClientConnectionGuard::default(),
+            )
+            .await
+            .unwrap();
+
+        // Start the removal first; it will await the BlockingDataFeed
+        // while holding online_positions.write().
+        let remove_handle = {
+            let m = manager.clone();
+            tokio::spawn(async move {
+                m.remove_client(cid("victim"), Some(DisconnectReason::Terminated))
+                    .await;
+            })
+        };
+
+        // Give the removal time to reach the fetch await point.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Fire sync_vatsim_state. With the buggy code this acquires
+        // clients.write() (succeeds), then blocks on online_positions.write()
+        // which the removal is holding across the datafeed await.
+        let sync_handle = {
+            let m = manager.clone();
+            tokio::spawn(async move {
+                let controllers = HashMap::from([(
+                    cid("other"),
+                    controller("other", "LOVV_CTR", "132.600", FacilityType::Enroute),
+                )]);
+                let mut pending = HashSet::new();
+                m.sync_vatsim_state(&controllers, &mut pending, false).await;
+            })
+        };
+
+        // Let the sync task reach its online_positions.write() wait.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Release the datafeed. With the buggy code, remove_client now
+        // tries clients.read() but is blocked behind sync's
+        // clients.write() -> deadlock. With the fix, remove_client no
+        // longer needs clients.read() inside the online_positions.write()
+        // critical section, so both tasks complete.
+        data_feed.release();
+
+        let timeout = std::time::Duration::from_secs(5);
+        tokio::time::timeout(timeout, remove_handle)
+            .await
+            .expect("remove_client deadlocked")
+            .expect("remove_client task panicked");
+        tokio::time::timeout(timeout, sync_handle)
+            .await
+            .expect("sync_vatsim_state deadlocked")
+            .expect("sync task panicked");
+
+        let clients = manager.clients.read().await;
+        assert_eq!(clients.len(), 1);
+        assert!(!clients.contains_key(&cid("victim")));
+        assert!(clients.contains_key(&cid("other")));
+    }
+
+    /// Stress test: many concurrent add/remove operations, mixed with
+    /// VATSIM syncs, must all complete within a reasonable timeout.
+    /// Catches lock-ordering regressions that only show up under
+    /// contention.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_add_remove_sync_stress() {
+        let (_dir, network) = create_lovv_network();
+        let manager = std::sync::Arc::new(client_manager(network));
+
+        let positions = ["LOVV_CTR", "LOWW_APP", "LOWW_TWR", "LOWW_GND", "LOWW_DEL"];
+        let frequencies = ["132.600", "134.675", "119.400", "121.600", "122.125"];
+
+        let mut handles = Vec::new();
+
+        // Spawn alternating adds and removes for 32 fictional clients.
+        for i in 0..32 {
+            let m = manager.clone();
+            let pos_idx = i % positions.len();
+            let position = positions[pos_idx];
+            let frequency = frequencies[pos_idx];
+            let id = format!("c{i}");
+
+            handles.push(tokio::spawn(async move {
+                let _ = m
+                    .add_client(
+                        client_info(&id, position, frequency),
+                        ActiveProfile::Custom,
+                        ClientConnectionGuard::default(),
+                    )
+                    .await;
+                // Yield to interleave with other tasks.
+                tokio::task::yield_now().await;
+                m.remove_client(cid(&id), Some(DisconnectReason::Terminated))
+                    .await;
+            }));
+        }
+
+        // Run a few VATSIM syncs concurrently with the churn.
+        for _ in 0..4 {
+            let m = manager.clone();
+            handles.push(tokio::spawn(async move {
+                let controllers = HashMap::from([(
+                    cid("c0"),
+                    controller("c0", "LOVV_CTR", "132.600", FacilityType::Enroute),
+                )]);
+                m.sync_vatsim_state(&controllers, &mut HashSet::new(), false)
+                    .await;
+            }));
+        }
+
+        for handle in handles {
+            tokio::time::timeout(std::time::Duration::from_secs(10), handle)
+                .await
+                .expect("task deadlocked under contention")
+                .expect("task panicked");
+        }
+
+        // After all add/remove pairs complete, the manager should be empty
+        // (and the last-client cleanup must have cleared vatsim_only and
+        // online_stations).
+        assert!(manager.clients.read().await.is_empty());
     }
 
     // Scenario-based sync tests
