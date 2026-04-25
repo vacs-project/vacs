@@ -12,6 +12,8 @@
 
         * {
             box-sizing: border-box;
+            padding: 0;
+            margin: 0;
         }
 
         body {
@@ -20,32 +22,41 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            margin: 0;
-            background: #0f172a;
-            color: #e2e8f0;
+            background-color: #111;
+            color: white;
         }
 
         .card {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 2rem 2.5rem;
-            max-width: 440px;
+            max-width: 380px;
             width: 100%;
             text-align: center;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+
+            > p {
+                margin: 0.5rem 0 0;
+                color: #dedede;
+                font-size: 0.9rem;
+                line-height: 1.6;
+            }
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+
+            > p {
+                font-size: 1.5em;
+                font-weight: 500;
+            }
         }
 
         h1 {
             margin: 0 0 0.5rem;
-            font-size: 1.5rem;
+            font-size: 1.75rem;
             font-weight: 600;
-        }
-
-        p {
-            margin: 0.5rem 0 0;
-            color: #94a3b8;
-            font-size: 0.9rem;
-            line-height: 1.6;
+            color: lightgreen;
         }
 
         a {
@@ -57,13 +68,61 @@
             text-decoration: underline;
         }
     </style>
-    <script>window.location.href = __DEEP_LINK_JSON__;</script>
 </head>
 <body>
     <div class="card">
+        <div class="logo">
+            <svg width="42" height="42" viewBox="0 0 824 824" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="824" height="824" rx="185" fill="url(#paint0_linear_1111_3)"/>
+                <g filter="url(#filter0_i_1111_3)">
+                    <g clip-path="url(#clip0_1111_3)">
+                        <path d="M653.043 388.86V373.406C653.043 236.311 541.451 124.815 404.355 124.815C267.26 124.815 155.574 236.311 155.574 373.406V395.023C136.518 406.116 123.719 426.594 123.719 450.202V498.934C123.719 534.202 152.351 562.836 187.621 562.836H232.466C241.284 562.836 248.489 555.724 248.489 546.813V402.323C248.489 393.506 241.377 386.301 232.466 386.301H187.621H187.526V373.406C187.526 253.945 284.8 156.766 404.166 156.766C523.532 156.766 620.807 254.04 620.807 373.406V386.301H590.563C581.746 386.301 574.54 393.411 574.54 402.323V547.004C574.54 555.821 581.65 563.027 590.563 563.027H612.179V598.391C612.179 618.301 595.966 634.513 576.057 634.513H459.725C451.951 614.793 430.05 600.476 404.262 600.476C371.932 600.476 345.764 622.946 345.764 650.441C345.764 677.936 372.026 700.407 404.262 700.407C429.955 700.407 451.857 686.09 459.725 666.37H576.247C613.792 666.37 644.321 635.746 644.321 598.297V562.268C675.418 558.002 699.5 531.171 699.5 499.03V450.298C699.405 421.189 679.78 396.539 653.043 388.86ZM187.621 418.441H216.538V531.075H187.621C169.987 531.075 155.67 516.665 155.67 499.124V450.392C155.67 432.757 170.081 418.441 187.621 418.441ZM404.357 668.549C389.946 668.549 377.81 660.301 377.81 650.535C377.81 640.769 389.946 632.521 404.357 632.521C418.768 632.521 430.904 640.769 430.904 650.535C430.808 660.301 418.672 668.549 404.357 668.549ZM667.453 499.124C667.453 516.758 653.043 531.075 635.502 531.075H606.679V418.346H635.502C653.136 418.346 667.453 432.756 667.453 450.297V499.124Z" fill="#FDFDFD"/>
+                    </g>
+                </g>
+                <g filter="url(#filter1_i_1111_3)">
+                    <g clip-path="url(#clip1_1111_3)">
+                        <path d="M513.205 356.101C511.959 354.639 510.135 353.796 508.212 353.796H466.522L476.166 307.602C476.57 305.669 476.081 303.659 474.835 302.127C473.591 300.594 471.721 299.705 469.747 299.705H418.167V280.801H429.75C433.371 280.801 436.307 277.866 436.307 274.244C436.307 270.622 433.371 267.688 429.75 267.688H393.469C389.848 267.688 386.912 270.622 386.912 274.244C386.912 277.867 389.848 280.801 393.469 280.801H405.052V299.707H353.473C351.499 299.707 349.629 300.596 348.385 302.129C347.14 303.66 346.651 305.671 347.054 307.604L356.698 353.797H315.008C313.087 353.797 311.263 354.64 310.016 356.103C308.77 357.565 308.228 359.502 308.535 361.398L314.615 399.12C314.616 399.127 314.616 399.132 314.616 399.139L321.648 442.762C321.968 444.748 323.16 446.405 324.794 447.369C325.775 447.947 326.914 448.275 328.121 448.275H368.554V550.975C368.554 554.597 371.49 557.532 375.111 557.532H448.108C451.729 557.532 454.665 554.597 454.665 550.975V448.274H495.098C496.304 448.274 497.445 447.947 498.425 447.368C500.059 446.405 501.251 444.749 501.571 442.762L508.602 399.138C508.604 399.132 508.604 399.127 508.604 399.12L514.683 361.398C514.992 359.5 514.45 357.563 513.205 356.101ZM458.498 328.061H445.88V312.82H461.679L458.498 328.061ZM432.768 312.82V328.061H418.167V312.82H432.768ZM405.054 328.061H390.452V312.82H405.052V328.061H405.054ZM377.338 312.82V328.061H364.72L361.539 312.82H377.338ZM355.659 391.535H326.674L322.705 366.91H355.658V391.535H355.659ZM405.054 391.535H368.772V366.91H405.054V391.535ZM454.447 391.535H418.166V366.91H454.447V391.535ZM496.545 391.535H467.561V366.91H500.514L496.545 391.535Z" fill="#F8F8F8"/>
+                    </g>
+                </g>
+                <defs>
+                    <filter id="filter0_i_1111_3" x="123.719" y="124.719" width="575.781" height="584.781" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                        <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+                        <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+                        <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+                        <feOffset dy="9"/>
+                        <feGaussianBlur stdDeviation="5.85"/>
+                        <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+                        <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
+                        <feBlend mode="normal" in2="shape" result="effect1_innerShadow_1111_3"/>
+                    </filter>
+                    <filter id="filter1_i_1111_3" x="266.687" y="267.688" width="289.844" height="297.844" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                        <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+                        <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+                        <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+                        <feOffset dy="8"/>
+                        <feGaussianBlur stdDeviation="4.35"/>
+                        <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"/>
+                        <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0"/>
+                        <feBlend mode="normal" in2="shape" result="effect1_innerShadow_1111_3"/>
+                    </filter>
+                    <linearGradient id="paint0_linear_1111_3" x1="0" y1="0" x2="824" y2="824" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stop-color="#0E4194"/>
+                        <stop offset="1" stop-color="#0B3170"/>
+                    </linearGradient>
+                    <clipPath id="clip0_1111_3">
+                        <rect width="575.781" height="575.781" fill="white" transform="translate(123.719 124.719)"/>
+                    </clipPath>
+                    <clipPath id="clip1_1111_3">
+                        <rect width="289.844" height="289.844" fill="white" transform="translate(266.687 267.688)"/>
+                    </clipPath>
+                </defs>
+            </svg>
+            <p>vacs</p>
+        </div>
         <h1>Login successful</h1>
-        <p>You are now logged in to vacs. You may close this tab.</p>
+        <p style="margin-bottom: 1rem;">You are now logged in to vacs. You may close this tab.</p>
         <p>Not redirected automatically? <a href="__DEEP_LINK_HREF__">Click here</a>.</p>
     </div>
+    <script>window.location.href = __DEEP_LINK_JSON__;</script>
 </body>
 </html>
