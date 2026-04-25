@@ -123,7 +123,7 @@ jobs:
           shared-key: licenses
 
       - name: Install cargo-about
-        run: cargo install cargo-about --locked
+        run: cargo install cargo-about --locked --features="cli"
 
       - name: Generate third-party licenses
         run: python3 scripts/generate-licenses.py --output THIRD_PARTY_LICENSES.html
