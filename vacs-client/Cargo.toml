@@ -32,6 +32,7 @@ chacha20poly1305 = { workspace = true }
 config = { workspace = true }
 cookie_store = { workspace = true }
 futures-util = { workspace = true }
+hound = { workspace = true }
 keyboard-types = { workspace = true }
 keyring = { workspace = true }
 log = { workspace = true }
@@ -72,4 +73,8 @@ tauri-plugin-prevent-default = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { workspace = true }
 futures-util = { workspace = true }
+pipewire = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
