@@ -1,5 +1,5 @@
 pub mod device;
-mod dsp;
+pub mod dsp;
 pub mod error;
 pub(crate) mod mixer;
 pub mod sources;
