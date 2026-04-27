@@ -8,6 +8,7 @@ mod keybinds;
 mod platform;
 mod radio;
 mod remote;
+mod replay;
 mod secrets;
 mod signaling;
 
@@ -15,6 +16,7 @@ use crate::app::open_fatal_error_dialog;
 use crate::app::state::audio::AppStateAudioExt;
 use crate::app::state::http::HttpState;
 use crate::app::state::keybinds::AppStateKeybindsExt;
+use crate::app::state::replay::AppStateReplayExt;
 use crate::app::state::{AppState, AppStateInner};
 use crate::audio::manager::AudioManagerHandle;
 use crate::build::VersionInfo;
@@ -23,6 +25,7 @@ use crate::error::{StartupError, StartupErrorExt};
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
 use crate::remote::{RemoteServer, RemoteServerHandle};
+use crate::replay::recorder::ReplayRecorderHandle;
 use tauri::{App, Manager, RunEvent, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::Mutex as TokioMutex;
@@ -93,6 +96,9 @@ pub fn run() {
 
                 app.manage::<HttpState>(HttpState::new(app.handle())?);
                 app.manage::<AudioManagerHandle>(state.audio_manager_handle());
+                app.manage::<ReplayRecorderHandle>(
+                    state.replay_recorder_handle(),
+                );
                 app.manage::<AppState>(TokioMutex::new(state));
 
                 if capabilities.keybind_listener || capabilities.keybind_emitter {
