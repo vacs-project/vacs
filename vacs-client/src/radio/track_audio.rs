@@ -8,12 +8,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use trackaudio::messages::commands::SetStationState;
 use trackaudio::messages::events::StationState;
 use trackaudio::{
     ClientEvent, ConnectionState, TrackAudioClient, TrackAudioConfig, TrackAudioError,
 };
+
+/// Capacity of the [`TrackAudioRadio`] event fan-out broadcast channel.
+const EVENT_FANOUT_CAPACITY: usize = 256;
 
 #[derive(Clone)]
 pub struct TrackAudioRadio {
@@ -22,6 +26,7 @@ pub struct TrackAudioRadio {
     client: TrackAudioClient,
     active: Arc<AtomicBool>,
     state: Arc<TrackAudioState>,
+    events_tx: broadcast::Sender<trackaudio::Event>,
     cancellation_token: CancellationToken,
 }
 
@@ -56,15 +61,17 @@ impl TrackAudioRadio {
 
         let active = Arc::new(AtomicBool::new(false));
         let state = Arc::new(TrackAudioState::default());
+        let (events_tx, _) = broadcast::channel(EVENT_FANOUT_CAPACITY);
 
         {
             let app = app.clone();
             let client = client.clone();
             let token = cancellation_token.clone();
             let state = state.clone();
+            let events_tx = events_tx.clone();
 
             tauri::async_runtime::spawn(async move {
-                Self::events_task(app, client, token, state).await;
+                Self::events_task(app, client, token, state, events_tx).await;
             });
         }
 
@@ -73,10 +80,25 @@ impl TrackAudioRadio {
             client,
             active,
             state,
+            events_tx,
             cancellation_token,
         };
 
         Ok(radio)
+    }
+
+    /// Subscribe to a fan-out of every [`trackaudio::Event`] received by this radio.
+    pub fn subscribe_events(&self) -> broadcast::Receiver<trackaudio::Event> {
+        self.events_tx.subscribe()
+    }
+
+    /// Returns the cached `headset` flag for `frequency`, or `None` if the station is unknown.
+    pub fn headset_for_frequency(&self, frequency: Frequency) -> Option<bool> {
+        self.state
+            .stations
+            .read()
+            .get(&frequency)
+            .map(|s| s.headset)
     }
 
     async fn events_task(
@@ -84,6 +106,7 @@ impl TrackAudioRadio {
         client: TrackAudioClient,
         cancellation_token: CancellationToken,
         state: Arc<TrackAudioState>,
+        events_tx: broadcast::Sender<trackaudio::Event>,
     ) {
         log::debug!("Starting TrackAudio events task");
 
@@ -97,7 +120,12 @@ impl TrackAudioRadio {
                 }
                 result = events.recv() => {
                     match result {
-                        Ok(event) => Self::handle_event(event, &state, &app, &client).await,
+                        Ok(event) => {
+                            if events_tx.receiver_count() > 0 {
+                                let _ = events_tx.send(event.clone());
+                            }
+                            Self::handle_event(event, &state, &app, &client).await;
+                        }
                         Err(err) => {
                             log::error!("Error receiving TrackAudio event: {err}");
                             state.clear();
