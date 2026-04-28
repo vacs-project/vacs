@@ -62,7 +62,7 @@ pretty_assertions = "1.4.1"
 quote = "1.0.45"
 rand = "0.10.1"
 regex = "1.12.3"
-reqwest = { version = "0.13.2", features = ["cookies", "json", "query", "rustls"] }
+reqwest = { version = "0.13.3", features = ["cookies", "json", "query", "rustls"] }
 rfd = { version = "0.17.2", features = ["common-controls-v6"] }
 ringbuf = "0.4.8"
 rubato = "2.0.0"
