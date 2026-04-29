@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.3.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.2.0...vacs-client-v2.3.0) (2026-04-29)
+
+
+### Features
+
+* **vacs-client:** add trackaudio radio page ([#755](https://github.com/vacs-project/vacs/issues/755)) ([9e00ab8](https://github.com/vacs-project/vacs/commit/9e00ab8fbbb421824990d13a0f5440a812422fd1))
+* **vacs-client:** track call status in call history list ([#776](https://github.com/vacs-project/vacs/issues/776)) ([4b4221d](https://github.com/vacs-project/vacs/commit/4b4221dca93f5732f476c586bdb89c5b0f2ce57a))
+
+
+### Bug Fixes
+
+* **vacs-client:** add cpl button to tabbed layout ([#800](https://github.com/vacs-project/vacs/issues/800)) ([69c309a](https://github.com/vacs-project/vacs/commit/69c309ad0c587fdd3800dd7b9fa1a8c7b49713e3))
+* **vacs-client:** fix device switch mismatch in playback error handling ([#779](https://github.com/vacs-project/vacs/issues/779)) ([9a1ec97](https://github.com/vacs-project/vacs/commit/9a1ec9737e6dd72cf82b3185d535d07357274bed))
+* **vacs-client:** fix initial position default source ([#757](https://github.com/vacs-project/vacs/issues/757)) ([005ab1d](https://github.com/vacs-project/vacs/commit/005ab1de71cbfbdd7a98f91b6c9873c4b60f0177))
+* **vacs-client:** fix random UI freezes under Wayland ([#747](https://github.com/vacs-project/vacs/issues/747)) ([0cf8f81](https://github.com/vacs-project/vacs/commit/0cf8f819809dd140a60e00f577e23b2d96ae6839))
+* **vacs-client:** fix remote call display sync after error ([#777](https://github.com/vacs-project/vacs/issues/777)) ([814e37c](https://github.com/vacs-project/vacs/commit/814e37c6e977941fce2294c2e980a17395109591))
+* **vacs-client:** fix subpage button color ([#771](https://github.com/vacs-project/vacs/issues/771)) ([be4050b](https://github.com/vacs-project/vacs/commit/be4050b1ada7449f1094ab67ea91d6bcf7a956c7))
+* **vacs-client:** play call end sound when WebRTC peer disconnects ([#778](https://github.com/vacs-project/vacs/issues/778)) ([99d4821](https://github.com/vacs-project/vacs/commit/99d48212e3583571247e5e5b28ac0f193e8d1367))
+* **vacs-client:** use position default source if stations refresh and no default source set ([005ab1d](https://github.com/vacs-project/vacs/commit/005ab1de71cbfbdd7a98f91b6c9873c4b60f0177))
+
 ## [2.2.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.1.0...vacs-client-v2.2.0) (2026-04-12)
 
 
