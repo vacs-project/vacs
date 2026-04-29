@@ -16,10 +16,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 const TICK_INTERVAL_MS: u64 = 100;
+const CLIP_RECORDED_EVENT: &str = "replay:clip-recorded";
+const CLIP_EVICTED_EVENT: &str = "replay:clip-evicted";
 
 /// Snapshot of an in-flight clip the recorder is currently writing.
 struct OpenClip {
@@ -80,10 +83,6 @@ impl OpenClip {
 
 /// Public handle to a running recorder.
 pub struct ReplayRecorder {
-    #[allow(
-        dead_code,
-        reason = "accessed via the deferred command-layer methods below"
-    )]
     store: Arc<Mutex<ClipStore>>,
     cancel: CancellationToken,
 }
@@ -97,10 +96,13 @@ pub struct ReplayRecorder {
 /// shuts down any previous recorder.
 pub type ReplayRecorderHandle = Arc<RwLock<Option<ReplayRecorder>>>;
 
-#[allow(dead_code, reason = "public API for the deferred replay command layer")]
 impl ReplayRecorder {
     /// Spawn a recorder. Returns immediately; capture and writing happen on a background task.
+    ///
+    /// `app` is used to emit `replay:clip-recorded` and `replay:clip-evicted` events to
+    /// the frontend whenever the rolling deque changes.
     pub async fn spawn(
+        app: AppHandle,
         config: ReplayConfig,
         clip_dir: PathBuf,
         mut source: Box<dyn ReplaySource>,
@@ -112,7 +114,7 @@ impl ReplayRecorder {
         {
             let store = store.clone();
             let cancel = cancel.clone();
-            tokio::spawn(run(config, store, source, rx, cancel));
+            tokio::spawn(run(app, config, store, source, rx, cancel));
         }
 
         Ok(Self { store, cancel })
@@ -154,6 +156,7 @@ impl Drop for ReplayRecorder {
 }
 
 async fn run(
+    app: AppHandle,
     config: ReplayConfig,
     store: Arc<Mutex<ClipStore>>,
     mut source: Box<dyn ReplaySource>,
@@ -174,7 +177,7 @@ async fn run(
             }
             _ = ticker.tick() => {
                 let actions = fsm.tick(Instant::now(), SystemTime::now());
-                apply_actions(actions, &store, &mut open);
+                apply_actions(&app, actions, &store, &mut open);
             }
             event = rx.recv() => {
                 let Some(event) = event else {
@@ -182,7 +185,7 @@ async fn run(
                     break;
                 };
                 let actions = fsm.on_event(event, Instant::now(), SystemTime::now());
-                apply_actions(actions, &store, &mut open);
+                apply_actions(&app, actions, &store, &mut open);
             }
         }
     }
@@ -191,7 +194,11 @@ async fn run(
     for (clip_id, clip) in open.drain() {
         match clip.finalize(clip_id, None, None) {
             Ok(meta) => {
-                store.lock().commit(meta);
+                let _ = app.emit(CLIP_RECORDED_EVENT, &meta);
+                let evicted = store.lock().commit(meta);
+                for ev in evicted {
+                    let _ = app.emit(CLIP_EVICTED_EVENT, &ev);
+                }
             }
             Err((path, err)) => {
                 log::warn!("failed to finalize clip during shutdown: {err}");
@@ -204,6 +211,7 @@ async fn run(
 }
 
 fn apply_actions(
+    app: &AppHandle,
     actions: Vec<FsmAction>,
     store: &Mutex<ClipStore>,
     open: &mut HashMap<u64, OpenClip>,
@@ -259,9 +267,11 @@ fn apply_actions(
 
                 match clip.finalize(clip_id, Some(ended_at), Some(duration_ms)) {
                     Ok(meta) => {
+                        let _ = app.emit(CLIP_RECORDED_EVENT, &meta);
                         let evicted = store.lock().commit(meta);
                         for ev in evicted {
                             log::trace!("evicted clip {} ({})", ev.id, ev.path.display());
+                            let _ = app.emit(CLIP_EVICTED_EVENT, &ev);
                         }
                     }
                     Err((path, err)) => {

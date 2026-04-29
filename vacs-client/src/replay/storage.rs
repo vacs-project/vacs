@@ -91,18 +91,15 @@ impl ClipStore {
         let _ = fs::remove_file(path);
     }
 
-    #[allow(dead_code, reason = "public API for the deferred replay command layer")]
     pub fn list(&self) -> Vec<ClipMeta> {
         self.clips.iter().rev().cloned().collect()
     }
 
-    #[allow(dead_code, reason = "public API for the deferred replay command layer")]
     pub fn get(&self, id: u64) -> Option<ClipMeta> {
         self.clips.iter().find(|c| c.id == id).cloned()
     }
 
     /// Delete a clip from the deque and its file. Returns whether the clip existed.
-    #[allow(dead_code, reason = "public API for the deferred replay command layer")]
     pub fn delete(&mut self, id: u64) -> Result<bool, ReplayError> {
         let Some(pos) = self.clips.iter().position(|c| c.id == id) else {
             return Ok(false);
@@ -115,7 +112,6 @@ impl ClipStore {
     }
 
     /// Delete all rolling-deque clips. Files in `saved/` are left untouched.
-    #[allow(dead_code, reason = "public API for the deferred replay command layer")]
     pub fn clear(&mut self) -> Result<(), ReplayError> {
         for meta in self.clips.drain(..) {
             if meta.path.exists() {
@@ -131,7 +127,6 @@ impl ClipStore {
     /// Saved filenames are self-describing: `clip-{unix_ms}-{tap}-{freq?}-{callsign}.wav`,
     /// e.g. `clip-1745789012345-headset-121.500-DLH4AB.wav`. Frequency is omitted if the
     /// clip has no recorded frequency.
-    #[allow(dead_code, reason = "public API for the deferred replay command layer")]
     pub fn export(&self, id: u64, target_dir: Option<&Path>) -> Result<PathBuf, ReplayError> {
         let meta = self
             .get(id)
@@ -163,11 +158,6 @@ impl ClipStore {
         fs::copy(&meta.path, &target)?;
 
         Ok(target)
-    }
-
-    #[allow(dead_code, reason = "public API for the deferred replay command layer")]
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     fn evict_overflow(&mut self) -> Vec<ClipMeta> {

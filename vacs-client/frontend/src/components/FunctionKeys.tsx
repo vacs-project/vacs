@@ -38,13 +38,13 @@ function FunctionKeys() {
             <Button color="cyan" className="text-slate-400" disabled={true}>
                 DIV
             </Button>
-            <Button color="cyan" className="text-slate-400" disabled={true}>
+            <LinkButton path="/replay" className="h-full">
                 <p>
                     PLAY
                     <br />
                     BACK
                 </p>
-            </Button>
+            </LinkButton>
             <Button color="cyan" className="text-slate-400" disabled={true}>
                 <p>
                     PLC

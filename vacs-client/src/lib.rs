@@ -17,6 +17,7 @@ use crate::app::state::audio::AppStateAudioExt;
 use crate::app::state::http::HttpState;
 use crate::app::state::keybinds::AppStateKeybindsExt;
 use crate::app::state::replay::AppStateReplayExt;
+use crate::app::state::track_audio_radio::AppStateTrackAudioRadioExt;
 use crate::app::state::{AppState, AppStateInner};
 use crate::audio::manager::AudioManagerHandle;
 use crate::build::VersionInfo;
@@ -24,6 +25,7 @@ use crate::config::{CLIENT_SETTINGS_FILE_NAME, Persistable, PersistedClientConfi
 use crate::error::{StartupError, StartupErrorExt};
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
+use crate::radio::track_audio::TrackAudioRadioHandle;
 use crate::remote::{RemoteServer, RemoteServerHandle};
 use crate::replay::recorder::ReplayRecorderHandle;
 use tauri::{App, Manager, RunEvent, WindowEvent};
@@ -99,6 +101,7 @@ pub fn run() {
                 app.manage::<ReplayRecorderHandle>(
                     state.replay_recorder_handle(),
                 );
+                app.manage::<TrackAudioRadioHandle>(state.track_audio_radio_handle());
                 app.manage::<AppState>(TokioMutex::new(state));
 
                 if capabilities.keybind_listener || capabilities.keybind_emitter {
@@ -195,6 +198,13 @@ pub fn run() {
             remote::commands::remote_get_config,
             remote::commands::remote_is_enabled,
             remote::commands::remote_set_config,
+            replay::commands::replay_clear,
+            replay::commands::replay_delete,
+            replay::commands::replay_export,
+            replay::commands::replay_get_clip_bytes,
+            replay::commands::replay_get_enabled,
+            replay::commands::replay_list,
+            replay::commands::replay_set_enabled,
         ])
         .build(tauri::generate_context!())
         .expect("Failed to build tauri application")

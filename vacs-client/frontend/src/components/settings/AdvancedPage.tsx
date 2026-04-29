@@ -1,4 +1,5 @@
 import RemoteControlSettings from "./RemoteControlSettings.tsx";
+import ReplaySettings from "./ReplaySettings.tsx";
 import SettingsSubPage from "./SettingsSubPage.tsx";
 import AudioHostSelector from "./AudioHostSelector.tsx";
 
@@ -16,6 +17,12 @@ function AdvancedPage() {
             </p>
             <div className="w-full py-2 px-4 border-b-2 border-zinc-200 flex flex-col gap-3">
                 <AudioHostSelector />
+            </div>
+            <p className="w-full text-center border-t-2 pt-1 border-zinc-200 uppercase font-semibold">
+                Replay
+            </p>
+            <div className="w-full py-3 px-4 flex flex-col gap-3">
+                <ReplaySettings />
             </div>
         </SettingsSubPage>
     );

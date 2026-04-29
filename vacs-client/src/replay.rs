@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod fsm;
 pub mod recorder;
 pub mod source;
@@ -132,7 +133,7 @@ impl ReplayConfig {
 
         log::info!("starting recorder, clip dir = {}", clip_dir.display());
 
-        match recorder::ReplayRecorder::spawn(self.clone(), clip_dir, source).await {
+        match recorder::ReplayRecorder::spawn(app.clone(), self.clone(), clip_dir, source).await {
             Ok(recorder) => {
                 let handle = app.state::<ReplayRecorderHandle>();
                 let mut slot = handle.write();

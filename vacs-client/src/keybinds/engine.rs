@@ -6,6 +6,7 @@ use crate::config::{KeybindsConfig, RadioConfig, TransmitConfig, TransmitMode};
 use crate::error::Error;
 use crate::keybinds::runtime::{DynKeybindListener, KeybindListener, PlatformListener};
 use crate::keybinds::{KeyEvent, Keybind};
+use crate::radio::track_audio::TrackAudioRadioHandle;
 use crate::radio::{DynRadio, RadioState, TransmissionState};
 use keyboard_types::{Code, KeyState};
 use parking_lot::RwLock;
@@ -126,6 +127,9 @@ impl KeybindEngine {
         }
 
         self.radio.write().take();
+        if let Some(handle) = self.app.try_state::<TrackAudioRadioHandle>() {
+            handle.write().take();
+        }
         self.app.emit("radio:integration-available", false).ok();
 
         if let Some(stop_token) = self.stop_token.take() {

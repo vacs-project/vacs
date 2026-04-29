@@ -54,6 +54,13 @@ export type RemoteCommand =
     | "remote_is_enabled"
     | "remote_request_store_sync"
     | "remote_set_config"
+    | "replay_clear"
+    | "replay_delete"
+    | "replay_export"
+    | "replay_get_clip_bytes"
+    | "replay_get_enabled"
+    | "replay_list"
+    | "replay_set_enabled"
     | "signaling_accept_call"
     | "signaling_add_ignored_client"
     | "signaling_connect"
@@ -103,7 +110,9 @@ export type RemoteEvent =
     | "webrtc:call-disconnected"
     | "webrtc:call-error"
     | "update:progress"
-    | "remote:status";
+    | "remote:status"
+    | "replay:clip-recorded"
+    | "replay:clip-evicted";
 
 export type InvokeArgs = Record<string, unknown>;
 

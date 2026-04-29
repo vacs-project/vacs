@@ -35,6 +35,7 @@ import {useProfileType} from "./stores/profile-store.ts";
 import {fetchSettings} from "./stores/settings-store.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
 import RadioPage from "./pages/RadioPage.tsx";
+import ReplayPage from "./pages/ReplayPage.tsx";
 import CplButton from "./components/ui/CplButton.tsx";
 import {fetchRadioState, setupRadioListener} from "./listeners/radio-listener.ts";
 
@@ -84,6 +85,7 @@ function App() {
                             <Route path="/settings" component={SettingsPage} nest />
                             <Route path="/mission" component={MissionPage} />
                             <Route path="/radio" component={RadioPage} />
+                            <Route path="/replay" component={ReplayPage} />
                             <Route path="/" nest>
                                 {authStatus === "loading" ? (
                                     <></>

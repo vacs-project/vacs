@@ -19,6 +19,15 @@ use trackaudio::{
 /// Capacity of the [`TrackAudioRadio`] event fan-out broadcast channel.
 const EVENT_FANOUT_CAPACITY: usize = 256;
 
+/// Shared, app-managed slot holding the (optionally running) [`TrackAudioRadio`].
+///
+/// The slot is created empty at startup and populated by [`crate::config::RadioConfig::radio`]
+/// whenever the TrackAudio integration is brought up. Code paths that need a live handle
+/// to the active radio (e.g. live-toggling the replay recorder) read from this slot
+/// instead of plumbing the [`std::sync::Arc`] through call chains that don't otherwise
+/// need it.
+pub type TrackAudioRadioHandle = Arc<RwLock<Option<Arc<TrackAudioRadio>>>>;
+
 #[derive(Clone)]
 pub struct TrackAudioRadio {
     #[allow(dead_code)]
