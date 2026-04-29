@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.3.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.2.0...vacs-server-v2.3.0) (2026-04-29)
+
+
+### Features
+
+* **vacs-server:** add OAuth login redirect page ([#802](https://github.com/vacs-project/vacs/issues/802)) ([a65414d](https://github.com/vacs-project/vacs/commit/a65414dfac72ef61c6a957e948220a11620b524f))
+* **vacs-server:** add PKCE support for VATSIM Connect ([a65414d](https://github.com/vacs-project/vacs/commit/a65414dfac72ef61c6a957e948220a11620b524f))
+
+
+### Bug Fixes
+
+* **vacs-server:** correct coverage event classification during position changes ([#765](https://github.com/vacs-project/vacs/issues/765)) ([c09a028](https://github.com/vacs-project/vacs/commit/c09a02809b93723b1820396ef521aea1703cb28d))
+* **vacs-server:** fix deadlock during client removal with concurrent VATSIM sync ([#799](https://github.com/vacs-project/vacs/issues/799)) ([7338d98](https://github.com/vacs-project/vacs/commit/7338d98f4342994a891d822a03a92d559d918cc8))
+* **vacs-server:** fix delay in datafeed update unsetting position ([0d20d8e](https://github.com/vacs-project/vacs/commit/0d20d8e9ec301a28332c6caa0e802395f1b13a09))
+* **vacs-server:** sync online stations on profile change ([#773](https://github.com/vacs-project/vacs/issues/773)) ([0d20d8e](https://github.com/vacs-project/vacs/commit/0d20d8e9ec301a28332c6caa0e802395f1b13a09))
+
 ## [2.1.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.0.0...vacs-server-v2.1.0) (2026-03-24)
 
 
