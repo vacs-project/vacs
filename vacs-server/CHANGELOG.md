@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.0...vacs-server-v2.3.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* **vacs-server:** replace history state on OAuth callback page to clear token from URL ([#816](https://github.com/vacs-project/vacs/issues/816)) ([538669d](https://github.com/vacs-project/vacs/commit/538669d90c9e5d48cb2c11d89bf682784549bbed))
+
 ## [2.3.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.2.0...vacs-server-v2.3.0) (2026-04-29)
 
 
