@@ -123,6 +123,9 @@
         <p style="margin-bottom: 1rem;">You are now logged in to vacs. You may close this tab.</p>
         <p>Not redirected automatically? <a href="__DEEP_LINK_HREF__">Click here</a>.</p>
     </div>
-    <script>window.location.href = __DEEP_LINK_JSON__;</script>
+    <script>
+        window.location.href = __DEEP_LINK_JSON__;
+        history.replaceState(null, "", "/auth/vatsim/redirect");
+    </script>
 </body>
 </html>
