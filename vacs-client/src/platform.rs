@@ -1,3 +1,6 @@
+#[cfg(target_os = "windows")]
+pub mod windows_touch_handler;
+
 use serde::Serialize;
 use std::fmt::Display;
 use std::sync::OnceLock;
