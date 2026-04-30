@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use std::fmt::{Debug, Formatter};
 use std::ops::ControlFlow;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -65,8 +66,8 @@ impl ClientSession {
     /// changes from the datafeed should be ignored (the datafeed may not have
     /// caught up with the slurper-derived position yet).
     #[inline]
-    pub fn is_within_position_grace_period(&self) -> bool {
-        self.connected_at.elapsed() < config::POSITION_GRACE_PERIOD
+    pub fn is_within_position_grace_period(&self, grace_period: &Duration) -> bool {
+        self.connected_at.elapsed() < *grace_period
     }
 
     #[inline]
@@ -498,7 +499,7 @@ impl ClientSession {
 
     #[cfg(test)]
     pub fn expire_position_grace_period(&mut self) {
-        self.connected_at = Instant::now() - crate::config::POSITION_GRACE_PERIOD;
+        self.connected_at = Instant::now() - Duration::from_secs(90);
     }
 }
 

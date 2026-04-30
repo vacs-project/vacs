@@ -5,6 +5,7 @@ use crate::state::clients::{ClientManagerError, Result};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast::error::SendError;
 use tokio::sync::{RwLock, broadcast, mpsc};
 use tracing::instrument;
@@ -32,6 +33,7 @@ use vacs_vatsim::{ControllerInfo, FacilityType};
 /// must never invert this order. Note that this strict order does not
 /// apply if a lock is dropped immediately again.
 pub struct ClientManager {
+    position_grace_period: Duration,
     data_feed: Arc<dyn DataFeed>,
     broadcast_tx: broadcast::Sender<ServerMessage>,
     network: parking_lot::RwLock<Network>,
@@ -66,8 +68,10 @@ impl ClientManager {
         broadcast_tx: broadcast::Sender<ServerMessage>,
         network: Network,
         data_feed: Arc<dyn DataFeed>,
+        position_grace_period: Duration,
     ) -> Self {
         Self {
+            position_grace_period,
             data_feed,
             broadcast_tx,
             network: parking_lot::RwLock::new(network),
@@ -966,6 +970,21 @@ impl ClientManager {
                         );
                     }
 
+                    // During the grace period after connecting, ignore
+                    // position changes from the datafeed. The slurper
+                    // resolves the correct position immediately, but the
+                    // datafeed may still report a stale frequency for a
+                    // few update cycles.
+                    if session.is_within_position_grace_period(&self.position_grace_period) {
+                        tracing::debug!(
+                            ?cid,
+                            ?controller,
+                            old_position_id = ?session.position_id(),
+                            "Client is within grace period after connecting, skipping client info update and position sync"
+                        );
+                        continue;
+                    }
+
                     let updated = session.update_client_info(controller);
                     if updated {
                         tracing::trace!(?cid, ?session, "Client info updated, updating position");
@@ -1008,27 +1027,12 @@ impl ClientManager {
                             .unwrap_or((None, Vec::new()));
 
                         if old_position_id != new_position_id {
-                            // During the grace period after connecting, ignore
-                            // position changes from the datafeed. The slurper
-                            // resolves the correct position immediately, but the
-                            // datafeed may still report a stale frequency for a
-                            // few update cycles.
-                            if session.is_within_position_grace_period() {
-                                tracing::debug!(
-                                    ?cid,
-                                    ?old_position_id,
-                                    ?new_position_id,
-                                    "Ignoring position change during grace period"
-                                );
-                                continue;
-                            } else {
-                                tracing::debug!(
-                                    ?cid,
-                                    ?new_position_id,
-                                    ?old_position_id,
-                                    "Client position changed"
-                                );
-                            }
+                            tracing::debug!(
+                                ?cid,
+                                ?new_position_id,
+                                ?old_position_id,
+                                "Client position changed"
+                            );
 
                             session.set_position_id(new_position_id.clone());
 
@@ -1534,7 +1538,7 @@ mod tests {
     fn client_manager(network: Network) -> ClientManager {
         let (tx, _) = broadcast::channel(64);
         let data_feed = Arc::new(vacs_vatsim::data_feed::mock::MockDataFeed::new(Vec::new()));
-        ClientManager::new(tx, network, data_feed)
+        ClientManager::new(tx, network, data_feed, Duration::from_secs(90))
     }
 
     struct DrainedMessages {
@@ -4249,7 +4253,7 @@ controlled_by = ["LOWW_DEL"]
         data_feed: std::sync::Arc<dyn vacs_vatsim::data_feed::DataFeed>,
     ) -> ClientManager {
         let (tx, _) = broadcast::channel(64);
-        ClientManager::new(tx, network, data_feed)
+        ClientManager::new(tx, network, data_feed, Duration::from_secs(90))
     }
 
     /// Regression test for the deadlock that occurred when the VATSIM

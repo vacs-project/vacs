@@ -14,9 +14,6 @@ pub const CLIENT_WEBSOCKET_TASK_CHANNEL_CAPACITY: usize = 100;
 pub const CLIENT_WEBSOCKET_PING_INTERVAL: Duration = Duration::from_secs(10);
 pub const CLIENT_WEBSOCKET_PONG_TIMEOUT: Duration = Duration::from_secs(30);
 pub const SERVER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
-/// After connecting, a client's position is frozen for this duration to allow the
-/// VATSIM datafeed to catch up with the slurper-derived position assignment.
-pub const POSITION_GRACE_PERIOD: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AppConfig {
@@ -182,6 +179,9 @@ pub struct VatsimConfig {
     pub slurper_base_url: String,
     pub data_feed_url: String,
     pub data_feed_timeout: Duration,
+    /// After connecting, a client's position is frozen for this duration to allow the
+    /// VATSIM datafeed to catch up with the slurper-derived position assignment.
+    pub data_feed_position_grace_period: Duration,
     pub controller_update_interval: Duration,
     /// Path to the dataset coverage directory. Must be a **subdirectory** of
     /// the volume mount - not the volume root itself - so that the dataset
@@ -201,6 +201,7 @@ impl Default for VatsimConfig {
             slurper_base_url: "https://slurper.vatsim.net".to_string(),
             data_feed_url: "https://data.vatsim.net/v3/vatsim-data.json".to_string(),
             data_feed_timeout: Duration::from_secs(2),
+            data_feed_position_grace_period: Duration::from_secs(90),
             controller_update_interval: Duration::from_secs(30),
             coverage_dir: "/var/lib/vacs-server/data/coverage".to_string(),
         }
