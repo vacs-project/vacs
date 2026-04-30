@@ -32,6 +32,7 @@ chacha20poly1305 = { workspace = true }
 config = { workspace = true }
 cookie_store = { workspace = true }
 futures-util = { workspace = true }
+gilrs = { workspace = true }
 keyboard-types = { workspace = true }
 keyring = { workspace = true }
 log = { workspace = true }

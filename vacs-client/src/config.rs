@@ -497,13 +497,13 @@ pub struct TransmitConfig {
     pub mode: TransmitMode,
     /// Key code for Push-to-Talk mode.
     /// Required if mode is `PushToTalk`.
-    pub push_to_talk: Option<Code>,
+    pub push_to_talk: Option<InputCode>,
     /// Key code for Push-to-Mute mode.
     /// Required if mode is `PushToMute`.
-    pub push_to_mute: Option<Code>,
+    pub push_to_mute: Option<InputCode>,
     /// Key code for Radio Integration PTT.
     /// Required if mode is `RadioIntegration`.
-    pub radio_push_to_talk: Option<Code>,
+    pub radio_push_to_talk: Option<InputCode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -519,9 +519,11 @@ impl From<TransmitConfig> for FrontendTransmitConfig {
     fn from(transmit_config: TransmitConfig) -> Self {
         Self {
             mode: transmit_config.mode,
-            push_to_talk: transmit_config.push_to_talk.map(|c| c.to_string()),
-            push_to_mute: transmit_config.push_to_mute.map(|c| c.to_string()),
-            radio_push_to_talk: transmit_config.radio_push_to_talk.map(|c| c.to_string()),
+            push_to_talk: transmit_config.push_to_talk.map(|c| c.to_display_string()),
+            push_to_mute: transmit_config.push_to_mute.map(|c| c.to_display_string()),
+            radio_push_to_talk: transmit_config
+                .radio_push_to_talk
+                .map(|c| c.to_display_string()),
         }
     }
 }
@@ -534,23 +536,115 @@ impl TryFrom<FrontendTransmitConfig> for TransmitConfig {
             mode: value.mode,
             push_to_talk: value
                 .push_to_talk
-                .as_ref()
-                .map(|s| s.parse::<Code>())
-                .transpose()
-                .map_err(|_| Error::Other(Box::new(anyhow::anyhow!("Unrecognized key code: {}. Please report this error in our GitHub repository's issue tracker.", value.push_to_talk.unwrap_or_default()))))?,
+                .as_deref()
+                .map(InputCode::from_str)
+                .transpose()?,
             push_to_mute: value
                 .push_to_mute
-                .as_ref()
-                .map(|s| s.parse::<Code>())
-                .transpose()
-                .map_err(|_| Error::Other(Box::new(anyhow::anyhow!("Unrecognized key code: {}. Please report this error in our GitHub repository's issue tracker.", value.push_to_mute.unwrap_or_default()))))?,
+                .as_deref()
+                .map(InputCode::from_str)
+                .transpose()?,
             radio_push_to_talk: value
                 .radio_push_to_talk
-                .as_ref()
-                .map(|s| s.parse::<Code>())
-                .transpose()
-                .map_err(|_| Error::Other(Box::new(anyhow::anyhow!("Unrecognized key code: {}. Please report this error in our GitHub repository's issue tracker.", value.radio_push_to_talk.unwrap_or_default()))))?,
+                .as_deref()
+                .map(InputCode::from_str)
+                .transpose()?,
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", content = "value")]
+pub enum InputCode {
+    Key(Code),
+    Joystick(u8),
+}
+
+impl<'de> serde::Deserialize<'de> for InputCode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct InputCodeVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for InputCodeVisitor {
+            type Value = InputCode;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "a key code string or InputCode map")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<InputCode, E> {
+                v.parse::<Code>()
+                    .map(InputCode::Key)
+                    .map_err(|_| E::custom(format!("unknown key code: {v}")))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<InputCode, A::Error> {
+                use serde::de::Error as _;
+                let mut typ: Option<String> = None;
+                let mut val_str: Option<String> = None;
+                let mut val_int: Option<u8> = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "type" => typ = Some(map.next_value()?),
+                        "value" => {
+                            // Try string first, then integer
+                            let raw: toml::Value = map.next_value()?;
+                            match raw {
+                                toml::Value::String(s) => val_str = Some(s),
+                                toml::Value::Integer(n) => val_int = Some(n as u8),
+                                _ => {}
+                            }
+                        }
+                        _ => {
+                            map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                match typ.as_deref() {
+                    Some("Key") => {
+                        let s = val_str.ok_or_else(|| A::Error::custom("missing value for Key"))?;
+                        s.parse::<Code>()
+                            .map(InputCode::Key)
+                            .map_err(|_| A::Error::custom(format!("unknown key code: {s}")))
+                    }
+                    Some("Joystick") => {
+                        let n = val_int
+                            .ok_or_else(|| A::Error::custom("missing value for Joystick"))?;
+                        Ok(InputCode::Joystick(n))
+                    }
+                    _ => Err(A::Error::custom("invalid InputCode")),
+                }
+            }
+        }
+
+        d.deserialize_any(InputCodeVisitor)
+    }
+}
+
+impl InputCode {
+    pub fn from_str(s: &str) -> Result<Self, Error> {
+        if let Some(idx) = s.strip_prefix("Joystick:") {
+            let n = idx.parse::<u8>().map_err(|_| {
+                Error::Other(Box::new(anyhow::anyhow!("Invalid joystick button: {s}")))
+            })?;
+            return Ok(Self::Joystick(n));
+        }
+        s.parse::<Code>()
+            .map(Self::Key)
+            .map_err(|_| Error::Other(Box::new(anyhow::anyhow!(
+                "Unrecognized key code: {s}. Please report this error in our GitHub repository's issue tracker."
+            ))))
+    }
+
+    pub fn to_display_string(self) -> String {
+        match self {
+            Self::Key(c) => format!("{c:?}"),
+            Self::Joystick(n) => format!("Joystick:{n}"),
+        }
     }
 }
 

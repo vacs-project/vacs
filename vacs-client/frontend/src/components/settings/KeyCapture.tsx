@@ -77,12 +77,22 @@ function KeyCapture(props: KeyCaptureProps) {
         document.addEventListener("keyup", preventKeyUpEvent);
         document.addEventListener("click", handleClickOutside);
 
-        return () => {
-            if (capturing) {
-                document.removeEventListener("keydown", handleKeyDownEvent);
-                document.removeEventListener("keyup", preventKeyUpEvent);
-                document.removeEventListener("click", handleClickOutside);
+        // Poll for joystick button in parallel
+        let cancelled = false;
+        invokeSafe<string | null>("keybinds_capture_joystick_button").then(async code => {
+            if (cancelled || code == null) return;
+            try {
+                await onCapture(code);
+            } finally {
+                setCapturing(false);
             }
+        });
+
+        return () => {
+            cancelled = true; // command will timeout on its own after 10s
+            document.removeEventListener("keydown", handleKeyDownEvent);
+            document.removeEventListener("keyup", preventKeyUpEvent);
+            document.removeEventListener("click", handleClickOutside);
         };
     }, [capturing, handleKeyDownEvent, handleClickOutside]);
 

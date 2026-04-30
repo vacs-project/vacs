@@ -1,7 +1,8 @@
 use crate::app::state::AppState;
 use crate::config::{
     CLIENT_SETTINGS_FILE_NAME, FrontendKeybindsConfig, FrontendRadioConfig, FrontendTransmitConfig,
-    KeybindsConfig, Persistable, PersistedClientConfig, RadioConfig, TransmitConfig, TransmitMode,
+    InputCode, KeybindsConfig, Persistable, PersistedClientConfig, RadioConfig, TransmitConfig,
+    TransmitMode,
 };
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
@@ -232,7 +233,7 @@ fn validate_afv_radio_integration_config(
         && radio_config.integration == RadioIntegration::AudioForVatsim
         && let Some(selected_key) = transmit_config.radio_push_to_talk
         && let Some(afv_key) = radio_config.audio_for_vatsim.as_ref().and_then(|c| c.emit)
-        && afv_key == selected_key
+        && selected_key == InputCode::Key(afv_key)
     {
         return Err(KeybindsError::Other(
             "AFV emit key must be distinct from your radio integration push-to-talk key"
@@ -241,4 +242,59 @@ fn validate_afv_radio_integration_config(
         .into());
     }
     Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn keybinds_capture_joystick_button() -> Result<Option<String>, Error> {
+    let result = tokio::task::spawn_blocking(|| {
+        let mut gilrs = gilrs::Gilrs::new()
+            .map_err(|e| Error::Other(Box::new(anyhow::anyhow!("gilrs init failed: {e}"))))?;
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+
+        loop {
+            if std::time::Instant::now() > deadline {
+                return Ok::<Option<String>, Error>(None);
+            }
+
+            while let Some(gilrs::Event { event, .. }) = gilrs.next_event() {
+                let button = match event {
+                    gilrs::EventType::ButtonPressed(b, _) => b,
+                    gilrs::EventType::ButtonChanged(b, v, _) if v >= 0.5 => b,
+                    _ => continue,
+                };
+
+                let idx: u8 = match button {
+                    gilrs::Button::South => 0,
+                    gilrs::Button::East => 1,
+                    gilrs::Button::North => 2,
+                    gilrs::Button::West => 3,
+                    gilrs::Button::C => 4,
+                    gilrs::Button::Z => 5,
+                    gilrs::Button::LeftTrigger => 6,
+                    gilrs::Button::LeftTrigger2 => 7,
+                    gilrs::Button::RightTrigger => 8,
+                    gilrs::Button::RightTrigger2 => 9,
+                    gilrs::Button::Select => 10,
+                    gilrs::Button::Start => 11,
+                    gilrs::Button::Mode => 12,
+                    gilrs::Button::LeftThumb => 13,
+                    gilrs::Button::DPadUp => 14,
+                    gilrs::Button::DPadDown => 15,
+                    gilrs::Button::DPadLeft => 16,
+                    gilrs::Button::DPadRight => 17,
+                    _ => continue,
+                };
+
+                return Ok(Some(format!("Joystick:{idx}")));
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(8));
+        }
+    })
+    .await
+    .map_err(|e| Error::Other(Box::new(anyhow::anyhow!("join error: {e}"))))??;
+
+    Ok(result)
 }
