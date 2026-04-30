@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.2](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.1...vacs-server-v2.3.2) (2026-04-30)
+
+
+### Bug Fixes
+
+* **vacs-server:** fix position sync after VATSIM datafeed grace period expired ([#819](https://github.com/vacs-project/vacs/issues/819)) ([4c58c7a](https://github.com/vacs-project/vacs/commit/4c58c7acc130036c5885815b5facc55de278a01b))
+
 ## [2.3.1](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.0...vacs-server-v2.3.1) (2026-04-29)
 
 
