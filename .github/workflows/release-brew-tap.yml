@@ -1,0 +1,93 @@
+name: Release • brew tap
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  update-tap:
+    if: |
+      startsWith(github.event.release.tag_name, 'vacs-client-v') &&
+      !github.event.release.prerelease &&
+      !github.event.release.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Extract version from tag
+        id: vars
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Strip "vacs-client-v" prefix -> X.Y.Z
+          VERSION="${TAG#vacs-client-v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download SHA256SUMS from release
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          curl -fsSL \
+            "https://github.com/vacs-project/vacs/releases/download/vacs-client-v${VERSION}/SHA256SUMS-${VERSION}.txt" \
+            -o SHA256SUMS.txt
+          echo "Downloaded checksums:"
+          cat SHA256SUMS.txt
+
+      - name: Extract checksums for macOS DMG files
+        id: hashes
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          AARCH64=$(grep "vacs_${VERSION}_aarch64.dmg$" SHA256SUMS.txt | awk '{print $1}')
+          X64=$(grep  "vacs_${VERSION}_x64.dmg$"  SHA256SUMS.txt | awk '{print $1}')
+          
+          if [[ -z "$AARCH64" || -z "$X64" ]]; then
+            echo "ERROR: Could not parse one or both DMG hashes from SHA256SUMS.txt" >&2
+            echo "  aarch64: '$AARCH64'"  >&2
+            echo "  x64:     '$X64'"   >&2
+            exit 1
+          fi
+          
+          echo "aarch64=$AARCH64" >> "$GITHUB_OUTPUT"
+          echo "x64=$X64"         >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App token (tap repo access)
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: generate-token
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # Scope token to the tap repo only
+          owner: vacs-project
+          repositories: homebrew-tap
+          permission-contents: write
+
+      - name: Checkout tap repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: vacs-project/homebrew-tap
+          token: ${{ steps.generate-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Update cask version and hashes
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          AARCH64: ${{ steps.hashes.outputs.aarch64 }}
+          X64: ${{ steps.hashes.outputs.x64 }}
+        run: |
+          sed -i \
+            -e "s/version \"[0-9.]*\"/version \"${VERSION}\"/" \
+            -e "s/arm:   \"[0-9a-f]\{64\}\"/arm:   \"${AARCH64}\"/" \
+            -e "s/intel: \"[0-9a-f]\{64\}\"/intel: \"${X64}\"/" \
+            Casks/vacs.rb
+
+      - name: Commit updated cask
+        uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+        with:
+          commit_message: "chore: update vacs cask to version ${{ steps.vars.outputs.version }}"
+          repo: "vacs-project/homebrew-tap"
+          branch: "main"
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}

@@ -18,7 +18,7 @@ We aim to modernize VATSIM controller-to-controller coordination by providing a 
 
 ## Installation
 
-As a controller, you merely need to download the latest version of the client for your platform from the [releases](https://github.com/vacs-project/vacs/releases/latest) page.
+As a controller, you can either download the latest version of the client for your platform from the [releases](https://github.com/vacs-project/vacs/releases/latest) page or install `vacs` via [Homebrew on macOS](#homebrew-macos).
 
 Releases are provided for:
 
@@ -38,6 +38,14 @@ Releases are provided for:
 The client is self-contained and does not require any additional prerequisites or manual dependency installation.
 
 All releases are signed - you can find instructions on how to verify these signatures in the [release verification docs](https://github.com/vacs-project/vacs/blob/main/docs/release-verification.md).
+
+### Homebrew (macOS)
+
+We provide our own Homebrew tap at [vacs-project/homebrew-tap](https://github.com/vacs-project/homebrew-tap). To install vacs using Hombrew run the following command:
+
+```bash
+brew install --cask vacs-project/tap/vacs
+```
 
 ## Updating
 
