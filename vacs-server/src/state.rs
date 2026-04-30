@@ -61,12 +61,17 @@ impl AppState {
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(config::BROADCAST_CHANNEL_CAPACITY);
         Self {
+            clients: ClientManager::new(
+                broadcast_tx.clone(),
+                network,
+                data_feed.clone(),
+                config.vatsim.data_feed_position_grace_period,
+            ),
             config,
             updates,
             ice_config_provider,
             store,
             calls: CallManager::new(),
-            clients: ClientManager::new(broadcast_tx.clone(), network, data_feed.clone()),
             dataset,
             broadcast_tx,
             slurper,
@@ -309,14 +314,6 @@ impl AppState {
             }
             .in_current_span(),
         )
-    }
-
-    pub async fn force_update_controllers(&self) -> anyhow::Result<()> {
-        self.update_vatsim_controllers(
-            &mut HashSet::new(),
-            self.config.vatsim.require_active_connection,
-        )
-        .await
     }
 
     #[tracing::instrument(level = "debug", skip(self, pending_disconnect), fields(pending_disconnect = pending_disconnect.len()), err)]

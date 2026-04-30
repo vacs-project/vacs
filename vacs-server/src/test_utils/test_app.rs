@@ -9,6 +9,7 @@ use crate::store::Store;
 use crate::store::memory::MemoryStore;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use vacs_vatsim::coverage::network::Network;
@@ -43,6 +44,7 @@ impl TestApp {
                 data_feed_url: Default::default(),
                 data_feed_timeout: Default::default(),
                 coverage_dir: Default::default(),
+                data_feed_position_grace_period: Duration::from_secs(90),
             },
             ..Default::default()
         };

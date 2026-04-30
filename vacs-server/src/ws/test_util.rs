@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::sync::{Mutex, broadcast, mpsc, watch};
 use vacs_protocol::profile::{ActiveProfile, ProfileId};
 use vacs_protocol::vatsim::{ClientId, PositionId};
@@ -109,6 +110,7 @@ impl TestSetup {
                 data_feed_url: Default::default(),
                 data_feed_timeout: Default::default(),
                 coverage_dir: coverage_dir.path().to_str().unwrap().to_string(),
+                data_feed_position_grace_period: Duration::from_secs(90),
             },
             ..Default::default()
         };
