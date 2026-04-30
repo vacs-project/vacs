@@ -21,7 +21,7 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1.0.102"
-ashpd = { version = "0.13.9", features = ["global_shortcuts", "raw_handle", "wayland"] }
+ashpd = { version = "0.13.10", features = ["global_shortcuts", "raw_handle", "wayland"] }
 async-trait = "0.1.89"
 axum = "0.8.9"
 axum-client-ip = "1.3.1"
