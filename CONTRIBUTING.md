@@ -125,6 +125,7 @@ cd vacs-client && npm run -w frontend lint
 ```sh
 cargo test --locked --workspace --all-targets --all-features   # all Rust tests
 cd vacs-client && npm test -w frontend                         # frontend tests
+cd vacs-client && npm test -w e2e                              # end-to-end tests (see vacs-client/e2e/README.md)
 ```
 
 ### Type checking the frontend
