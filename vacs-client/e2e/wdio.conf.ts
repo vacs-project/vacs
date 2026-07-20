@@ -25,6 +25,7 @@ let tauriDriverB: ChildProcess | undefined;
 let mockVatsimServer: ChildProcess | undefined;
 let vacsServer: ChildProcess | undefined;
 let exit = false;
+let serverStopRequested = false;
 
 export const config: WebdriverIO.MultiremoteConfig = {
     hostname: "127.0.0.1",
@@ -81,7 +82,20 @@ export const config: WebdriverIO.MultiremoteConfig = {
         console.log("Building vacs-client with e2e feature...");
         const client = spawnSync(
             "npm",
-            ["run", "tauri", "build", "--", "--features", "e2e", "--debug", "--no-bundle"],
+            [
+                "run",
+                "tauri",
+                "build",
+                "--",
+                // Separate bundle identifier: keeps E2E instances from
+                // writing settings into the real client's config directory.
+                "--config",
+                "tauri.e2e.conf.json",
+                "--features",
+                "e2e",
+                "--debug",
+                "--no-bundle",
+            ],
             {
                 cwd: VACS_CLIENT_ROOT,
                 stdio: "inherit",
@@ -131,52 +145,31 @@ export const config: WebdriverIO.MultiremoteConfig = {
         await waitForPort(MOCK_VATSIM_PORT, 10_000);
         console.log(`vatsim-mock listening on port ${MOCK_VATSIM_PORT}`);
 
-        const serverBin = path.resolve(VACS_ROOT, "target", "debug", `vacs-server${BINARY_EXT}`);
-        vacsServer = spawn(serverBin, [], {
-            cwd: VACS_ROOT,
-            stdio: ["ignore", process.stdout, process.stderr],
-            env: {
-                ...process.env,
-                "VACS-AUTH-OAUTH-AUTH_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/authorize`,
-                "VACS-AUTH-OAUTH-TOKEN_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/token`,
-                "VACS-AUTH-OAUTH-CLIENT_ID": "e2e-test-client",
-                "VACS-AUTH-OAUTH-CLIENT_SECRET": "e2e-test-secret",
-                "VACS-VATSIM-USER_SERVICE-USER_DETAILS_ENDPOINT_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/api/user`,
-                "VACS-VATSIM-SLURPER_BASE_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}`,
-                "VACS-VATSIM-DATA_FEED_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/v3/vatsim-data.json`,
-                "VACS-VATSIM-REQUIRE_ACTIVE_CONNECTION": "false",
-                "VACS-SESSION-SIGNING_KEY":
-                    "e2e-test-signing-key-at-least-64-chars-long-for-hmac-sha256-aaaa-bbbb-cccc-dddd-eeee-ffff-0000",
-                "VACS-SESSION-SECURE": "false",
-                // Tests trigger logins and calls far more frequently than the
-                // production limits allow; rate limiting is not under test.
-                "VACS-RATE_LIMITERS-ENABLED": "false",
-                // Poll the mock datafeed every second and skip response
-                // caching so station changes propagate quickly to clients.
-                "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-SECS": "1",
-                "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-NANOS": "0",
-                "VACS-VATSIM-DATA_FEED_CACHE_TTL-SECS": "0",
-                "VACS-VATSIM-DATA_FEED_CACHE_TTL-NANOS": "0",
-                // Shorten the position grace period so datafeed-driven
-                // position changes become testable without long waits.
-                "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-SECS": "2",
-                "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-NANOS": "0",
-                "VACS-VATSIM-COVERAGE_DIR": path.resolve(VACS_DATA_DIR, "dataset"),
-                "VACS-SERVER-BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT}`,
-            },
-        });
-        vacsServer.on("error", error => {
-            console.error("vacs-server error:", error);
-            process.exit(1);
-        });
-        vacsServer.on("exit", code => {
-            if (!exit) {
-                console.error("vacs-server exited with code:", code);
-            }
-        });
-
+        vacsServer = spawnVacsServer();
         await waitForPort(VACS_SERVER_PORT, 15_000);
         console.log(`vacs-server listening on port ${VACS_SERVER_PORT}`);
+
+        // Expose server lifecycle control for outage/reconnect specs
+        // (see helpers/server-control.ts).
+        globalThis.__vacsServerControl = {
+            stop: async () => {
+                const proc = vacsServer;
+                if (proc === undefined) return;
+                serverStopRequested = true;
+                const exited = new Promise<void>(resolve => proc.once("exit", () => resolve()));
+                // SIGKILL: simulate an abrupt outage rather than a graceful
+                // shutdown (which would notify clients cleanly).
+                proc.kill("SIGKILL");
+                await exited;
+                vacsServer = undefined;
+            },
+            start: async () => {
+                if (vacsServer !== undefined) return;
+                serverStopRequested = false;
+                vacsServer = spawnVacsServer();
+                await waitForPort(VACS_SERVER_PORT, 15_000);
+            },
+        };
 
         tauriDriverA = spawn(
             findBinary("tauri-driver"),
@@ -231,6 +224,53 @@ export const config: WebdriverIO.MultiremoteConfig = {
         cleanup();
     },
 };
+
+function spawnVacsServer(): ChildProcess {
+    const serverBin = path.resolve(VACS_ROOT, "target", "debug", `vacs-server${BINARY_EXT}`);
+    const proc = spawn(serverBin, [], {
+        cwd: VACS_ROOT,
+        stdio: ["ignore", process.stdout, process.stderr],
+        env: {
+            ...process.env,
+            "VACS-AUTH-OAUTH-AUTH_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/authorize`,
+            "VACS-AUTH-OAUTH-TOKEN_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/token`,
+            "VACS-AUTH-OAUTH-CLIENT_ID": "e2e-test-client",
+            "VACS-AUTH-OAUTH-CLIENT_SECRET": "e2e-test-secret",
+            "VACS-VATSIM-USER_SERVICE-USER_DETAILS_ENDPOINT_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/api/user`,
+            "VACS-VATSIM-SLURPER_BASE_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}`,
+            "VACS-VATSIM-DATA_FEED_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/v3/vatsim-data.json`,
+            "VACS-VATSIM-REQUIRE_ACTIVE_CONNECTION": "false",
+            "VACS-SESSION-SIGNING_KEY":
+                "e2e-test-signing-key-at-least-64-chars-long-for-hmac-sha256-aaaa-bbbb-cccc-dddd-eeee-ffff-0000",
+            "VACS-SESSION-SECURE": "false",
+            // Tests trigger logins and calls far more frequently than the
+            // production limits allow; rate limiting is not under test.
+            "VACS-RATE_LIMITERS-ENABLED": "false",
+            // Poll the mock datafeed every second and skip response
+            // caching so station changes propagate quickly to clients.
+            "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-SECS": "1",
+            "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-NANOS": "0",
+            "VACS-VATSIM-DATA_FEED_CACHE_TTL-SECS": "0",
+            "VACS-VATSIM-DATA_FEED_CACHE_TTL-NANOS": "0",
+            // Shorten the position grace period so datafeed-driven
+            // position changes become testable without long waits.
+            "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-SECS": "2",
+            "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-NANOS": "0",
+            "VACS-VATSIM-COVERAGE_DIR": path.resolve(VACS_DATA_DIR, "dataset"),
+            "VACS-SERVER-BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT}`,
+        },
+    });
+    proc.on("error", error => {
+        console.error("vacs-server error:", error);
+        process.exit(1);
+    });
+    proc.on("exit", code => {
+        if (!exit && !serverStopRequested) {
+            console.error("vacs-server exited with code:", code);
+        }
+    });
+    return proc;
+}
 
 function cleanup() {
     exit = true;
