@@ -148,6 +148,9 @@ export const config: WebdriverIO.MultiremoteConfig = {
                 "VACS-SESSION-SIGNING_KEY":
                     "e2e-test-signing-key-at-least-64-chars-long-for-hmac-sha256-aaaa-bbbb-cccc-dddd-eeee-ffff-0000",
                 "VACS-SESSION-SECURE": "false",
+                // Tests trigger logins and calls far more frequently than the
+                // production limits allow; rate limiting is not under test.
+                "VACS-RATE_LIMITERS-ENABLED": "false",
                 "VACS-VATSIM-COVERAGE_DIR": path.resolve(VACS_DATA_DIR, "dataset"),
                 "VACS-SERVER-BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT}`,
             },
