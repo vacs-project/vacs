@@ -1,8 +1,10 @@
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {callQueueSlot, click, clientKey, getClient, waitForCallColor} from "../helpers/browser.ts";
 
-const CID_A = "10000001";
-const CID_B = "10000002";
+// Users without matching datafeed controllers: their sessions stay
+// positionless (display name = CID) regardless of datafeed sync timing.
+const CID_A = "10000004";
+const CID_B = "10000005";
 
 /**
  * Opens the "OTHER" client group on the client page, which contains all

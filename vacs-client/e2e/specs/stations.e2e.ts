@@ -8,7 +8,9 @@ import {
 import {click, getClient, waitForClass} from "../helpers/browser.ts";
 
 const CID_A = "10000001";
-const CID_B = "10000002";
+// A user without a datafeed controller: keeps any explicitly chosen
+// position regardless of datafeed sync.
+const CID_B = "10000005";
 const POSITION_A = "LOVV_E_CTR";
 
 // The seeded 132.950 controller resolves to position LOVV_BC_CTR (see
@@ -154,5 +156,56 @@ describe("Station Keys", () => {
             await window.__TAURI_INTERNALS__.invoke("signaling_disconnect");
         });
         await waitForClass(clientA, s1, OWN_MARKER, {present: true});
+    });
+
+    it("should provide late-joining clients with the current coverage", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+
+        // Change coverage before the second client joins: S1 falls through
+        // from the (removed) VATSIM-only BC position to LOVV_E_CTR.
+        await removeController(BC_CID);
+        await openGeoGroup(clientA, "S", "LOWG");
+        const s1A = stationKey(clientA, "S1");
+        await s1A.waitForDisplayed();
+        await clientA.waitUntil(async () => await s1A.isEnabled(), {
+            timeoutMsg: "S1 did not come online after BC left the datafeed",
+        });
+
+        // A client joining now must see that state from its initial station
+        // list: S1 online and owned by the other client's position.
+        await loginAndConnectAs(clientB, CID_B, "LOVV_N_CTR");
+        await openGeoGroup(clientB, "S", "LOWG");
+        const s1B = stationKey(clientB, "S1");
+        await s1B.waitForDisplayed();
+        await clientB.waitUntil(async () => await s1B.isEnabled(), {
+            timeoutMsg: "Late-joining client did not receive S1 as online",
+        });
+        await waitForClass(clientB, s1B, OWN_MARKER, {present: false});
+    });
+
+    it("should keep shared positions online while one client remains", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+
+        // Both clients hold the same position.
+        await loginAndConnectAs(clientB, CID_B, POSITION_A);
+        await openGeoGroup(clientB, "E", "APP");
+        const e1 = stationKey(clientB, "E1");
+        await e1.waitForDisplayed();
+        await clientB.waitUntil(async () => await e1.isEnabled(), {
+            timeoutMsg: "E1 did not come online for the second client",
+        });
+        await waitForClass(clientB, e1, OWN_MARKER, {present: true});
+
+        // One client leaving must not take the shared position offline.
+        await clientA.execute(async () => {
+            await window.__TAURI_INTERNALS__.invoke("signaling_disconnect");
+        });
+        await clientB.pause(2000);
+        await clientB.waitUntil(async () => await e1.isEnabled(), {
+            timeoutMsg: "E1 went offline although the position is still covered",
+        });
+        await waitForClass(clientB, e1, OWN_MARKER, {present: true});
     });
 });
