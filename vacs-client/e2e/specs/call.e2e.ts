@@ -130,6 +130,70 @@ describe("Call Flow", () => {
         await callQueueSlot(clientB, CID_A).waitForDisplayed({reverse: true});
     });
 
+    it("should show a dismissable error state for calls to unknown targets", async () => {
+        const clientA = getClient("clientA");
+
+        // Dial a CID that is not connected.
+        const telephoneButton = await clientA.$('//button[.//img[@alt="Telephone"]]');
+        await click(clientA, telephoneButton);
+        const dialPadTab = await clientA.$("button*=Dial");
+        await dialPadTab.waitForDisplayed();
+        await click(clientA, dialPadTab);
+        for (const digit of "10101010") {
+            const digitButton = await clientA.$(
+                `//button[contains(@class, "text-lg")][starts-with(normalize-space(.), "${digit}")]`,
+            );
+            await click(clientA, digitButton);
+        }
+        const callButton = await clientA.$("button=Call");
+        await click(clientA, callButton);
+
+        // The call display shows the failed call blinking red.
+        const errorSlot = callQueueSlot(clientA, "10101010");
+        await errorSlot.waitForDisplayed();
+        await clientA.waitUntil(
+            async () => {
+                const classes = (await errorSlot.getAttribute("class")) ?? "";
+                return classes.includes("bg-red-500");
+            },
+            {interval: 150, timeoutMsg: "Call display did not blink red for the failed call"},
+        );
+
+        // Clicking the display dismisses the error.
+        await click(clientA, errorSlot);
+        await errorSlot.waitForDisplayed({reverse: true});
+    });
+
+    it("should suppress incoming calls from ignored clients", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+
+        // B calls A once and cancels, leaving an entry in A's call list.
+        await startCallTo(clientB, CID_A);
+        const answerKey = callQueueSlot(clientA, CID_B);
+        await answerKey.waitForDisplayed();
+        const endButtonB = await clientB.$("button=END");
+        await click(clientB, endButtonB);
+        await answerKey.waitForDisplayed({reverse: true});
+
+        // A ignores B via the call list.
+        const telephoneButton = await clientA.$('//button[.//img[@alt="Telephone"]]');
+        await click(clientA, telephoneButton);
+        const callRow = await clientA.$(`div=${CID_B}`);
+        await callRow.waitForDisplayed();
+        await click(clientA, callRow);
+        const ignoreButton = await clientA.$("button*=Ignore");
+        await click(clientA, ignoreButton);
+
+        // B's next call rings on B's side but never reaches A.
+        await startCallTo(clientB, CID_A);
+        await callQueueSlot(clientB, CID_A).waitForDisplayed();
+        await clientA.pause(1500);
+        await callQueueSlot(clientA, CID_B).waitForDisplayed({reverse: true});
+
+        await click(clientB, await clientB.$("button=END"));
+    });
+
     it("should clear the active call when the peer disconnects", async () => {
         const clientA = getClient("clientA");
         const clientB = getClient("clientB");
