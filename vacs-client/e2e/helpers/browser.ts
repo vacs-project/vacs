@@ -47,6 +47,27 @@ export function callQueueSlot(
 }
 
 /**
+ * Selects an option of a native select element by value. Uses a JS-dispatched
+ * change event since WebKitWebDriver does not support native option clicks.
+ */
+export async function selectOption(
+    browser: WebdriverIO.Browser,
+    cssSelector: string,
+    value: string,
+): Promise<void> {
+    await browser.execute(
+        (sel: string, val: string) => {
+            const el = document.querySelector<HTMLSelectElement>(sel);
+            if (el === null) throw new Error(`Select not found: ${sel}`);
+            el.value = val;
+            el.dispatchEvent(new Event("change", {bubbles: true}));
+        },
+        cssSelector,
+        value,
+    );
+}
+
+/**
  * Waits until the given element's class list contains (or no longer contains)
  * the given class fragment.
  */
