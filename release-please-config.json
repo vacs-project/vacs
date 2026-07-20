@@ -19,6 +19,11 @@
           "type": "json",
           "path": "frontend/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "e2e/package.json",
+          "jsonpath": "$.version"
         }
       ]
     },
