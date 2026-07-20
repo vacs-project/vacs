@@ -48,6 +48,27 @@ export function callQueueSlot(
 
 /**
  * Waits until the given element's class list contains (or no longer contains)
+ * the given class fragment.
+ */
+export async function waitForClass(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+    cls: string,
+    options: {present: boolean},
+): Promise<void> {
+    await browser.waitUntil(
+        async () => {
+            const classes = (await element.getAttribute("class")) ?? "";
+            return classes.includes(cls) === options.present;
+        },
+        {
+            timeoutMsg: `Element class list did not ${options.present ? "gain" : "lose"} "${cls}"`,
+        },
+    );
+}
+
+/**
+ * Waits until the given element's class list contains (or no longer contains)
  * the marker for an active call (steady green key).
  */
 export async function waitForCallColor(

@@ -56,6 +56,35 @@ export async function loginAndConnect(browser: WebdriverIO.Browser, cid: string)
 }
 
 /**
+ * Authenticates the client and connects it to the signaling server with an
+ * explicit VATSIM position, waiting until the connection is established.
+ */
+export async function loginAndConnectAs(
+    browser: WebdriverIO.Browser,
+    cid: string,
+    positionId: string,
+): Promise<void> {
+    await authenticate(browser, cid);
+
+    const connectButton = await browser.$("button=Connect");
+    await connectButton.waitForDisplayed();
+
+    const result = await browser.execute(async (position: string) => {
+        try {
+            await window.__TAURI_INTERNALS__.invoke("signaling_connect", {positionId: position});
+            return {ok: true as const};
+        } catch (e) {
+            return {ok: false as const, error: String(e)};
+        }
+    }, positionId);
+    if (!result.ok) {
+        throw new Error(`signaling_connect failed for position ${positionId}: ${result.error}`);
+    }
+
+    await connectButton.waitForDisplayed({reverse: true});
+}
+
+/**
  * Resets the mock VATSIM server to its initial seed state, clearing any
  * controllers or users added during a test.
  */

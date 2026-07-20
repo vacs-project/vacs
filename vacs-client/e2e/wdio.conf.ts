@@ -151,6 +151,12 @@ export const config: WebdriverIO.MultiremoteConfig = {
                 // Tests trigger logins and calls far more frequently than the
                 // production limits allow; rate limiting is not under test.
                 "VACS-RATE_LIMITERS-ENABLED": "false",
+                // Poll the mock datafeed every second and skip response
+                // caching so station changes propagate quickly to clients.
+                "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-SECS": "1",
+                "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-NANOS": "0",
+                "VACS-VATSIM-DATA_FEED_CACHE_TTL-SECS": "0",
+                "VACS-VATSIM-DATA_FEED_CACHE_TTL-NANOS": "0",
                 "VACS-VATSIM-COVERAGE_DIR": path.resolve(VACS_DATA_DIR, "dataset"),
                 "VACS-SERVER-BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT}`,
             },
