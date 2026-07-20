@@ -58,10 +58,13 @@ async fn main() -> anyhow::Result<()> {
     let redis_pool = redis_store.get_pool().clone();
 
     let slurper = SlurperClient::new(config.vatsim.slurper_base_url.as_str())?;
-    let data_feed = Arc::new(VatsimDataFeed::new(
-        config.vatsim.data_feed_url.as_str(),
-        config.vatsim.data_feed_timeout,
-    )?);
+    let data_feed = Arc::new(
+        VatsimDataFeed::new(
+            config.vatsim.data_feed_url.as_str(),
+            config.vatsim.data_feed_timeout,
+        )?
+        .with_cache_ttl(config.vatsim.data_feed_cache_ttl),
+    );
 
     let rate_limiters = RateLimiters::from(config.rate_limiters);
 
