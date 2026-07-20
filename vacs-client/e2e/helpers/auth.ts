@@ -43,6 +43,19 @@ export async function authenticate(browser: WebdriverIO.Browser, cid: string): P
 }
 
 /**
+ * Authenticates the client and connects it to the signaling server via the
+ * Connect page, waiting until the connection is established.
+ */
+export async function loginAndConnect(browser: WebdriverIO.Browser, cid: string): Promise<void> {
+    await authenticate(browser, cid);
+
+    const connectButton = await browser.$("button=Connect");
+    await connectButton.waitForDisplayed();
+    await browser.execute((el: HTMLElement) => el.click(), connectButton);
+    await connectButton.waitForDisplayed({reverse: true});
+}
+
+/**
  * Resets the mock VATSIM server to its initial seed state, clearing any
  * controllers or users added during a test.
  */
