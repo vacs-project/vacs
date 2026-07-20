@@ -21,6 +21,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       node: ${{ steps.filter.outputs.node }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,8 +47,12 @@ jobs:
               - "vacs-client/frontend/package.json"
               - "vacs-client/frontend/tsconfig*.json"
               - "vacs-client/package.json"
+              - "vacs-client/package-lock.json"
               - ".github/workflows/ci-node.yml"
               - ".github/workflows/ci-gate.yml"
+            e2e:
+              - "vacs-client/e2e/**"
+              - ".github/workflows/ci-e2e.yml"
 
   rust:
     needs: changes
@@ -96,12 +101,18 @@ jobs:
 
       - name: Dependency review
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.node == 'true' || needs.changes.outputs.e2e == 'true'
+    uses: $/.github/workflows/ci-e2e.yml
+    permissions:
+      contents: read
 
   gate:
     name: "CI \u2713"
     # `changes` is listed so a failure there (which skips the sub-workflows) fails the
     # gate instead of green-lighting a PR that ran no checks.
-    needs: [changes, rust, node, zizmor, dependency-review]
+    needs: [changes, rust, node, zizmor, dependency-review, e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -114,6 +125,7 @@ jobs:
           NODE_RESULT: ${{ needs.node.result }}
           ZIZMOR_RESULT: ${{ needs.zizmor.result }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           failed=false
 
@@ -124,7 +136,7 @@ jobs:
             echo "changes: $CHANGES_RESULT"
           fi
 
-          for name in rust node zizmor dependency_review; do
+          for name in rust node zizmor dependency_review e2e; do
             var="${name^^}_RESULT"
             result="${!var}"
             case "$result" in
@@ -149,6 +161,7 @@ jobs:
           NODE_RESULT: ${{ needs.node.result }}
           ZIZMOR_RESULT: ${{ needs.zizmor.result }}
           DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           icon() { case "$1" in success) echo "✅";; skipped) echo "⏭️";; *) echo "❌";; esac }
 
@@ -160,3 +173,4 @@ jobs:
           echo "| Node | $(icon "$NODE_RESULT") $NODE_RESULT |" >> $GITHUB_STEP_SUMMARY
           echo "| zizmor | $(icon "$ZIZMOR_RESULT") $ZIZMOR_RESULT |" >> $GITHUB_STEP_SUMMARY
           echo "| Dependency review | $(icon "$DEPENDENCY_REVIEW_RESULT") $DEPENDENCY_REVIEW_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| E2E | $(icon "$E2E_RESULT") $E2E_RESULT |" >> $GITHUB_STEP_SUMMARY
