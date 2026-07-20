@@ -25,7 +25,11 @@ export const config: WebdriverIO.MultiremoteConfig = {
         },
         remoteBrowser: {
             capabilities: {
-                browserName: "chromium",
+                browserName: "chrome",
+                // Pin to a downloaded Chrome for Testing so the run does not
+                // depend on locally installed browsers (CI runners and dev
+                // machines differ).
+                browserVersion: "stable",
                 "goog:chromeOptions": {
                     args: ["--headless=new", "--no-sandbox", "--disable-gpu"],
                 },
