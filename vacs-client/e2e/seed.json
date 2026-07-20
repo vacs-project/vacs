@@ -378,6 +378,68 @@
       "oauth": {
         "token_valid": "true"
       }
+    },
+    {
+      "cid": 10000006,
+      "personal": {
+        "name_first": "Mock",
+        "name_last": "User6",
+        "name_full": "Mock User6"
+      },
+      "vatsim": {
+        "rating": {
+          "id": 1,
+          "short": "OBS",
+          "long": "Observer"
+        },
+        "pilotrating": {
+          "id": 0,
+          "short": "NEW",
+          "long": "Basic Member"
+        },
+        "region": {
+          "id": "EMEA",
+          "name": "Europe, Middle East, and Africa"
+        },
+        "division": {
+          "id": "GER",
+          "name": "Germany"
+        }
+      },
+      "oauth": {
+        "token_valid": "true"
+      }
+    },
+    {
+      "cid": 10000007,
+      "personal": {
+        "name_first": "Mock",
+        "name_last": "User7",
+        "name_full": "Mock User7"
+      },
+      "vatsim": {
+        "rating": {
+          "id": 1,
+          "short": "OBS",
+          "long": "Observer"
+        },
+        "pilotrating": {
+          "id": 0,
+          "short": "NEW",
+          "long": "Basic Member"
+        },
+        "region": {
+          "id": "EMEA",
+          "name": "Europe, Middle East, and Africa"
+        },
+        "division": {
+          "id": "GER",
+          "name": "Germany"
+        }
+      },
+      "oauth": {
+        "token_valid": "true"
+      }
     }
   ]
 }
