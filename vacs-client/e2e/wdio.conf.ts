@@ -157,6 +157,10 @@ export const config: WebdriverIO.MultiremoteConfig = {
                 "VACS-VATSIM-CONTROLLER_UPDATE_INTERVAL-NANOS": "0",
                 "VACS-VATSIM-DATA_FEED_CACHE_TTL-SECS": "0",
                 "VACS-VATSIM-DATA_FEED_CACHE_TTL-NANOS": "0",
+                // Shorten the position grace period so datafeed-driven
+                // position changes become testable without long waits.
+                "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-SECS": "2",
+                "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-NANOS": "0",
                 "VACS-VATSIM-COVERAGE_DIR": path.resolve(VACS_DATA_DIR, "dataset"),
                 "VACS-SERVER-BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT}`,
             },
