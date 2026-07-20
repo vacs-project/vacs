@@ -11,9 +11,11 @@ use vacs_signaling::protocol::vatsim::PositionId;
 
 /// User-Agent string used for all HTTP requests.
 pub static APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+#[cfg(not(feature = "e2e"))]
 pub const DEFAULT_SETTINGS_FILE_NAME: &str = "config.toml";
 pub const AUDIO_SETTINGS_FILE_NAME: &str = "audio.toml";
 pub const CLIENT_SETTINGS_FILE_NAME: &str = "client.toml";
+#[cfg(not(feature = "e2e"))]
 pub const CLIENT_PAGE_SETTINGS_FILE_NAME: &str = "client_page.toml";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -28,50 +30,59 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    #[cfg_attr(feature = "e2e", allow(unused_variables))]
     pub fn parse(config_dir: &Path) -> anyhow::Result<Self> {
-        let mut builder = Config::builder()
-            .add_source(Config::try_from(&AppConfig::default())?)
-            .add_source(
-                File::with_name(
-                    config_dir
-                        .join(DEFAULT_SETTINGS_FILE_NAME)
-                        .to_str()
-                        .expect("Failed to get local config path"),
+        #[cfg_attr(feature = "e2e", allow(unused_mut))]
+        let mut builder = Config::builder().add_source(Config::try_from(&AppConfig::default())?);
+
+        // In E2E mode, skip all config files and rely on compile-time defaults
+        // plus environment variable overrides only.
+        #[cfg(not(feature = "e2e"))]
+        {
+            builder = builder
+                .add_source(
+                    File::with_name(
+                        config_dir
+                            .join(DEFAULT_SETTINGS_FILE_NAME)
+                            .to_str()
+                            .expect("Failed to get local config path"),
+                    )
+                    .required(false),
                 )
-                .required(false),
-            )
-            .add_source(File::with_name(DEFAULT_SETTINGS_FILE_NAME).required(false))
-            .add_source(
-                File::with_name(
-                    config_dir
-                        .join(AUDIO_SETTINGS_FILE_NAME)
-                        .to_str()
-                        .expect("Failed to get local config path"),
+                .add_source(File::with_name(DEFAULT_SETTINGS_FILE_NAME).required(false))
+                .add_source(
+                    File::with_name(
+                        config_dir
+                            .join(AUDIO_SETTINGS_FILE_NAME)
+                            .to_str()
+                            .expect("Failed to get local config path"),
+                    )
+                    .required(false),
                 )
-                .required(false),
-            )
-            .add_source(File::with_name(AUDIO_SETTINGS_FILE_NAME).required(false))
-            .add_source(
-                File::with_name(
-                    config_dir
-                        .join(CLIENT_PAGE_SETTINGS_FILE_NAME)
-                        .to_str()
-                        .expect("Failed to get local config path"),
+                .add_source(File::with_name(AUDIO_SETTINGS_FILE_NAME).required(false))
+                .add_source(
+                    File::with_name(
+                        config_dir
+                            .join(CLIENT_PAGE_SETTINGS_FILE_NAME)
+                            .to_str()
+                            .expect("Failed to get local config path"),
+                    )
+                    .required(false),
                 )
-                .required(false),
-            )
-            .add_source(File::with_name(CLIENT_PAGE_SETTINGS_FILE_NAME).required(false))
-            .add_source(
-                File::with_name(
-                    config_dir
-                        .join(CLIENT_SETTINGS_FILE_NAME)
-                        .to_str()
-                        .expect("Failed to get local config path"),
+                .add_source(File::with_name(CLIENT_PAGE_SETTINGS_FILE_NAME).required(false))
+                .add_source(
+                    File::with_name(
+                        config_dir
+                            .join(CLIENT_SETTINGS_FILE_NAME)
+                            .to_str()
+                            .expect("Failed to get local config path"),
+                    )
+                    .required(false),
                 )
-                .required(false),
-            )
-            .add_source(File::with_name(CLIENT_SETTINGS_FILE_NAME).required(false))
-            .add_source(Environment::with_prefix("vacs_client"));
+                .add_source(File::with_name(CLIENT_SETTINGS_FILE_NAME).required(false));
+        }
+
+        let mut builder = builder.add_source(Environment::with_prefix("vacs_client"));
 
         let preliminary_config: AppConfig = builder
             .build_cloned()
@@ -116,13 +127,17 @@ pub struct BackendConfig {
 impl Default for BackendConfig {
     fn default() -> Self {
         Self {
-            base_url: if cfg!(debug_assertions) || cfg!(feature = "rc") {
+            base_url: if cfg!(feature = "e2e") {
+                "http://127.0.0.1:4568"
+            } else if cfg!(debug_assertions) || cfg!(feature = "rc") {
                 "https://dev.vacs.network"
             } else {
                 "https://vacs.network"
             }
             .to_string(),
-            ws_url: if cfg!(debug_assertions) || cfg!(feature = "rc") {
+            ws_url: if cfg!(feature = "e2e") {
+                "ws://127.0.0.1:4568/ws"
+            } else if cfg!(debug_assertions) || cfg!(feature = "rc") {
                 "wss://dev.vacs.network/ws"
             } else {
                 "wss://vacs.network/ws"
