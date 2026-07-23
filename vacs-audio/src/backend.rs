@@ -4,7 +4,17 @@ pub mod cpal;
 pub mod mock;
 
 use crate::error::AudioError;
-use ::cpal::SampleFormat;
+
+/// Sample formats supported by the backend abstraction, independent of any
+/// concrete audio host library. Formats without a conversion path are mapped
+/// to [`SampleFormat::Other`] and rejected when building streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SampleFormat {
+    F32,
+    I16,
+    U16,
+    Other,
+}
 
 /// Boxed callback for receiving input audio data (f32 samples).
 pub type InputDataCallback = Box<dyn FnMut(&[f32]) + Send + 'static>;
@@ -30,6 +40,7 @@ pub enum DeviceDirection {
 }
 
 /// Represents a supported stream configuration range.
+#[derive(Debug, Clone)]
 pub struct StreamConfigRange {
     pub channels: u16,
     pub min_sample_rate: u32,
@@ -69,6 +80,8 @@ pub trait AudioBackend: Send + Sync + 'static {
     fn available_hosts(&self) -> Vec<Box<dyn AudioHost>>;
     fn default_host(&self) -> Box<dyn AudioHost>;
     fn host_by_name(&self, name: &str) -> Option<Box<dyn AudioHost>>;
+    /// Returns the names of all available hosts without instantiating them.
+    fn host_names(&self) -> Vec<String>;
 }
 
 /// An audio host that can enumerate devices (e.g. ALSA, PulseAudio, WASAPI).
