@@ -23,20 +23,11 @@ pub type OutputDataCallback = Box<dyn FnMut(&mut [f32]) + Send + 'static>;
 /// Boxed callback for receiving stream errors.
 pub type ErrorCallback = Box<dyn FnMut(AudioError) + Send + 'static>;
 
-/// Device description without depending on cpal types.
-pub struct DeviceDescription {
-    pub name: String,
-    pub driver: Option<String>,
-    pub direction: DeviceDirection,
-}
-
 /// The direction a device supports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceDirection {
     Input,
     Output,
-    Duplex,
-    Unknown,
 }
 
 /// Represents a supported stream configuration range.
@@ -98,7 +89,9 @@ pub trait AudioHost: Send + Sync {
 pub trait AudioDevice: Send + Sync {
     fn name(&self) -> String;
     fn id(&self) -> Option<String>;
-    fn description(&self) -> Result<DeviceDescription, AudioError>;
+    /// Returns whether the device can serve streams in the given direction.
+    /// Implementations may probe the device when its metadata is ambiguous.
+    fn supports_direction(&self, direction: DeviceDirection) -> bool;
     fn supported_input_configs(&self) -> Result<Vec<StreamConfigRange>, AudioError>;
     fn supported_output_configs(&self) -> Result<Vec<StreamConfigRange>, AudioError>;
 
@@ -118,8 +111,6 @@ pub trait AudioDevice: Send + Sync {
         data_callback: OutputDataCallback,
         error_callback: ErrorCallback,
     ) -> Result<Box<dyn AudioStream>, AudioError>;
-
-    fn clone_boxed(&self) -> Box<dyn AudioDevice>;
 
     /// Returns all possible identifiers for this device (display name, raw name, driver, etc.)
     fn identifiers(&self) -> Vec<String>;
