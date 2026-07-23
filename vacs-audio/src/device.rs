@@ -1,10 +1,9 @@
 use crate::TARGET_SAMPLE_RATE;
 use crate::backend::{
-    AudioBackend, AudioDevice, AudioHost, AudioStream, BufferSize, DeviceDirection, StreamConfig,
-    StreamConfigRange,
+    AudioBackend, AudioDevice, AudioHost, AudioStream, BufferSize, DeviceDirection, SampleFormat,
+    StreamConfig, StreamConfigRange,
 };
 use crate::error::AudioError;
-use cpal::SampleFormat;
 use rubato::{
     Async, FixedAsync, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
@@ -201,10 +200,7 @@ impl<T: AudioBackend + ?Sized> AudioBackendExt for T {
 
     #[instrument(level = "debug", skip(self))]
     fn all_host_names(&self) -> Vec<String> {
-        self.available_hosts()
-            .iter()
-            .map(|h| h.name().to_string())
-            .collect()
+        self.host_names()
     }
 
     #[instrument(level = "debug", skip(self))]
@@ -323,7 +319,7 @@ fn pick_device_with_stream_config(
     let (stream_config, _) = match pick_best_stream_config(device_type, device.as_ref()) {
         Ok(stream_config) => stream_config,
         Err(err) => {
-            tracing::warn!(?err, device_name = %device.name(), "Failed to pick stream config for preferred device, picking best fallback device");
+            tracing::warn!(?err, device = ?DeviceDebug(device.as_ref()), "Failed to pick stream config for preferred device, picking best fallback device");
 
             let devices = host_devices(device_type, host)?;
             let mut best_fallback: Option<(Box<dyn AudioDevice>, StreamConfig, StreamConfigScore)> =
@@ -379,7 +375,7 @@ fn select_device(
 ) -> Result<(Box<dyn AudioDevice>, bool), AudioError> {
     if let Some(id_str) = preferred_device_id {
         if let Some(device) = host.device_by_id(id_str) {
-            tracing::trace!(device_name = %device.name(), "Selected device by ID");
+            tracing::trace!(device = ?DeviceDebug(device.as_ref()), "Selected device by ID");
             return Ok((device, false));
         }
         tracing::debug!(
@@ -400,7 +396,7 @@ fn select_device(
             .iter()
             .find(|d| d.identifiers().iter().any(|n| n.eq_ignore_ascii_case(name)))
         {
-            tracing::trace!(device_name = %device.name(), "Selected preferred device");
+            tracing::trace!(device = ?DeviceDebug(device.as_ref()), "Selected preferred device");
             return Ok((device.clone_boxed(), false));
         }
 
@@ -410,7 +406,7 @@ fn select_device(
                 .iter()
                 .any(|n| n.to_lowercase().contains(&name_lower))
         }) {
-            tracing::trace!(device_name = %device.name(), "Selected preferred device (based on substring match)");
+            tracing::trace!(device = ?DeviceDebug(device.as_ref()), "Selected preferred device (based on substring match)");
             return Ok((device.clone_boxed(), false));
         }
     }
@@ -423,7 +419,7 @@ fn select_device(
             .default_output_device()
             .ok_or_else(|| AudioError::Other(anyhow::anyhow!("No default output device")))?,
     };
-    tracing::trace!(device_name = %device.name(), "Selected default device");
+    tracing::trace!(device = ?DeviceDebug(device.as_ref()), "Selected default device");
     Ok((
         device,
         preferred_device_id.is_some() || preferred_device_name.is_some(),
@@ -499,7 +495,7 @@ fn pick_best_stream_config(
         best.ok_or_else(|| AudioError::Other(anyhow::anyhow!("No supported stream config found")))?;
     let sample_rate = closest_sample_rate(range.min_sample_rate, range.max_sample_rate);
 
-    tracing::trace!(?score, ?sample_rate, "Picked best stream config");
+    tracing::trace!(?range, ?score, ?sample_rate, "Picked best stream config");
     Ok((range.with_sample_rate(sample_rate), score))
 }
 
@@ -552,5 +548,18 @@ impl Ord for StreamConfigScore {
 impl PartialOrd for StreamConfigScore {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+/// Debug wrapper logging a device's display name together with its stable
+/// ID, so devices sharing a display name stay distinguishable in traces.
+struct DeviceDebug<'a>(&'a dyn AudioDevice);
+
+impl Debug for DeviceDebug<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Device")
+            .field("name", &self.0.name())
+            .field("id", &self.0.id())
+            .finish()
     }
 }
