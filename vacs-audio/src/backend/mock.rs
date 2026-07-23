@@ -1,12 +1,11 @@
 use super::{
     AudioBackend, AudioDevice, AudioHost, AudioStream, DeviceDescription, DeviceDirection,
-    StreamConfig, StreamConfigRange,
+    SampleFormat, StreamConfig, StreamConfigRange,
 };
 use crate::error::AudioError;
-use ::cpal::SampleFormat;
 use std::sync::mpsc as std_mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const MOCK_TICK_MS: u64 = 20;
 
@@ -73,13 +72,13 @@ impl AudioBackend for MockBackend {
                 .config
                 .input_devices
                 .iter()
-                .map(MockDevice::new)
+                .map(|config| MockDevice::new(config, DeviceDirection::Input))
                 .collect(),
             output_devices: self
                 .config
                 .output_devices
                 .iter()
-                .map(MockDevice::new)
+                .map(|config| MockDevice::new(config, DeviceDirection::Output))
                 .collect(),
         })
     }
@@ -90,6 +89,10 @@ impl AudioBackend for MockBackend {
         } else {
             None
         }
+    }
+
+    fn host_names(&self) -> Vec<String> {
+        vec![self.config.host_name.clone()]
     }
 }
 
@@ -148,16 +151,27 @@ struct MockDevice {
     min_sample_rate: u32,
     max_sample_rate: u32,
     channels: u16,
+    direction: DeviceDirection,
 }
 
 impl MockDevice {
-    fn new(config: &MockDeviceConfig) -> Self {
+    fn new(config: &MockDeviceConfig, direction: DeviceDirection) -> Self {
         Self {
             name: config.name.clone(),
             id: config.id.clone(),
             min_sample_rate: config.min_sample_rate,
             max_sample_rate: config.max_sample_rate,
             channels: config.channels,
+            direction,
+        }
+    }
+
+    fn config_range(&self) -> StreamConfigRange {
+        StreamConfigRange {
+            channels: self.channels,
+            min_sample_rate: self.min_sample_rate,
+            max_sample_rate: self.max_sample_rate,
+            sample_format: SampleFormat::F32,
         }
     }
 }
@@ -175,26 +189,22 @@ impl AudioDevice for MockDevice {
         Ok(DeviceDescription {
             name: self.name.clone(),
             driver: None,
-            direction: DeviceDirection::Duplex,
+            direction: self.direction,
         })
     }
 
     fn supported_input_configs(&self) -> Result<Vec<StreamConfigRange>, AudioError> {
-        Ok(vec![StreamConfigRange {
-            channels: self.channels,
-            min_sample_rate: self.min_sample_rate,
-            max_sample_rate: self.max_sample_rate,
-            sample_format: SampleFormat::F32,
-        }])
+        match self.direction {
+            DeviceDirection::Input => Ok(vec![self.config_range()]),
+            _ => Ok(Vec::new()),
+        }
     }
 
     fn supported_output_configs(&self) -> Result<Vec<StreamConfigRange>, AudioError> {
-        Ok(vec![StreamConfigRange {
-            channels: self.channels,
-            min_sample_rate: self.min_sample_rate,
-            max_sample_rate: self.max_sample_rate,
-            sample_format: SampleFormat::F32,
-        }])
+        match self.direction {
+            DeviceDirection::Output => Ok(vec![self.config_range()]),
+            _ => Ok(Vec::new()),
+        }
     }
 
     fn build_input_stream_f32(
@@ -203,34 +213,9 @@ impl AudioDevice for MockDevice {
         mut data_callback: Box<dyn FnMut(&[f32]) + Send + 'static>,
         _error_callback: Box<dyn FnMut(AudioError) + Send + 'static>,
     ) -> Result<Box<dyn AudioStream>, AudioError> {
-        let frame_size = (config.sample_rate as usize * MOCK_TICK_MS as usize) / 1000;
-        let channels = config.channels as usize;
-        let buf_len = frame_size * channels;
-
-        let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
-        let (play_tx, play_rx) = std_mpsc::channel::<()>();
-
-        thread::Builder::new()
-            .name("mock-input-stream".to_string())
-            .spawn(move || {
-                // Wait for play() to be called
-                let _ = play_rx.recv();
-
-                let silence = vec![0.0f32; buf_len];
-                loop {
-                    if stop_rx.try_recv().is_ok() {
-                        break;
-                    }
-                    data_callback(&silence);
-                    thread::sleep(Duration::from_millis(MOCK_TICK_MS));
-                }
-            })
-            .map_err(|e| AudioError::Other(anyhow::anyhow!(e)))?;
-
-        Ok(Box::new(MockStream {
-            _stop_tx: stop_tx,
-            play_tx: Some(play_tx),
-        }))
+        spawn_mock_tick_thread("mock-input-stream", buffer_len(config), move |buf| {
+            data_callback(buf);
+        })
     }
 
     fn build_output_stream_f32(
@@ -239,36 +224,10 @@ impl AudioDevice for MockDevice {
         mut data_callback: Box<dyn FnMut(&mut [f32]) + Send + 'static>,
         _error_callback: Box<dyn FnMut(AudioError) + Send + 'static>,
     ) -> Result<Box<dyn AudioStream>, AudioError> {
-        let frame_size = (config.sample_rate as usize * MOCK_TICK_MS as usize) / 1000;
-        let channels = config.channels as usize;
-        let buf_len = frame_size * channels;
-
-        let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
-        let (play_tx, play_rx) = std_mpsc::channel::<()>();
-
-        thread::Builder::new()
-            .name("mock-output-stream".to_string())
-            .spawn(move || {
-                // Wait for play() to be called
-                let _ = play_rx.recv();
-
-                let mut buf = vec![0.0f32; buf_len];
-                loop {
-                    if stop_rx.try_recv().is_ok() {
-                        break;
-                    }
-                    buf.fill(0.0);
-                    data_callback(&mut buf);
-                    // Output discarded
-                    thread::sleep(Duration::from_millis(MOCK_TICK_MS));
-                }
-            })
-            .map_err(|e| AudioError::Other(anyhow::anyhow!(e)))?;
-
-        Ok(Box::new(MockStream {
-            _stop_tx: stop_tx,
-            play_tx: Some(play_tx),
-        }))
+        spawn_mock_tick_thread("mock-output-stream", buffer_len(config), move |buf| {
+            data_callback(buf);
+            // Output discarded
+        })
     }
 
     fn clone_boxed(&self) -> Box<dyn AudioDevice> {
@@ -280,6 +239,61 @@ impl AudioDevice for MockDevice {
     }
 }
 
+fn buffer_len(config: &StreamConfig) -> usize {
+    let frame_size = (config.sample_rate as usize * MOCK_TICK_MS as usize) / 1000;
+    frame_size * config.channels as usize
+}
+
+/// Spawns the tick thread shared by mock input and output streams.
+///
+/// The thread waits until [`AudioStream::play`] is called, then invokes
+/// `tick` with a zeroed buffer every [`MOCK_TICK_MS`] on a fixed cadence.
+/// It exits when the owning [`MockStream`] is dropped: dropping disconnects
+/// both channels, which ends the play gate and the stop check alike.
+fn spawn_mock_tick_thread(
+    thread_name: &str,
+    buf_len: usize,
+    mut tick: impl FnMut(&mut [f32]) + Send + 'static,
+) -> Result<Box<dyn AudioStream>, AudioError> {
+    let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
+    let (play_tx, play_rx) = std_mpsc::channel::<()>();
+
+    thread::Builder::new()
+        .name(thread_name.to_string())
+        .spawn(move || {
+            // Wait for play(); a disconnect means the stream was dropped
+            // without ever playing, so the thread must not start ticking.
+            if play_rx.recv().is_err() {
+                return;
+            }
+
+            let mut buf = vec![0.0f32; buf_len];
+            let mut next_tick = Instant::now();
+            loop {
+                // Stop on an explicit signal as well as on disconnect (the
+                // stream was dropped); only an empty channel keeps running.
+                if !matches!(stop_rx.try_recv(), Err(std_mpsc::TryRecvError::Empty)) {
+                    break;
+                }
+                buf.fill(0.0);
+                tick(&mut buf);
+
+                // Fixed cadence: callback duration must not drift the tick.
+                next_tick += Duration::from_millis(MOCK_TICK_MS);
+                thread::sleep(next_tick.saturating_duration_since(Instant::now()));
+            }
+        })
+        .map_err(|e| AudioError::Other(anyhow::anyhow!(e)))?;
+
+    Ok(Box::new(MockStream {
+        _stop_tx: stop_tx,
+        play_tx: Some(play_tx),
+    }))
+}
+
+/// Dropping the stream disconnects both channels, which stops the tick
+/// thread: a pending play gate unblocks with an error and a running loop
+/// observes the stop channel as disconnected.
 struct MockStream {
     _stop_tx: std_mpsc::Sender<()>,
     play_tx: Option<std_mpsc::Sender<()>>,
@@ -291,12 +305,5 @@ impl AudioStream for MockStream {
             let _ = tx.send(());
         }
         Ok(())
-    }
-}
-
-impl Drop for MockStream {
-    fn drop(&mut self) {
-        // stop_tx is dropped, which causes the thread to exit
-        // when it next checks stop_rx.try_recv()
     }
 }

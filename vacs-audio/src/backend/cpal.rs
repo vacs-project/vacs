@@ -1,3 +1,4 @@
+use super::SampleFormat;
 use super::{
     AudioBackend, AudioDevice, AudioHost, AudioStream, BufferSize, DeviceDescription,
     DeviceDirection, ErrorCallback, InputDataCallback, OutputDataCallback, StreamConfig,
@@ -5,9 +6,20 @@ use super::{
 };
 use crate::error::AudioError;
 use ::cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ::cpal::{Sample, SampleFormat, SizedSample};
+use ::cpal::{Sample, SizedSample};
 use anyhow::Context;
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
+
+impl From<::cpal::SampleFormat> for SampleFormat {
+    fn from(format: ::cpal::SampleFormat) -> Self {
+        match format {
+            ::cpal::SampleFormat::F32 => Self::F32,
+            ::cpal::SampleFormat::I16 => Self::I16,
+            ::cpal::SampleFormat::U16 => Self::U16,
+            _ => Self::Other,
+        }
+    }
+}
 
 /// Real audio backend backed by cpal.
 pub struct CpalBackend;
@@ -53,6 +65,15 @@ impl AudioBackend for CpalBackend {
         ::cpal::host_from_id(*id)
             .ok()
             .map(|h| Box::new(CpalHost(h)) as Box<dyn AudioHost>)
+    }
+
+    fn host_names(&self) -> Vec<String> {
+        // Host IDs carry their names statically; listing names must not
+        // instantiate the host backends themselves.
+        ::cpal::available_hosts()
+            .iter()
+            .map(|id| id.name().to_string())
+            .collect()
     }
 }
 
@@ -239,7 +260,7 @@ fn cpal_range_to_config_range(range: &::cpal::SupportedStreamConfigRange) -> Str
         channels: range.channels(),
         min_sample_rate: range.min_sample_rate(),
         max_sample_rate: range.max_sample_rate(),
-        sample_format: range.sample_format(),
+        sample_format: range.sample_format().into(),
     }
 }
 
@@ -291,18 +312,12 @@ fn build_cpal_input_f32_convert<T>(
 where
     T: ::cpal::Sample<Float = f32> + SizedSample + 'static,
 {
-    let buf: RefCell<Vec<f32>> = RefCell::new(Vec::new());
-    if let BufferSize::Fixed(n) = buffer_size {
-        buf.borrow_mut().reserve(n as usize);
-    }
+    let buf = conversion_buffer(buffer_size);
 
     Ok(device.build_input_stream::<T, _, _>(
         *config,
         move |input: &[T], _info| {
-            let mut b = buf.borrow_mut();
-            if b.len() != input.len() {
-                b.resize(input.len(), 0.0f32);
-            }
+            let mut b = conversion_buffer_for_len(&buf, input.len());
             for (dst, &src) in b.iter_mut().zip(input.iter()) {
                 *dst = src.to_float_sample();
             }
@@ -337,18 +352,12 @@ fn build_cpal_output_f32_convert<T>(
 where
     T: SizedSample + ::cpal::FromSample<f32> + 'static,
 {
-    let buf: RefCell<Vec<f32>> = RefCell::new(Vec::new());
-    if let BufferSize::Fixed(n) = buffer_size {
-        buf.borrow_mut().reserve(n as usize);
-    }
+    let buf = conversion_buffer(buffer_size);
 
     Ok(device.build_output_stream::<T, _, _>(
         *config,
         move |output: &mut [T], _info| {
-            let mut b = buf.borrow_mut();
-            if b.len() != output.len() {
-                b.resize(output.len(), 0.0f32);
-            }
+            let mut b = conversion_buffer_for_len(&buf, output.len());
             data_callback(&mut b);
             for (dst, &src) in output.iter_mut().zip(b.iter()) {
                 *dst = src.to_sample::<T>();
@@ -357,6 +366,25 @@ where
         filter_xruns(error_callback),
         None,
     )?)
+}
+
+/// Creates the scratch buffer reused across stream callbacks for sample
+/// format conversion, pre-reserved when the buffer size is known.
+fn conversion_buffer(buffer_size: BufferSize) -> RefCell<Vec<f32>> {
+    let buf = RefCell::new(Vec::new());
+    if let BufferSize::Fixed(n) = buffer_size {
+        buf.borrow_mut().reserve(n as usize);
+    }
+    buf
+}
+
+/// Borrows the scratch buffer resized to the current callback length.
+fn conversion_buffer_for_len(buf: &RefCell<Vec<f32>>, len: usize) -> RefMut<'_, Vec<f32>> {
+    let mut b = buf.borrow_mut();
+    if b.len() != len {
+        b.resize(len, 0.0f32);
+    }
+    b
 }
 
 /// Returns the human-readable display name for an audio device via its description.
