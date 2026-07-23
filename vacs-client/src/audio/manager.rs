@@ -41,7 +41,6 @@ pub struct AudioManager {
 }
 
 pub type AudioManagerHandle = Arc<RwLock<AudioManager>>;
-pub type AudioBackendHandle = Arc<dyn AudioBackend>;
 
 impl AudioManager {
     pub fn new(
@@ -84,6 +83,11 @@ impl AudioManager {
             call_output_source_ids: HashSet::new(),
             level_meter_users: 0,
         })
+    }
+
+    /// Returns the audio backend all streams are opened on.
+    pub fn backend(&self) -> Arc<dyn AudioBackend> {
+        self.backend.clone()
     }
 
     pub fn output_device_name(&self) -> String {

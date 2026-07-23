@@ -1,6 +1,6 @@
 use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::audio::manager::{AudioBackendHandle, AudioManagerHandle};
+use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
 use crate::audio::{
     AudioConfig, AudioDevices, AudioHosts, AudioVolumes, ClientAudioDeviceType,
@@ -20,9 +20,12 @@ use vacs_audio::error::AudioError;
 #[vacs_macros::log_err]
 pub async fn audio_get_hosts(
     app_state: State<'_, AppState>,
-    backend: State<'_, AudioBackendHandle>,
+    audio_manager: State<'_, AudioManagerHandle>,
 ) -> Result<AudioHosts, Error> {
     log::debug!("Getting audio hosts");
+
+    let backend = audio_manager.read().backend();
+    let hosts = backend.all_host_names();
 
     let mut selected = app_state
         .lock()
@@ -32,11 +35,12 @@ pub async fn audio_get_hosts(
         .host_name
         .clone()
         .unwrap_or_default();
-    if selected.is_empty() {
+    // A persisted host may not exist on the active backend (different
+    // machine, or a mock-audio build reading a real config); fall back to
+    // the default instead of reporting a host absent from the list.
+    if selected.is_empty() || !hosts.iter().any(|h| h.eq_ignore_ascii_case(&selected)) {
         selected = backend.default_host_name();
     }
-
-    let hosts = backend.all_host_names();
 
     Ok(AudioHosts {
         selected,
@@ -102,18 +106,18 @@ pub async fn audio_set_host(
 pub async fn audio_get_devices(
     app_state: State<'_, AppState>,
     audio_manager: State<'_, AudioManagerHandle>,
-    backend: State<'_, AudioBackendHandle>,
     device_type: ClientAudioDeviceType,
 ) -> Result<AudioDevices, Error> {
     log::debug!("Getting audio devices (type: {:?})", device_type);
 
     let state = app_state.lock().await;
+    let audio_manager = audio_manager.read();
     get_audio_devices(
-        backend.as_ref(),
+        audio_manager.backend().as_ref(),
         device_type,
         &state.config.audio,
-        audio_manager.read().output_device_name(),
-        audio_manager.read().speaker_device_name(),
+        audio_manager.output_device_name(),
+        audio_manager.speaker_device_name(),
     )
 }
 
@@ -123,7 +127,6 @@ pub async fn audio_set_device(
     app: AppHandle,
     app_state: State<'_, AppState>,
     audio_manager: State<'_, AudioManagerHandle>,
-    backend: State<'_, AudioBackendHandle>,
     device_type: ClientAudioDeviceType,
     device_name: Option<String>,
 ) -> Result<AudioDevices, Error> {
@@ -160,7 +163,7 @@ pub async fn audio_set_device(
     // persist it alongside the display name. On next startup, the ID is tried
     // first for reliable matching; the name serves as a fallback for old configs.
     let device_id = device_name.as_deref().and_then(|name| {
-        backend.resolve_device_id(
+        audio_manager.backend().resolve_device_id(
             device_type.into(),
             state.config.audio.host_name.as_deref(),
             name,
@@ -205,7 +208,7 @@ pub async fn audio_set_device(
         }
 
         let audio_devices = get_audio_devices(
-            backend.as_ref(),
+            audio_manager.backend().as_ref(),
             device_type,
             &state.config.audio,
             audio_manager.output_device_name(),
