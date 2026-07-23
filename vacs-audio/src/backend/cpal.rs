@@ -1,8 +1,7 @@
 use super::SampleFormat;
 use super::{
-    AudioBackend, AudioDevice, AudioHost, AudioStream, BufferSize, DeviceDescription,
-    DeviceDirection, ErrorCallback, InputDataCallback, OutputDataCallback, StreamConfig,
-    StreamConfigRange,
+    AudioBackend, AudioDevice, AudioHost, AudioStream, BufferSize, DeviceDirection, ErrorCallback,
+    InputDataCallback, OutputDataCallback, StreamConfig, StreamConfigRange,
 };
 use crate::error::AudioError;
 use ::cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -133,22 +132,44 @@ impl AudioDevice for CpalDevice {
         self.0.id().ok().map(|id| id.to_string())
     }
 
-    fn description(&self) -> Result<DeviceDescription, AudioError> {
-        let desc = self
-            .0
-            .description()
-            .map_err(|e| AudioError::Other(anyhow::anyhow!(e)))?;
-        let direction = match desc.direction() {
-            ::cpal::device_description::DeviceDirection::Input => DeviceDirection::Input,
-            ::cpal::device_description::DeviceDirection::Output => DeviceDirection::Output,
-            ::cpal::device_description::DeviceDirection::Duplex => DeviceDirection::Duplex,
-            _ => DeviceDirection::Unknown,
-        };
-        Ok(DeviceDescription {
-            name: desc.name().to_string(),
-            driver: desc.driver().map(|s| s.to_string()),
-            direction,
-        })
+    /// Checks the requested direction against the device metadata, probing
+    /// only when it is ambiguous.
+    ///
+    /// ALSA hint devices with NULL IOID are tagged as `Duplex` even when
+    /// they only support one direction (e.g. `surround71:` appearing in the
+    /// input list). To avoid opening PCM devices unnecessarily (which on
+    /// ALSA can leak file descriptors and poison the backend for the
+    /// process lifetime), the direction metadata is consulted first. Only
+    /// ambiguous input devices fall through to an actual config query; for
+    /// output the metadata is trusted because an output stream might
+    /// already be active during enumeration and probing would try to reopen
+    /// the same hardware via dmix, leaking FDs.
+    fn supports_direction(&self, direction: DeviceDirection) -> bool {
+        use ::cpal::device_description::DeviceDirection as CpalDirection;
+
+        if let Ok(desc) = self.0.description() {
+            match (direction, desc.direction()) {
+                // Clear mismatch: exclude.
+                (DeviceDirection::Input, CpalDirection::Output)
+                | (DeviceDirection::Output, CpalDirection::Input) => return false,
+                // Clear match: include.
+                (DeviceDirection::Input, CpalDirection::Input)
+                | (DeviceDirection::Output, CpalDirection::Output) => return true,
+                // Duplex/unknown output: include without probing. A device
+                // listed by host.output_devices() that claims Duplex is a
+                // legitimate output device.
+                (DeviceDirection::Output, _) => return true,
+                // Duplex/unknown input: fall through to probe. Surround-only
+                // output devices often claim Duplex via ALSA hints and must
+                // be verified. No capture stream is typically open during
+                // enumeration, so the probe is safe.
+                (DeviceDirection::Input, _) => {}
+            }
+        }
+
+        // Probe actual input config support for ambiguous devices.
+        self.supported_input_configs()
+            .is_ok_and(|configs| !configs.is_empty())
     }
 
     fn supported_input_configs(&self) -> Result<Vec<StreamConfigRange>, AudioError> {
@@ -235,10 +256,6 @@ impl AudioDevice for CpalDevice {
             }
         };
         Ok(Box::new(CpalStream(stream)))
-    }
-
-    fn clone_boxed(&self) -> Box<dyn AudioDevice> {
-        Box::new(CpalDevice(self.0.clone()))
     }
 
     fn identifiers(&self) -> Vec<String> {
