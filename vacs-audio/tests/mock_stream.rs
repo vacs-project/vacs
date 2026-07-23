@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use vacs_audio::backend::mock::MockBackend;
-use vacs_audio::backend::{AudioBackend, StreamConfig};
+use vacs_audio::backend::{AudioBackend, SampleFormat, StreamConfig};
 
 #[test]
 fn input_stream_invokes_callback() {
@@ -24,7 +24,7 @@ fn input_stream_invokes_callback() {
     let config = StreamConfig {
         channels: 1,
         sample_rate: 48000,
-        sample_format: cpal::SampleFormat::F32,
+        sample_format: SampleFormat::F32,
         buffer_size: vacs_audio::backend::BufferSize::Default,
     };
 
@@ -75,7 +75,7 @@ fn output_stream_invokes_callback() {
     let config = StreamConfig {
         channels: 2,
         sample_rate: 48000,
-        sample_format: cpal::SampleFormat::F32,
+        sample_format: SampleFormat::F32,
         buffer_size: vacs_audio::backend::BufferSize::Default,
     };
 
@@ -123,7 +123,7 @@ fn stream_does_not_callback_before_play() {
     let config = StreamConfig {
         channels: 1,
         sample_rate: 48000,
-        sample_format: cpal::SampleFormat::F32,
+        sample_format: SampleFormat::F32,
         buffer_size: vacs_audio::backend::BufferSize::Default,
     };
 
@@ -142,4 +142,84 @@ fn stream_does_not_callback_before_play() {
 
     let count = call_count.load(Ordering::Relaxed);
     assert_eq!(count, 0, "stream should not invoke callbacks before play()");
+}
+
+#[test]
+fn stream_stops_ticking_after_drop() {
+    let backend = MockBackend::default();
+    let host = backend.default_host();
+    let device = host
+        .default_input_device()
+        .expect("should have input device");
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = call_count.clone();
+
+    let config = StreamConfig {
+        channels: 1,
+        sample_rate: 48000,
+        sample_format: SampleFormat::F32,
+        buffer_size: vacs_audio::backend::BufferSize::Default,
+    };
+
+    let stream = device
+        .build_input_stream_f32(
+            &config,
+            Box::new(move |_data: &[f32]| {
+                call_count_clone.fetch_add(1, Ordering::Relaxed);
+            }),
+            Box::new(|_err| panic!("unexpected stream error")),
+        )
+        .expect("build should succeed");
+
+    stream.play().expect("play should succeed");
+    std::thread::sleep(Duration::from_millis(60));
+    drop(stream);
+
+    // Allow an in-flight tick to finish, then verify the thread stopped.
+    std::thread::sleep(Duration::from_millis(40));
+    let count_after_drop = call_count.load(Ordering::Relaxed);
+    std::thread::sleep(Duration::from_millis(80));
+
+    let count_final = call_count.load(Ordering::Relaxed);
+    assert_eq!(
+        count_final, count_after_drop,
+        "stream must not invoke callbacks after being dropped"
+    );
+}
+
+#[test]
+fn stream_dropped_without_play_never_ticks() {
+    let backend = MockBackend::default();
+    let host = backend.default_host();
+    let device = host
+        .default_input_device()
+        .expect("should have input device");
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = call_count.clone();
+
+    let config = StreamConfig {
+        channels: 1,
+        sample_rate: 48000,
+        sample_format: SampleFormat::F32,
+        buffer_size: vacs_audio::backend::BufferSize::Default,
+    };
+
+    let stream = device
+        .build_input_stream_f32(
+            &config,
+            Box::new(move |_data: &[f32]| {
+                call_count_clone.fetch_add(1, Ordering::Relaxed);
+            }),
+            Box::new(|_err| panic!("unexpected stream error")),
+        )
+        .expect("build should succeed");
+
+    // Dropping without play() must terminate the thread without any ticks.
+    drop(stream);
+    std::thread::sleep(Duration::from_millis(80));
+
+    let count = call_count.load(Ordering::Relaxed);
+    assert_eq!(count, 0, "dropped stream must never invoke callbacks");
 }
