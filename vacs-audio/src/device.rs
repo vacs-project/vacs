@@ -17,6 +17,15 @@ pub enum DeviceType {
     Output,
 }
 
+impl From<DeviceType> for DeviceDirection {
+    fn from(device_type: DeviceType) -> Self {
+        match device_type {
+            DeviceType::Input => DeviceDirection::Input,
+            DeviceType::Output => DeviceDirection::Output,
+        }
+    }
+}
+
 impl Display for DeviceType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -224,7 +233,7 @@ impl<T: AudioBackend + ?Sized> AudioBackendExt for T {
                 if name.is_empty() {
                     return None;
                 }
-                if !has_supported_configs(device_type, device.as_ref()) {
+                if !device.supports_direction(device_type.into()) {
                     return None;
                 }
                 Some(name)
@@ -386,28 +395,30 @@ fn select_device(
 
     // Fall back to name-based matching (backwards compat with old configs)
     if let Some(name) = preferred_device_name {
-        let devices = host_devices(device_type, host)?;
+        let mut devices = host_devices(device_type, host)?;
 
         // Exact case-insensitive match against all device identifiers.
         // Checking multiple identifiers ensures backwards compatibility with
         // configs that stored names from older cpal versions (e.g. ALSA pcm_id
         // or WASAPI FriendlyName).
-        if let Some(device) = devices
+        if let Some(idx) = devices
             .iter()
-            .find(|d| d.identifiers().iter().any(|n| n.eq_ignore_ascii_case(name)))
+            .position(|d| d.identifiers().iter().any(|n| n.eq_ignore_ascii_case(name)))
         {
+            let device = devices.swap_remove(idx);
             tracing::trace!(device = ?DeviceDebug(device.as_ref()), "Selected preferred device");
-            return Ok((device.clone_boxed(), false));
+            return Ok((device, false));
         }
 
-        if let Some(device) = devices.iter().find(|d| {
+        if let Some(idx) = devices.iter().position(|d| {
             let name_lower = name.to_lowercase();
             d.identifiers()
                 .iter()
                 .any(|n| n.to_lowercase().contains(&name_lower))
         }) {
+            let device = devices.swap_remove(idx);
             tracing::trace!(device = ?DeviceDebug(device.as_ref()), "Selected preferred device (based on substring match)");
-            return Ok((device.clone_boxed(), false));
+            return Ok((device, false));
         }
     }
 
@@ -424,46 +435,6 @@ fn select_device(
         device,
         preferred_device_id.is_some() || preferred_device_name.is_some(),
     ))
-}
-
-/// Checks whether a device actually supports the requested stream direction.
-///
-/// ALSA hint devices with NULL IOID are tagged as `Duplex` even when they
-/// only support one direction (e.g. `surround71:` appearing in the input
-/// list). This method filters those out.
-///
-/// To avoid opening PCM devices unnecessarily (which on ALSA can leak file
-/// descriptors and poison the backend for the process lifetime), we first
-/// consult the direction metadata from the device description. Only
-/// ambiguous input devices fall through to an actual config query; for
-/// output we trust the metadata because an output stream might aready be
-/// active during enumeration and probing would try to reopen the same
-/// hardware via dmix, leaking FDs.
-fn has_supported_configs(device_type: DeviceType, device: &dyn AudioDevice) -> bool {
-    if let Ok(desc) = device.description() {
-        match (device_type, desc.direction) {
-            // Clear mismatch: exclude.
-            (DeviceType::Input, DeviceDirection::Output)
-            | (DeviceType::Output, DeviceDirection::Input) => return false,
-            // Clear match: include.
-            (DeviceType::Input, DeviceDirection::Input)
-            | (DeviceType::Output, DeviceDirection::Output) => return true,
-            // Duplex/Unknown output: include without probing. A device
-            // listed by host.output_devices() that claims Duplex is a
-            // legitimate output device.
-            (DeviceType::Output, _) => return true,
-            // Duplex/Unknown input: fall through to probe. Surround-only
-            // output devices often claim Duplex via ALSA hints and must
-            // be verified. No capture stream is typically open during
-            // enumeration, so the probe is safe.
-            (DeviceType::Input, _) => {}
-        }
-    }
-
-    // Probe actual input config support for ambiguous devices.
-    device
-        .supported_input_configs()
-        .is_ok_and(|configs| !configs.is_empty())
 }
 
 #[instrument(level = "trace", err, skip(device), fields(device_name = %device.name()))]

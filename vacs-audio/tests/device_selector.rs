@@ -268,3 +268,33 @@ fn output_defaults_to_first_device_regardless_of_channels() {
     assert_eq!(device.name(), "Stereo Speaker");
     assert_eq!(device.channels(), 2);
 }
+
+// ── Empty device configurations ─────────────────────────────────────────
+
+#[test]
+fn open_fails_cleanly_without_devices() {
+    // A backend without devices must yield a clean error rather than
+    // panic; callers opening streams at startup surface this as a
+    // startup failure.
+    let backend = MockBackend::new(MockBackendConfig {
+        host_name: "EmptyHost".to_string(),
+        input_devices: vec![],
+        output_devices: vec![],
+    });
+
+    let output_err = backend
+        .open(DeviceType::Output, None, None, None)
+        .expect_err("open without output devices should fail");
+    assert!(
+        output_err.to_string().contains("No default output device"),
+        "unexpected error: {output_err}"
+    );
+
+    let input_err = backend
+        .open(DeviceType::Input, None, None, None)
+        .expect_err("open without input devices should fail");
+    assert!(
+        input_err.to_string().contains("No default input device"),
+        "unexpected error: {input_err}"
+    );
+}
