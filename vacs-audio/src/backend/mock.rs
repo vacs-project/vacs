@@ -1,6 +1,6 @@
 use super::{
-    AudioBackend, AudioDevice, AudioHost, AudioStream, DeviceDescription, DeviceDirection,
-    SampleFormat, StreamConfig, StreamConfigRange,
+    AudioBackend, AudioDevice, AudioHost, AudioStream, DeviceDirection, SampleFormat, StreamConfig,
+    StreamConfigRange,
 };
 use crate::error::AudioError;
 use std::sync::mpsc as std_mpsc;
@@ -17,6 +17,11 @@ pub struct MockBackend {
 }
 
 /// Configuration for the mock backend.
+///
+/// Note that the client opens an output stream at startup: a configuration
+/// without output devices makes application startup fail with
+/// "No default output device".
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct MockBackendConfig {
     pub host_name: String,
     pub input_devices: Vec<MockDeviceConfig>,
@@ -24,6 +29,7 @@ pub struct MockBackendConfig {
 }
 
 /// Configuration for a single mock device.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct MockDeviceConfig {
     pub name: String,
     pub id: String,
@@ -185,12 +191,8 @@ impl AudioDevice for MockDevice {
         Some(self.id.clone())
     }
 
-    fn description(&self) -> Result<DeviceDescription, AudioError> {
-        Ok(DeviceDescription {
-            name: self.name.clone(),
-            driver: None,
-            direction: self.direction,
-        })
+    fn supports_direction(&self, direction: DeviceDirection) -> bool {
+        self.direction == direction
     }
 
     fn supported_input_configs(&self) -> Result<Vec<StreamConfigRange>, AudioError> {
@@ -228,10 +230,6 @@ impl AudioDevice for MockDevice {
             data_callback(buf);
             // Output discarded
         })
-    }
-
-    fn clone_boxed(&self) -> Box<dyn AudioDevice> {
-        Box::new(self.clone())
     }
 
     fn identifiers(&self) -> Vec<String> {
