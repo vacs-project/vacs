@@ -45,7 +45,6 @@ pub struct AudioManager {
 }
 
 pub type AudioManagerHandle = Arc<RwLock<AudioManager>>;
-pub type AudioBackendHandle = Arc<dyn AudioBackend>;
 
 impl AudioManager {
     pub fn new(
@@ -113,6 +112,11 @@ impl AudioManager {
 
     pub fn has_ring_clip(&self, ring_type: RingSoundType) -> bool {
         self.ring_clips.contains_key(&ring_type)
+    }
+
+    /// Returns the audio backend all streams are opened on.
+    pub fn backend(&self) -> Arc<dyn AudioBackend> {
+        self.backend.clone()
     }
 
     pub fn output_device_name(&self) -> String {
