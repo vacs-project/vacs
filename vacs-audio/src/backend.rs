@@ -4,6 +4,7 @@ pub mod cpal;
 pub mod mock;
 
 use crate::error::AudioError;
+use std::fmt;
 
 /// Sample formats supported by the backend abstraction, independent of any
 /// concrete audio host library. Formats without a conversion path are mapped
@@ -114,6 +115,17 @@ pub trait AudioDevice: Send + Sync {
 
     /// Returns all possible identifiers for this device (display name, raw name, driver, etc.)
     fn identifiers(&self) -> Vec<String>;
+}
+
+/// Formats a device by its display name and stable ID, keeping devices
+/// that share a display name distinguishable in logs.
+impl fmt::Debug for dyn AudioDevice + '_ {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AudioDevice")
+            .field("name", &self.name())
+            .field("id", &self.id())
+            .finish()
+    }
 }
 
 /// A running audio stream. Drop to stop.
