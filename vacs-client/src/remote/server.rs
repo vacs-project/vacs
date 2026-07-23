@@ -2,7 +2,7 @@ use crate::app::state::AppState;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::ConnectionState;
 use crate::app::{ClockMode, FrontendCallConfig, FrontendClientPageSettings};
-use crate::audio::manager::{AudioBackendHandle, AudioManagerHandle};
+use crate::audio::manager::AudioManagerHandle;
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
@@ -530,8 +530,8 @@ async fn dispatch_command(
 
         AudioGetHosts => {
             let app_state = app.state::<AppState>();
-            let backend = app.state::<AudioBackendHandle>();
-            dispatch(audio_get_hosts(app_state, backend).await)
+            let audio_manager = app.state::<AudioManagerHandle>();
+            dispatch(audio_get_hosts(app_state, audio_manager).await)
         }
         AudioSetHost => {
             let host_name: String = args!(args, "hostName");
@@ -543,20 +543,17 @@ async fn dispatch_command(
             let device_type = args!(args, "deviceType");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
-            let backend = app.state::<AudioBackendHandle>();
-            dispatch(audio_get_devices(app_state, audio_manager, backend, device_type).await)
+            dispatch(audio_get_devices(app_state, audio_manager, device_type).await)
         }
         AudioSetDevice => {
             let (device_type, device_name) = args!(args, "deviceType", "deviceName");
             let app_state = app.state::<AppState>();
             let audio_manager = app.state::<AudioManagerHandle>();
-            let backend = app.state::<AudioBackendHandle>();
             dispatch(
                 audio_set_device(
                     app.clone(),
                     app_state,
                     audio_manager,
-                    backend,
                     device_type,
                     device_name,
                 )
