@@ -20,10 +20,13 @@ export type CallDisplay = {
     connectionState?: ConnectionState;
 };
 
+export type ConferenceState = "modify" | "active" | "inactive";
+
 type CallState = {
     callDisplay?: CallDisplay;
     incomingCalls: Call[];
     prio: boolean;
+    conferenceState: ConferenceState;
     actions: {
         setOutgoingCall: (call: Call) => void;
         acceptIncomingCall: (callId: CallId) => void;
@@ -37,6 +40,7 @@ type CallState = {
         dismissErrorCall: () => void;
         setConnectionState: (id: CallId, connectionState: ConnectionState) => void;
         setPrio: (prio: boolean) => void;
+        setConferenceState: (conferenceState: ConferenceState) => void;
         reset: () => void;
     };
 };
@@ -48,6 +52,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
     incomingCalls: [],
     connecting: false,
     prio: false,
+    conferenceState: "inactive",
     actions: {
         setOutgoingCall: call => {
             if (call.prio) {
@@ -62,7 +67,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== callId);
 
-            tryStopBlink(incomingCalls.length, null, null, null);
+            tryStopBlink(incomingCalls.length, null, null, null, null);
 
             answerCallInCallList(callId);
 
@@ -87,7 +92,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 targetClientId,
                 connectionState: "connecting",
             };
-            tryStopBlink(null, nextCallDisplay, null, null);
+            tryStopBlink(null, nextCallDisplay, null, null, null);
 
             answerCallInCallList(callId, targetClientId);
 
@@ -96,8 +101,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
             });
         },
         endCall: () => {
-            tryStopBlink(null, undefined, null, null);
-            set({callDisplay: undefined});
+            tryStopBlink(null, undefined, null, null, "inactive");
+            set({callDisplay: undefined, conferenceState: "inactive"}); // TODO: conference state validate
         },
         addIncomingCall: call => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== call.callId);
@@ -109,6 +114,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
         removeCall: (callId, callEnd) => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== callId);
             let callDisplay = get().callDisplay;
+            let conferenceState = get().conferenceState;
 
             if (
                 callDisplay?.call.callId === callId &&
@@ -116,12 +122,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 (!callEnd || callDisplay?.type !== "outgoing")
             ) {
                 callDisplay = undefined;
+                conferenceState = "inactive";
             }
 
             rejectCallInCallListIfUnanswered(callId);
 
-            tryStopBlink(incomingCalls.length, callDisplay, null, null);
-            set({incomingCalls, callDisplay});
+            tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState); // TODO: validate conference state
+            set({incomingCalls, callDisplay, conferenceState});
         },
         rejectCall: callId => {
             const callDisplay = get().callDisplay;
@@ -145,7 +152,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
         dismissRejectedCall: () => {
             set({callDisplay: undefined});
-            tryStopBlink(null, undefined, null, null);
+            tryStopBlink(null, undefined, null, null, null);
         },
         errorCall: (callId, reason) => {
             const callDisplay = get().callDisplay;
@@ -174,7 +181,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
         dismissErrorCall: () => {
             set({callDisplay: undefined});
-            tryStopBlink(null, undefined, null, null);
+            tryStopBlink(null, undefined, null, null, null);
         },
         setConnectionState: (callId, connectionState) => {
             const callDisplay = get().callDisplay;
@@ -186,11 +193,21 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({callDisplay: {...callDisplay, connectionState}});
         },
         setPrio: prio => set({prio}),
+        setConferenceState: conferenceState => {
+            if (conferenceState === "modify") {
+                startBlink();
+            } else {
+                tryStopBlink(null, null, null, null, "inactive");
+            }
+
+            set({conferenceState});
+        },
         reset: () => {
-            tryStopBlink(0, undefined, null, null);
+            tryStopBlink(0, undefined, null, null, "inactive");
             set({
                 callDisplay: undefined,
                 incomingCalls: [],
+                conferenceState: "inactive",
             });
         },
     },
