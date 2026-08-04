@@ -67,6 +67,12 @@ export const config: WebdriverIO.MultiremoteConfig = {
     // plus live WebRTC negotiation leave a residual flake rate that would
     // otherwise fail CI randomly.
     specFileRetries: 1,
+    // Healthy sessions are created within seconds; when the native driver
+    // cannot launch the app at all (e.g. an Edge WebDriver/WebView2 mismatch
+    // on Windows), the defaults burn 20+ minutes of dead session attempts
+    // per run before the leg fails.
+    connectionRetryTimeout: 60_000,
+    connectionRetryCount: 1,
     logLevel: "warn",
 
     onPrepare() {
