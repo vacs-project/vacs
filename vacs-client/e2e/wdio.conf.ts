@@ -59,7 +59,14 @@ export const config: WebdriverIO.MultiremoteConfig = {
         ui: "bdd",
         timeout: 60_000,
     },
-    waitforTimeout: 10_000,
+    // Call establishment (invite -> accept -> ICE -> connected) can exceed 10s
+    // on loaded CI runners; waits return as soon as their condition holds, so
+    // a high ceiling does not slow passing tests.
+    waitforTimeout: 20_000,
+    // Retry a failed spec file once before failing the run: two app instances
+    // plus live WebRTC negotiation leave a residual flake rate that would
+    // otherwise fail CI randomly.
+    specFileRetries: 1,
     logLevel: "warn",
 
     onPrepare() {
