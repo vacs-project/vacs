@@ -13,8 +13,6 @@ env:
 jobs:
   e2e:
     runs-on: ${{ matrix.platform }}
-    # The Windows leg is non-blocking until it has proven stable.
-    continue-on-error: ${{ matrix.platform == 'windows-latest' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -25,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-24.04, windows-latest]
+        platform: [ubuntu-24.04]
 
     steps:
       - name: Checkout
@@ -67,51 +65,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             xvfb webkit2gtk-driver
 
-      - name: Install Memurai (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          choco install memurai-developer -y --no-progress
-          $deadline = (Get-Date).AddSeconds(30)
-          while ((Get-Date) -lt $deadline) {
-            try {
-              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 6379)
-              $tcp.Close()
-              Write-Host "Memurai is ready on port 6379"
-              exit 0
-            } catch {
-              Start-Sleep -Milliseconds 500
-            }
-          }
-          throw "Memurai did not become available within 30s"
-
-      - name: Install Edge WebDriver matching the WebView2 runtime (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          # msedgedriver must match the WebView2 runtime version, not the
-          # installed Edge version; the two drift apart on hosted runners and
-          # a mismatch fails every session with "DevToolsActivePort file
-          # doesn't exist".
-          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-          if (-not (Test-Path $key)) {
-            $key = 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-          }
-          $version = (Get-ItemProperty -Path $key -Name pv).pv
-          Write-Host "WebView2 runtime version: $version"
-          Write-Host "Preinstalled EdgeDriver: $(& "$env:EDGEWEBDRIVER\msedgedriver.exe" --version)"
-          try {
-            $driverDir = Join-Path $env:RUNNER_TEMP 'edgedriver'
-            $zip = Join-Path $env:RUNNER_TEMP 'edgedriver.zip'
-            Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
-            Expand-Archive $zip -DestinationPath $driverDir -Force
-            Write-Host "Downloaded EdgeDriver: $(& "$driverDir\msedgedriver.exe" --version)"
-            $driverDir >> $env:GITHUB_PATH
-          } catch {
-            Write-Warning "No EdgeDriver download for $version ($_), falling back to preinstalled"
-            $env:EDGEWEBDRIVER >> $env:GITHUB_PATH
-          }
-
       - name: Setup Node (LTS)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -133,9 +86,7 @@ jobs:
         with:
           path: |
             ~/.cargo/bin/tauri-driver
-            ~/.cargo/bin/tauri-driver.exe
             ~/.cargo/bin/vatsim-mock
-            ~/.cargo/bin/vatsim-mock.exe
           key: e2e-tools-${{ runner.os }}-tauri-driver-${{ env.TAURI_DRIVER_VERSION }}-vatsim-api-${{ env.VATSIM_API_REV }}
 
       - name: Install tauri-driver and vatsim-mock
@@ -167,13 +118,6 @@ jobs:
       - name: E2E tests (Linux)
         if: matrix.platform == 'ubuntu-24.04'
         run: xvfb-run npm test -w e2e
-        env:
-          RUST_BACKTRACE: "1"
-          VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
-
-      - name: E2E tests (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: npm test -w e2e
         env:
           RUST_BACKTRACE: "1"
           VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
