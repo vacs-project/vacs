@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import {config as baseConfig} from "./wdio.conf.ts";
 
 const {hostname: _hostname, ...baseWithoutHostname} = baseConfig;
@@ -18,6 +20,9 @@ const baseCapabilities = baseConfig.capabilities as Record<
 export const config: WebdriverIO.MultiremoteConfig = {
     ...baseWithoutHostname,
     specs: ["./specs-remote/**/*.ts"],
+    // Chrome for Testing downloads default to os.tmpdir(); pin them to a
+    // deterministic location so CI can cache the browser between runs.
+    cacheDir: path.join(os.homedir(), ".cache", "wdio-browsers"),
     capabilities: {
         clientA: {
             ...baseCapabilities.clientA,
