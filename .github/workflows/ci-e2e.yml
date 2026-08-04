@@ -80,12 +80,32 @@ jobs:
           }
           throw "Memurai did not become available within 30s"
 
-      - name: Add Edge WebDriver to PATH (Windows)
+      - name: Install Edge WebDriver matching the WebView2 runtime (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          Write-Host "EdgeDriver location: $env:EDGEWEBDRIVER"
-          $env:EDGEWEBDRIVER >> $env:GITHUB_PATH
+          # msedgedriver must match the WebView2 runtime version, not the
+          # installed Edge version; the two drift apart on hosted runners and
+          # a mismatch fails every session with "DevToolsActivePort file
+          # doesn't exist".
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          if (-not (Test-Path $key)) {
+            $key = 'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          }
+          $version = (Get-ItemProperty -Path $key -Name pv).pv
+          Write-Host "WebView2 runtime version: $version"
+          Write-Host "Preinstalled EdgeDriver: $(& "$env:EDGEWEBDRIVER\msedgedriver.exe" --version)"
+          try {
+            $driverDir = Join-Path $env:RUNNER_TEMP 'edgedriver'
+            $zip = Join-Path $env:RUNNER_TEMP 'edgedriver.zip'
+            Invoke-WebRequest -Uri "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
+            Expand-Archive $zip -DestinationPath $driverDir -Force
+            Write-Host "Downloaded EdgeDriver: $(& "$driverDir\msedgedriver.exe" --version)"
+            $driverDir >> $env:GITHUB_PATH
+          } catch {
+            Write-Warning "No EdgeDriver download for $version ($_), falling back to preinstalled"
+            $env:EDGEWEBDRIVER >> $env:GITHUB_PATH
+          }
 
       - name: Setup Node (LTS)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
