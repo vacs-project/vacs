@@ -6,7 +6,6 @@ on:
 permissions: {}
 
 env:
-  TAURI_DRIVER_VERSION: "2.0.6"
   # Keep in sync with the vatsim-api rev in Cargo.lock.
   VATSIM_API_REV: "299fb617d343c1c83f9f4fea040f0b66afe5ae7e"
 
@@ -62,8 +61,7 @@ jobs:
       - name: Install E2E system dependencies (Linux)
         if: matrix.platform == 'ubuntu-24.04'
         run: |
-          sudo apt-get install -y --no-install-recommends \
-            xvfb webkit2gtk-driver
+          sudo apt-get install -y --no-install-recommends xvfb
 
       - name: Setup Node (LTS)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -80,19 +78,17 @@ jobs:
         with:
           shared-key: e2e-${{ matrix.platform }}
 
-      - name: Cache tauri-driver and vatsim-mock binaries
+      - name: Cache vatsim-mock binary
         id: tools-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ~/.cargo/bin/tauri-driver
             ~/.cargo/bin/vatsim-mock
-          key: e2e-tools-${{ runner.os }}-tauri-driver-${{ env.TAURI_DRIVER_VERSION }}-vatsim-api-${{ env.VATSIM_API_REV }}
+          key: e2e-tools-${{ runner.os }}-vatsim-api-${{ env.VATSIM_API_REV }}
 
-      - name: Install tauri-driver and vatsim-mock
+      - name: Install vatsim-mock
         if: steps.tools-cache.outputs.cache-hit != 'true'
         run: |
-          cargo install tauri-driver --version "$TAURI_DRIVER_VERSION" --locked
           # Switch to crates.io version of vatsim-api once the crate is published - install from git until then
           cargo install --git https://github.com/MorpheusXAUT/vatsim-api --rev "$VATSIM_API_REV" --features mock-bin --bin vatsim-mock --locked
         shell: bash
