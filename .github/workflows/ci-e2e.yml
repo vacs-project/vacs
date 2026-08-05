@@ -166,6 +166,16 @@ jobs:
           RUST_BACKTRACE: "1"
           VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
 
+      - name: Upload app logs (Windows)
+        # The app processes log to files that survive their abrupt E2E
+        # retirement; on failure they show where a silent instance stopped.
+        if: failure() && matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-app-logs-windows
+          path: ~/AppData/Local/app.vacs.vacs-client-e2e/logs
+          if-no-files-found: warn
+
       - name: Summary
         shell: bash
         run: echo "### ✅ E2E tests passed (${{ matrix.platform }})" >> "$GITHUB_STEP_SUMMARY"
