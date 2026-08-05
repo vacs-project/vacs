@@ -248,6 +248,15 @@ function spawnVacsServer(): ChildProcess {
         stdio: ["ignore", process.stdout, process.stderr],
         env: {
             ...process.env,
+            // The server's built-in default is all-trace. Cap the two
+            // high-volume, low-signal targets (per-file dataset loading and
+            // redis store round trips) at debug; an explicit RUST_LOG still
+            // wins for full-trace debugging.
+            RUST_LOG:
+                process.env.RUST_LOG ??
+                "vacs_server=trace,vacs_=trace,vacs_vatsim::coverage=debug," +
+                    "vacs_server::store=debug,tower_http=debug,tower_sessions=debug," +
+                    "axum::rejection=trace",
             "VACS-AUTH-OAUTH-AUTH_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/authorize`,
             "VACS-AUTH-OAUTH-TOKEN_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/token`,
             "VACS-AUTH-OAUTH-CLIENT_ID": "e2e-test-client",
