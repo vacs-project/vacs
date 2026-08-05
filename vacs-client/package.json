@@ -24,5 +24,14 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
     "prettier": "^3.9.6"
+  },
+  "overrides": {
+    "@wdio/tauri-service": {
+      "@wdio/globals": "^9.29.1",
+      "@wdio/logger": "^9.29.1",
+      "@wdio/spec-reporter": "^9.29.1",
+      "@wdio/types": "^9.29.1",
+      "webdriverio": "^9.30.0"
+    }
   }
 }

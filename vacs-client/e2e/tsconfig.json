@@ -13,7 +13,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["@wdio/globals/types", "@wdio/mocha-framework"]
+    "types": ["@wdio/globals/types", "@wdio/mocha-framework", "@wdio/tauri-service"]
   },
   "include": ["**/*.ts"]
 }
