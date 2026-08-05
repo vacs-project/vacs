@@ -123,7 +123,7 @@ export async function restartApps(): Promise<void> {
     // Strictly between all retirements and any respawn, so it can never
     // catch a fresh instance's webview.
     killLingeringWebviews();
-    await Promise.all(instances.map(instance => bootInstance(instance)));
+    await bootInstances(instances);
     await multiRemoteBrowser.reloadSession();
     // The embedded server accepts sessions before the webview finishes
     // navigating to the app page. An execute issued mid-navigation loses its
@@ -159,6 +159,9 @@ export async function ensureApps(): Promise<void> {
     for (const instance of missing) {
         spawnInstance(instance);
         await webdriverReady(instance.port, 60_000);
+        if (process.platform === "win32") {
+            await webviewProcessUp(15_000);
+        }
     }
 }
 
@@ -203,6 +206,26 @@ async function retireInstance(instance: AppInstance): Promise<void> {
     }
 }
 
+/**
+ * Boots instances in parallel, except on Windows: concurrent WebView2
+ * environment creation against the shared user data folder fails
+ * intermittently with E_INVALIDARG, so instances boot one at a time and
+ * each webview must exist (its browser process is running) before the next
+ * spawn. The embedded server accepts connections before the webview is
+ * created, so webdriverReady alone does not order the environment
+ * creations.
+ */
+async function bootInstances(list: AppInstance[]): Promise<void> {
+    if (process.platform === "win32") {
+        for (const instance of list) {
+            await bootInstance(instance);
+            await webviewProcessUp(15_000);
+        }
+    } else {
+        await Promise.all(list.map(instance => bootInstance(instance)));
+    }
+}
+
 async function bootInstance(instance: AppInstance): Promise<void> {
     await portClosed(instance.port, 15_000);
     // A graceful close anywhere may have persisted session cookies; a fresh
@@ -210,6 +233,26 @@ async function bootInstance(instance: AppInstance): Promise<void> {
     clearPersistedAppState();
     spawnInstance(instance);
     await webdriverReady(instance.port, 60_000);
+}
+
+/** Waits until at least one E2E WebView2 browser process is running. */
+async function webviewProcessUp(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const result = spawnSync(
+            "powershell",
+            [
+                "-NoProfile",
+                "-Command",
+                `@(Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | ` +
+                    `Where-Object {$_.CommandLine -like '*${E2E_IDENTIFIER}*'}).Count`,
+            ],
+            {encoding: "utf-8"},
+        );
+        if (Number(result.stdout?.trim()) > 0) return;
+        await new Promise(r => setTimeout(r, 250));
+    }
+    throw new Error(`No E2E WebView2 process appeared within ${timeoutMs}ms`);
 }
 
 async function retireAdopted(instance: AppInstance): Promise<void> {
