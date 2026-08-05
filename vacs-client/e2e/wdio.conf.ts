@@ -11,7 +11,6 @@ import {
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const VACS_ROOT = path.resolve(__dirname, "..", "..");
-const WINDOWS_CI = process.platform === "win32" && Boolean(process.env.CI);
 const VACS_CLIENT_ROOT = path.resolve(VACS_ROOT, "vacs-client");
 const VACS_DATA_DIR = process.env.VACS_DATA_DIR || path.resolve(VACS_ROOT, "..", "vacs-data");
 
@@ -97,15 +96,11 @@ export const config: WebdriverIO.MultiremoteConfig = {
     waitforTimeout: 20_000,
     // Retry a failed spec file once before failing the run: two app instances
     // plus live WebRTC negotiation leave a residual flake rate that would
-    // otherwise fail CI randomly. The Windows leg instead fails fast while it
-    // stabilizes: its current failures are deterministic, so retries and the
-    // remaining spec files only add dead wait time to every iteration.
-    specFileRetries: WINDOWS_CI ? 0 : 1,
-    bail: WINDOWS_CI ? 1 : 0,
-    // Healthy sessions are created within seconds; when the native driver
-    // cannot launch the app at all (e.g. an Edge WebDriver/WebView2 mismatch
-    // on Windows), the defaults burn 20+ minutes of dead session attempts
-    // per run before the leg fails.
+    // otherwise fail CI randomly.
+    specFileRetries: 1,
+    // Healthy sessions are created within seconds; when an app instance is
+    // broken (e.g. its webview failed to initialize), the defaults burn 20+
+    // minutes of dead session attempts per run before the leg fails.
     connectionRetryTimeout: 60_000,
     connectionRetryCount: 1,
     logLevel: "warn",
