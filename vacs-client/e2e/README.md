@@ -68,9 +68,16 @@ Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
   `10000001`-`10000003` leaves the 2s grace period, the server assigns it
   the corresponding position and CID-based selectors stop matching; use
   `removeController` when such CIDs must stay positionless.
-- The `browser.tauri.*` API (`tauri-plugin-wdio`) is available in specs for
-  IPC mocking, event emission and log capture; backend/frontend log capture
-  is enabled in CI.
+- IPC command mocks go through `helpers/browser.ts` (`mockCommand`,
+  `unmockCommand`), which write the wdio mock registry directly into the
+  page; the transport consults it in e2e builds (`withGlobalTauri` is
+  enabled in `tauri.e2e.conf.json` for the plugin's globals). Do not use
+  `browser.tauri.mock`: its worker-side store reuses mock objects across
+  sessions and breaks after `restartApps()`. `browser.tauri.emitEvent` is
+  equally off-limits with the embedded provider (its eval wrapper exposes
+  only the core API); emit through `tauriApi(...).execute` and
+  `window.__TAURI__.event.emit` instead. `browser.tauri.execute` and log
+  capture work as documented; backend/frontend log capture is enabled in CI.
 
 ## Spec gotchas
 
