@@ -114,10 +114,16 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: e2e-${{ matrix.platform }}
+          # Failed runs still produce full builds; without this every failed
+          # iteration on a leg rebuilds the workspace from scratch.
+          cache-on-failure: true
 
-      - name: Cache vatsim-mock binary
+      # Restore/save split instead of the combined action: its post step
+      # skips saving when the job fails, which discards the vatsim-mock
+      # build after every failed iteration.
+      - name: Restore vatsim-mock binary
         id: tools-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/vatsim-mock
@@ -130,6 +136,17 @@ jobs:
           # Switch to crates.io version of vatsim-api once the crate is published - install from git until then
           cargo install --git https://github.com/MorpheusXAUT/vatsim-api --rev "$VATSIM_API_REV" --features mock-bin --bin vatsim-mock --locked
         shell: bash
+
+      # Saving immediately after the install (instead of in a post step)
+      # keeps the binary cached no matter what the later test steps do.
+      - name: Save vatsim-mock binary
+        if: steps.tools-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/vatsim-mock
+            ~/.cargo/bin/vatsim-mock.exe
+          key: e2e-tools-${{ runner.os }}-vatsim-api-${{ env.VATSIM_API_REV }}
 
       - name: Compute browser cache key
         id: browser-week
