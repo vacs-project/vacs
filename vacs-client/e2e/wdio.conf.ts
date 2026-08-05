@@ -5,6 +5,7 @@ import {fileURLToPath} from "url";
 import {
     clearPersistedAppState,
     configureInstances,
+    ensureApps,
     reapRecordedApps,
 } from "./helpers/app-control.ts";
 
@@ -219,12 +220,19 @@ export const config: WebdriverIO.MultiremoteConfig = {
                 await waitForPort(VACS_SERVER_PORT, 15_000);
             },
         };
+
+        // A previous worker's app instances are normally handed over alive,
+        // but on Windows a worker's exit takes its child processes with it;
+        // respawn whatever is missing before the session request goes out.
+        await ensureApps();
     },
 
     afterSession() {
-        // Servers only: the last generation of app processes stays alive so
-        // the next worker's session creation finds live embedded WebDriver
-        // servers; that worker retires them at its first restartApps().
+        // Servers only: the last generation of app processes stays alive
+        // where possible so the next worker's session creation finds live
+        // embedded WebDriver servers; that worker retires them at its first
+        // restartApps(). beforeSession's ensureApps() covers platforms where
+        // the processes die with the worker.
         cleanup();
     },
 
