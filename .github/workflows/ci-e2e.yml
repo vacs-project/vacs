@@ -12,6 +12,8 @@ env:
 jobs:
   e2e:
     runs-on: ${{ matrix.platform }}
+    # Non-Linux legs are non-blocking until they have proven stable.
+    continue-on-error: ${{ matrix.platform != 'ubuntu-24.04' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -22,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-24.04]
+        platform: [ubuntu-24.04, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
@@ -52,6 +54,41 @@ jobs:
             --health-retries 5 \
             valkey/valkey:9-alpine
           until [ "$(docker inspect --format='{{.State.Health.Status}}' valkey)" = "healthy" ]; do sleep 1; done
+        working-directory: .
+
+      - name: Install Memurai (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install memurai-developer -y --no-progress
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 6379)
+              $tcp.Close()
+              Write-Host "Memurai is ready on port 6379"
+              exit 0
+            } catch {
+              Start-Sleep -Milliseconds 500
+            }
+          }
+          throw "Memurai did not become available within 30s"
+
+      - name: Start Valkey (macOS)
+        if: matrix.platform == 'macos-latest'
+        # macOS runners have no docker daemon, so run Valkey via Homebrew.
+        run: |
+          brew install valkey
+          valkey-server --daemonize yes
+          for i in $(seq 1 30); do
+            if valkey-cli ping >/dev/null 2>&1; then
+              echo "Valkey is ready on port 6379"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Valkey did not become available within 30s" >&2
+          exit 1
         working-directory: .
 
       - name: Install build dependencies (Linux)
@@ -84,6 +121,7 @@ jobs:
         with:
           path: |
             ~/.cargo/bin/vatsim-mock
+            ~/.cargo/bin/vatsim-mock.exe
           key: e2e-tools-${{ runner.os }}-vatsim-api-${{ env.VATSIM_API_REV }}
 
       - name: Install vatsim-mock
@@ -113,7 +151,17 @@ jobs:
 
       - name: E2E tests (Linux)
         if: matrix.platform == 'ubuntu-24.04'
+        # xvfb-run wraps the whole runner: app processes are spawned by the
+        # wdio launcher and helpers, which wdio's own xvfb handling does not
+        # cover.
         run: xvfb-run npm test -w e2e
+        env:
+          RUST_BACKTRACE: "1"
+          VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
+
+      - name: E2E tests (Windows, macOS)
+        if: matrix.platform != 'ubuntu-24.04'
+        run: npm test -w e2e
         env:
           RUST_BACKTRACE: "1"
           VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
