@@ -70,10 +70,32 @@ export function configureInstances(list: AppInstance[]): void {
 }
 
 /**
- * Force-kills a process and, on Windows, its entire tree. WebView2 runs as
- * child processes that survive TerminateProcess of their host and keep the
- * shared user data folder locked, which fails the next generation's webview
- * creation with E_INVALIDARG. Returns whether anything was killed.
+ * Kills WebView2 processes left behind by a retired app generation. taskkill's
+ * tree walk misses orphaned subtrees, and a lingering browser process keeps
+ * the shared user data folder locked, which fails the next generation's
+ * webview creation with E_INVALIDARG. Matching on the user data folder in the
+ * command line (it contains the E2E bundle identifier) keeps this away from
+ * other applications' WebView2 processes. Only call while no owned app
+ * instance is running.
+ */
+function killLingeringWebviews(): void {
+    if (process.platform !== "win32") return;
+    spawnSync(
+        "powershell",
+        [
+            "-NoProfile",
+            "-Command",
+            `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | ` +
+                `Where-Object {$_.CommandLine -like '*${E2E_IDENTIFIER}*'} | ` +
+                `ForEach-Object {Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}`,
+        ],
+        {stdio: "ignore"},
+    );
+}
+
+/**
+ * Force-kills a process and, on Windows, its entire tree. Returns whether
+ * anything was killed.
  */
 function killTree(pid: number): boolean {
     if (process.platform === "win32") {
@@ -97,7 +119,11 @@ function killTree(pid: number): boolean {
  * place of multiRemoteBrowser.reloadSession().
  */
 export async function restartApps(): Promise<void> {
-    await Promise.all(instances.map(instance => restartInstance(instance)));
+    await Promise.all(instances.map(instance => retireInstance(instance)));
+    // Strictly between all retirements and any respawn, so it can never
+    // catch a fresh instance's webview.
+    killLingeringWebviews();
+    await Promise.all(instances.map(instance => bootInstance(instance)));
     await multiRemoteBrowser.reloadSession();
     // The embedded server accepts sessions before the webview finishes
     // navigating to the app page. An execute issued mid-navigation loses its
@@ -116,15 +142,21 @@ export async function restartApps(): Promise<void> {
  * @wdio/tauri-service (no session exists yet, so nothing can be retired).
  */
 export async function ensureApps(): Promise<void> {
+    const missing: AppInstance[] = [];
     for (const instance of instances) {
-        if (
-            await webdriverReady(instance.port, 1_000).then(
-                () => true,
-                () => false,
-            )
-        ) {
-            continue;
-        }
+        const up = await webdriverReady(instance.port, 1_000).then(
+            () => true,
+            () => false,
+        );
+        if (!up) missing.push(instance);
+    }
+    if (missing.length === 0) return;
+    // Only when no instance survived: with a live instance the sweep would
+    // kill its webview processes too (they share the user data folder).
+    if (missing.length === instances.length) {
+        killLingeringWebviews();
+    }
+    for (const instance of missing) {
         spawnInstance(instance);
         await webdriverReady(instance.port, 60_000);
     }
@@ -146,14 +178,16 @@ export function clearPersistedAppState(): void {
 
 /** Kills every pid recorded in the pid file. Launcher-side (onPrepare/onComplete). */
 export function reapRecordedApps(): void {
-    if (!existsSync(PID_FILE)) return;
-    for (const pid of recordedPids()) {
-        killTree(pid);
+    if (existsSync(PID_FILE)) {
+        for (const pid of recordedPids()) {
+            killTree(pid);
+        }
+        rmSync(PID_FILE, {force: true});
     }
-    rmSync(PID_FILE, {force: true});
+    killLingeringWebviews();
 }
 
-async function restartInstance(instance: AppInstance): Promise<void> {
+async function retireInstance(instance: AppInstance): Promise<void> {
     const proc = owned.get(instance.name);
     if (proc !== undefined) {
         const exited = new Promise<void>(resolve => proc.once("exit", () => resolve()));
@@ -167,6 +201,9 @@ async function restartInstance(instance: AppInstance): Promise<void> {
     } else {
         await retireAdopted(instance);
     }
+}
+
+async function bootInstance(instance: AppInstance): Promise<void> {
     await portClosed(instance.port, 15_000);
     // A graceful close anywhere may have persisted session cookies; a fresh
     // instance must always boot logged out.
