@@ -24,7 +24,9 @@ import {fileURLToPath} from "url";
  * and killed with it. afterSession deliberately leaves the last generation
  * running so the next worker's session creation finds a live server;
  * stragglers are reaped from the ledger by onPrepare/onComplete in the
- * launcher.
+ * launcher. That handover is best-effort: on Windows a worker's exit takes
+ * its child processes with it, so beforeSession runs ensureApps() to respawn
+ * whatever is missing.
  */
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
