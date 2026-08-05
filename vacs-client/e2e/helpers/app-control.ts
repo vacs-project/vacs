@@ -1,4 +1,4 @@
-import {type ChildProcess, spawn} from "child_process";
+import {type ChildProcess, spawn, spawnSync} from "child_process";
 import {appendFileSync, existsSync, readFileSync, rmSync} from "fs";
 import os from "os";
 import path from "path";
@@ -68,6 +68,28 @@ export function configureInstances(list: AppInstance[]): void {
 }
 
 /**
+ * Force-kills a process and, on Windows, its entire tree. WebView2 runs as
+ * child processes that survive TerminateProcess of their host and keep the
+ * shared user data folder locked, which fails the next generation's webview
+ * creation with E_INVALIDARG. Returns whether anything was killed.
+ */
+function killTree(pid: number): boolean {
+    if (process.platform === "win32") {
+        const result = spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+            stdio: "ignore",
+        });
+        return result.status === 0;
+    }
+    try {
+        process.kill(pid, "SIGKILL");
+        return true;
+    } catch {
+        // already gone
+        return false;
+    }
+}
+
+/**
  * Replaces every configured app instance with a fresh process and
  * re-creates the WebDriver sessions. Call from a spec's beforeEach in
  * place of multiRemoteBrowser.reloadSession().
@@ -124,11 +146,7 @@ export function clearPersistedAppState(): void {
 export function reapRecordedApps(): void {
     if (!existsSync(PID_FILE)) return;
     for (const pid of recordedPids()) {
-        try {
-            process.kill(pid, "SIGKILL");
-        } catch {
-            // already gone
-        }
+        killTree(pid);
     }
     rmSync(PID_FILE, {force: true});
 }
@@ -137,7 +155,11 @@ async function restartInstance(instance: AppInstance): Promise<void> {
     const proc = owned.get(instance.name);
     if (proc !== undefined) {
         const exited = new Promise<void>(resolve => proc.once("exit", () => resolve()));
-        proc.kill("SIGKILL");
+        if (proc.pid !== undefined) {
+            killTree(proc.pid);
+        } else {
+            proc.kill("SIGKILL");
+        }
         await exited;
         owned.delete(instance.name);
     } else {
@@ -157,12 +179,7 @@ async function retireAdopted(instance: AppInstance): Promise<void> {
     // long-dead generations are killed along the way (ESRCH is ignored).
     let killedFromLedger = false;
     for (const pid of recordedPids(instance.port)) {
-        try {
-            process.kill(pid, "SIGKILL");
-            killedFromLedger = true;
-        } catch {
-            // already gone
-        }
+        killedFromLedger = killTree(pid) || killedFromLedger;
     }
     if (killedFromLedger) return;
 
@@ -178,7 +195,7 @@ async function retireAdopted(instance: AppInstance): Promise<void> {
                 }
             ).__TAURI_INTERNALS__.invoke("app_process_id"),
         );
-        process.kill(pid, "SIGKILL");
+        killTree(pid);
     } catch {
         // no live session to ask; if the port stays open, portClosed() in
         // the caller surfaces it
