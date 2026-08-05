@@ -12,8 +12,6 @@ env:
 jobs:
   e2e:
     runs-on: ${{ matrix.platform }}
-    # Non-Linux legs are non-blocking until they have proven stable.
-    continue-on-error: ${{ matrix.platform != 'ubuntu-24.04' }}
     timeout-minutes: 60
     permissions:
       contents: read
