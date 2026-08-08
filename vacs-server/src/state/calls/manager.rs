@@ -10,8 +10,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use tracing::instrument;
 use vacs_protocol::vatsim::ClientId;
-use vacs_protocol::ws::server;
-use vacs_protocol::ws::server::CallCancelReason;
+use vacs_protocol::ws::server::{self, ServerMessage};
+use vacs_protocol::ws::server::{CallCancelReason, CallUpdate};
 use vacs_protocol::ws::shared::{
     CallEnd, CallErrorReason, CallId, CallParticipants, CallSource, CallTarget,
 };
@@ -28,13 +28,15 @@ pub enum StartCallError {
 pub enum CallTerminationOutcome {
     CallNotFound,
     ClientNotNotified,
-    Continued,
-    Failed(Vec<RingingTarget>),
+    Continued(CallUpdate),
+    Failed(Vec<RingingTarget>, CallUpdate),
 }
 
-// I have said 1 that this state is final; please update it, if it changes
+/// Lock order: when holding more than one lock, acquire them in field order —
+/// `ringing_calls` → `active_calls` → `client_incoming_calls` / `client_active_calls`.
+/// Never acquire a lock while holding one that comes later in this order.
 pub struct CallManager {
-    ringing_calls: RwLock<HashMap<CallId, RingingCallEntry>>, // ClientId -> caller_id
+    ringing_calls: RwLock<HashMap<CallId, RingingCallEntry>>,
     active_calls: RwLock<HashMap<CallId, ActiveCallEntry>>,
     client_incoming_calls: RwLock<HashMap<ClientId, HashMap<CallId, CallTarget>>>,
     client_active_calls: RwLock<HashMap<ClientId, CallId>>,
@@ -91,21 +93,14 @@ impl CallManager {
             match self.ringing_calls.write().entry(*call_id) {
                 Entry::Occupied(mut e) => {
                     let ringing_call_entry = e.get_mut();
+
                     ringing_call_entry.add_target(
                         source.clone(),
                         target.clone(),
                         notified_clients.clone(),
                     );
-                    ringing_call_entry
-                        .targets
-                        .iter()
-                        .flat_map(|(target, ringing_target_entry)| {
-                            ringing_target_entry
-                                .notified_clients
-                                .iter()
-                                .map(|client| (client.clone(), target.clone()))
-                        })
-                        .collect()
+
+                    ringing_call_entry.invited_participants()
                 }
                 Entry::Vacant(e) => {
                     e.insert_entry(RingingCallEntry::new(
@@ -199,6 +194,8 @@ impl CallManager {
                     return CallTerminationOutcome::ClientNotNotified;
                 }
 
+                let invited_participants = ringing_call_entry.invited_participants();
+
                 if ringing_call_entry.targets.is_empty() {
                     let caller_id = ringing_call_entry.caller_id.clone();
 
@@ -213,16 +210,31 @@ impl CallManager {
                     {
                         self.client_active_calls.write().remove(&caller_id);
                     }
+                } else {
+                    drop(ringing_calls);
                 }
+
+                let joined_participants = self
+                    .active_calls
+                    .read()
+                    .get(call_id)
+                    .map(|active_call| active_call.participants.clone())
+                    .unwrap_or_default();
+
+                let update = CallUpdate {
+                    call_id: *call_id,
+                    invited_participants,
+                    joined_participants,
+                };
 
                 if !terminated_targets.is_empty() {
                     if terminated_targets.len() > 1 {
                         tracing::error!("Rejecting call has multiple targets within the same call");
                     }
-                    return CallTerminationOutcome::Failed(terminated_targets);
+                    return CallTerminationOutcome::Failed(terminated_targets, update);
                 }
 
-                CallTerminationOutcome::Continued
+                CallTerminationOutcome::Continued(update)
             }
             Entry::Vacant(_) => CallTerminationOutcome::CallNotFound,
         }
@@ -259,9 +271,9 @@ impl CallManager {
         &self,
         call_id: &CallId,
         accepting_client_id: &ClientId,
-    ) -> Option<(CallParticipants, HashSet<ClientId>)> /* (active_participants, all_notified_clients) */
+    ) -> Option<(CallParticipants, HashSet<ClientId>, CallUpdate)> /* (active_participants, all_notified_clients, update) */
     {
-        let ringing_target = {
+        let (ringing_target, invited_participants) = {
             let mut ringing_calls = self.ringing_calls.write();
             match ringing_calls.entry(*call_id) {
                 Entry::Occupied(mut entry) => {
@@ -296,16 +308,29 @@ impl CallManager {
                         true
                     });
 
+                    let invited_participants = ringing_call.invited_participants();
+
                     if ringing_call.targets.is_empty() {
-                        self.cleanup_client_incoming_calls(ringing_call);
                         entry.remove();
                     }
 
-                    ringing_target
+                    ringing_target.map(|ringing_target| (ringing_target, invited_participants))
                 }
                 _ => None,
             }
         }?;
+
+        {
+            let mut client_incoming_calls = self.client_incoming_calls.write();
+            for callee_id in &ringing_target.notified_clients {
+                if let Some(calls) = client_incoming_calls.get_mut(callee_id) {
+                    calls.remove(call_id);
+                    if calls.is_empty() {
+                        client_incoming_calls.remove(callee_id);
+                    }
+                }
+            }
+        }
 
         let mut active_calls = self.active_calls.write();
         let participants: CallParticipants = match active_calls.entry(*call_id) {
@@ -361,7 +386,13 @@ impl CallManager {
             }
         };
 
-        Some((participants, ringing_target.notified_clients))
+        let update = CallUpdate {
+            call_id: *call_id,
+            invited_participants,
+            joined_participants: participants.clone(),
+        };
+
+        Some((participants, ringing_target.notified_clients, update))
     }
 
     pub fn end_call(
@@ -426,27 +457,41 @@ impl CallManager {
                         participants_without_self
                             .into_keys()
                             .map(|participant_id| {
-                                UpdateCallAction::DropParticipant((*call_id, participant_id))
+                                UpdateCallAction::DropParticipant(*call_id, participant_id)
                             })
                             .collect(),
                     )
                 } else {
-                    let target = active_call.participants.remove(ending_client_id).unwrap_or_else(|| {
-                        tracing::error!("Tried to remove ending participant from active call, but no entry found");
-                        CallTarget::Client(ending_client_id.clone())
-                    });
+                    if active_call.participants.remove(ending_client_id).is_none() {
+                        tracing::error!(
+                            "Tried to remove ending participant from active call, but no entry found; sending update anyway..."
+                        );
+                    }
 
                     if active_call.participants.len() <= 2 {
                         active_call.conference_leader = None;
                     }
 
+                    let joined_participants = active_call.participants.clone();
+
                     drop(active_calls);
 
                     self.client_active_calls.write().remove(ending_client_id);
 
-                    // TODO: send update that ending_client_id left the conference, but the call continues to exist
+                    let invited_participants = self
+                        .ringing_calls
+                        .read()
+                        .get(call_id)
+                        .map(|ringing_call| ringing_call.invited_participants())
+                        .unwrap_or_default();
 
-                    Some(Vec::new())
+                    let update = CallUpdate {
+                        call_id: *call_id,
+                        invited_participants,
+                        joined_participants,
+                    };
+
+                    Some(Vec::from([UpdateCallAction::UpdateParticipants(update)]))
                 }
             }
             Entry::Vacant(_) => None,
@@ -467,46 +512,55 @@ impl CallManager {
 
         let mut actions = Vec::new();
 
-        let active_or_ringing_call_id = self.client_active_calls.write().remove(client_id);
-        if let Some(active_or_ringing_call_id) = active_or_ringing_call_id {
-            let mut has_ringing_or_active_call = false;
+        let active_or_outgoing_call_id = self.client_active_calls.write().remove(client_id);
+        if let Some(active_or_ringing_call_id) = active_or_outgoing_call_id {
+            let mut has_active_or_outgoing_call = false;
 
-            if let Some(ringing_call) = self
-                .ringing_calls
-                .write()
-                .remove(&active_or_ringing_call_id)
             {
-                has_ringing_or_active_call = true;
-                {
-                    let mut client_incoming_calls = self.client_incoming_calls.write();
-                    for callee_id in ringing_call
-                        .targets
-                        .values()
-                        .flat_map(|e| &e.notified_clients)
-                    {
-                        if let Some(calls) = client_incoming_calls.get_mut(callee_id) {
-                            calls.remove(&active_or_ringing_call_id);
-                            if calls.is_empty() {
-                                client_incoming_calls.remove(callee_id);
+                let mut ringing_calls = self.ringing_calls.write();
+                match ringing_calls.entry(active_or_ringing_call_id) {
+                    Entry::Occupied(entry) if entry.get().caller_id == *client_id => {
+                        has_active_or_outgoing_call = true;
+
+                        let ringing_call = entry.remove();
+                        drop(ringing_calls);
+
+                        {
+                            let mut client_incoming_calls = self.client_incoming_calls.write();
+                            for callee_id in ringing_call
+                                .targets
+                                .values()
+                                .flat_map(|e| &e.notified_clients)
+                            {
+                                if let Some(calls) = client_incoming_calls.get_mut(callee_id) {
+                                    calls.remove(&active_or_ringing_call_id);
+                                    if calls.is_empty() {
+                                        client_incoming_calls.remove(callee_id);
+                                    }
+                                }
                             }
                         }
-                    }
-                }
 
-                tracing::trace!(?active_or_ringing_call_id, "Aborting outgoing ringing call");
-                actions.extend(
-                    ringing_call
-                        .complete_all_targets(CallAttemptOutcome::Aborted)
-                        .into_iter()
-                        .map(UpdateCallAction::CancelRingingTarget),
-                );
+                        tracing::trace!(
+                            ?active_or_ringing_call_id,
+                            "Aborting outgoing ringing call"
+                        );
+                        actions.extend(
+                            ringing_call
+                                .complete_all_targets(CallAttemptOutcome::Aborted)
+                                .into_iter()
+                                .map(UpdateCallAction::CancelRingingTarget),
+                        );
+                    }
+                    _ => {}
+                }
             }
 
             {
                 let mut active_calls = self.active_calls.write();
                 match active_calls.entry(active_or_ringing_call_id) {
                     Entry::Occupied(mut entry) => {
-                        has_ringing_or_active_call = true;
+                        has_active_or_outgoing_call = true;
 
                         let active_call = entry.get_mut();
 
@@ -540,23 +594,43 @@ impl CallManager {
 
                                 actions.extend(participants_without_self.into_keys().map(
                                     |participant_id| {
-                                        UpdateCallAction::DropParticipant((
+                                        UpdateCallAction::DropParticipant(
                                             active_or_ringing_call_id,
                                             participant_id,
-                                        ))
+                                        )
                                     },
                                 ));
                             } else {
-                                let target = active_call.participants.remove(client_id).unwrap_or_else(|| {
-                                    tracing::error!("Tried to remove ending participant from active call, but no entry found");
-                                    CallTarget::Client(client_id.clone())
-                                });
+                                if active_call.participants.remove(client_id).is_none() {
+                                    tracing::error!(
+                                        "Tried to remove disconnecting participant from active call, but no entry found; sending update anyway..."
+                                    );
+                                }
 
                                 if active_call.participants.len() <= 2 {
                                     active_call.conference_leader = None;
                                 }
 
-                                // TODO: send update that client_id left the conference, but the call continues to exist
+                                let joined_participants = active_call.participants.clone();
+
+                                drop(active_calls);
+
+                                self.client_active_calls.write().remove(client_id);
+
+                                let invited_participants = self
+                                    .ringing_calls
+                                    .read()
+                                    .get(&active_or_ringing_call_id)
+                                    .map(|ringing_call| ringing_call.invited_participants())
+                                    .unwrap_or_default();
+
+                                let update = CallUpdate {
+                                    call_id: active_or_ringing_call_id,
+                                    invited_participants,
+                                    joined_participants,
+                                };
+
+                                actions.push(UpdateCallAction::UpdateParticipants(update));
                             }
                         } else {
                             tracing::error!(
@@ -568,7 +642,7 @@ impl CallManager {
                 }
             }
 
-            if !has_ringing_or_active_call {
+            if !has_active_or_outgoing_call {
                 tracing::error!(
                     "Client has active call, but call was not found in ringing or active"
                 );
@@ -614,6 +688,19 @@ impl CallManager {
                                     ));
                                     entry.remove();
                                 }
+
+                                let joined_participants = self
+                                    .active_calls
+                                    .read()
+                                    .get(&call_id)
+                                    .map(|active_call| active_call.participants.clone())
+                                    .unwrap_or_default();
+
+                                actions.push(UpdateCallAction::UpdateParticipants(CallUpdate {
+                                    call_id,
+                                    invited_participants: ringing_call.invited_participants(),
+                                    joined_participants,
+                                }));
                             }
                             Entry::Vacant(_) => {
                                 tracing::error!(
@@ -625,7 +712,18 @@ impl CallManager {
                         }
 
                         if ringing_call.all_targets_failed() {
+                            let caller_id = ringing_call.caller_id.clone();
+
                             entry.remove();
+
+                            if !self
+                                .active_calls
+                                .read()
+                                .values()
+                                .any(|active_call_entry| active_call_entry.involves(&caller_id))
+                            {
+                                self.client_active_calls.write().remove(&caller_id);
+                            }
                         }
                     }
                     Entry::Vacant(_) => {
@@ -683,7 +781,7 @@ impl CallManager {
                         }
                     }
                 }
-                UpdateCallAction::DropParticipant((call_id, participant_id)) => {
+                UpdateCallAction::DropParticipant(call_id, participant_id) => {
                     tracing::trace!(?participant_id, "Sending call end to participant");
                     if let Err(err) = state
                         .send_message(
@@ -699,7 +797,21 @@ impl CallManager {
                         );
                     }
                 }
-                UpdateCallAction::UpdateParticipant => todo!(), // TODO: CallUpdate
+                UpdateCallAction::UpdateParticipants(update) => {
+                    tracing::trace!("Sending call update to all participants");
+                    for (participant_id, _) in update.all_participants() {
+                        if let Err(err) = state
+                            .send_message(participant_id, ServerMessage::CallUpdate(update.clone()))
+                            .await
+                        {
+                            tracing::warn!(
+                                ?err,
+                                ?participant_id,
+                                "Failed to send call update to participant"
+                            );
+                        }
+                    }
+                }
             }
         }
     }
@@ -737,8 +849,9 @@ impl CallManager {
         target: &CallTarget,
         notified_clients: &HashSet<ClientId>,
     ) -> Result<(), StartCallError> {
-        if let Some(participating_call_id) = self.client_active_calls.read().get(caller_id) {
-            if participating_call_id != call_id {
+        let participating_call_id = self.client_active_calls.read().get(caller_id).copied();
+        if let Some(participating_call_id) = participating_call_id {
+            if &participating_call_id != call_id {
                 tracing::warn!(
                     ?participating_call_id,
                     "Caller is already participating in a different call"
@@ -821,16 +934,16 @@ impl CallManager {
                     }
                 }
             }
-        }
+        } else {
+            if self.active_calls.read().contains_key(call_id) {
+                tracing::warn!("Caller has no reference to active call id from the invite");
+                return Err(StartCallError::NotParticipant);
+            }
 
-        if self.active_calls.read().contains_key(call_id) {
-            tracing::warn!("Caller has no reference to active call id from the invite");
-            return Err(StartCallError::NotParticipant);
-        }
-
-        if self.ringing_calls.read().contains_key(call_id) {
-            tracing::warn!("Caller has no reference to ringing call id from the invite");
-            return Err(StartCallError::NotParticipant);
+            if self.ringing_calls.read().contains_key(call_id) {
+                tracing::warn!("Caller has no reference to ringing call id from the invite");
+                return Err(StartCallError::NotParticipant);
+            }
         }
 
         Ok(())

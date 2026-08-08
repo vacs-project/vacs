@@ -2,6 +2,7 @@ mod manager;
 use std::collections::{HashMap, HashSet};
 
 pub use manager::*;
+use vacs_protocol::ws::server::CallUpdate;
 
 use crate::metrics::guards::{CallAttemptGuard, CallAttemptOutcome, CallGuard};
 use vacs_protocol::vatsim::ClientId;
@@ -152,6 +153,18 @@ impl RingingCallEntry {
             .values()
             .all(|entry| entry.all_rejected_or_errored())
     }
+
+    pub fn invited_participants(&self) -> CallParticipants {
+        self.targets
+            .iter()
+            .flat_map(|(target, ringing_target_entry)| {
+                ringing_target_entry
+                    .notified_clients
+                    .iter()
+                    .map(|client| (client.clone(), target.clone()))
+            })
+            .collect()
+    }
 }
 
 impl ActiveCall {
@@ -228,6 +241,6 @@ impl From<&ActiveCallEntry> for ActiveCall {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateCallAction {
     CancelRingingTarget(RingingTarget),
-    DropParticipant((CallId, ClientId)),
-    UpdateParticipant,
+    DropParticipant(CallId, ClientId),
+    UpdateParticipants(CallUpdate),
 }
