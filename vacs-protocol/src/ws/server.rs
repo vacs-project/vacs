@@ -7,8 +7,7 @@ pub use calls::*;
 pub use network::*;
 
 use crate::ws::shared::{
-    CallAccept, CallEnd, CallError, CallInvite, Error, WebrtcAnswer, WebrtcIceCandidate,
-    WebrtcOffer,
+    CallAccept, CallEnd, CallError, Error, WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +15,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum ServerMessage {
     LoginFailure(LoginFailure),
-    CallInvite(CallInvite),
+    CallInvitation(CallInvitation),
     CallAccept(CallAccept),
     CallEnd(CallEnd),
     CallCancelled(CallCancelled),
@@ -51,7 +50,7 @@ impl ServerMessage {
     pub const fn variant(&self) -> &'static str {
         match self {
             ServerMessage::LoginFailure(_) => "LoginFailure",
-            ServerMessage::CallInvite(_) => "CallInvite",
+            ServerMessage::CallInvitation(_) => "CallInvite",
             ServerMessage::CallAccept(_) => "CallAccept",
             ServerMessage::CallEnd(_) => "CallEnd",
             ServerMessage::CallCancelled(_) => "CallCancelled",
