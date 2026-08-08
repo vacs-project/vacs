@@ -121,6 +121,7 @@ impl AsMetricLabel for ServerMessage {
             ServerMessage::CallInvitation(_) => "call_invite",
             ServerMessage::CallAccept(_) => "call_accept",
             ServerMessage::CallEnd(_) => "call_end",
+            ServerMessage::CallUpdate(_) => "call_update",
             ServerMessage::CallCancelled(_) => "call_cancelled",
             ServerMessage::CallError(_) => "call_error",
             ServerMessage::WebrtcOffer(_) => "webrtc_offer",
