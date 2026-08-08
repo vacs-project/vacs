@@ -308,6 +308,10 @@ impl CallError {
                     CallErrorReason::AutoHangup => "Target did not answer",
                     CallErrorReason::Other => "Unknown failure",
                     CallErrorReason::TargetNotFound => "Call target not found",
+                    CallErrorReason::AlreadyParticipant => "Target participating",
+                    CallErrorReason::CallNotFound => "Call not found",
+                    CallErrorReason::NotConferenceLeader => "Call not lead",
+                    CallErrorReason::NotParticipant => "Call not participating",
                 }
             ),
         }
