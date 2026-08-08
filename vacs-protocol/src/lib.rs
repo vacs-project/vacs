@@ -7,6 +7,7 @@ pub mod vatsim;
 #[cfg(feature = "ws")]
 pub mod ws;
 
+// TODO: bump this when finished
 pub const VACS_PROTOCOL_VERSION: &str = "2.0.0";
 
 #[cfg(feature = "profile")]

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::vatsim::{ClientId, PositionId, StationId};
 use crate::ws::client::ClientMessage;
 use crate::ws::server::ServerMessage;
@@ -29,27 +31,67 @@ pub enum CallTarget {
     Station(StationId),
 }
 
+impl PartialOrd for CallTarget {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CallTarget {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (CallTarget::Station(station_id), CallTarget::Station(other_station_id)) => {
+                station_id.cmp(other_station_id)
+            }
+            (CallTarget::Station(_), CallTarget::Position(_))
+            | (CallTarget::Station(_), CallTarget::Client(_))
+            | (CallTarget::Position(_), CallTarget::Client(_)) => std::cmp::Ordering::Less,
+            (CallTarget::Client(client_id), CallTarget::Client(other_client_id)) => {
+                client_id.cmp(other_client_id)
+            }
+            (CallTarget::Client(_), CallTarget::Position(_))
+            | (CallTarget::Client(_), CallTarget::Station(_))
+            | (CallTarget::Position(_), CallTarget::Station(_)) => std::cmp::Ordering::Greater,
+            (CallTarget::Position(position_id), CallTarget::Position(other_position_id)) => {
+                position_id.cmp(other_position_id)
+            }
+        }
+    }
+}
+
+impl From<CallSource> for CallTarget {
+    fn from(value: CallSource) -> Self {
+        if let Some(station_id) = value.station_id {
+            CallTarget::Station(station_id)
+        } else if let Some(position_id) = value.position_id {
+            CallTarget::Position(position_id)
+        } else {
+            CallTarget::Client(value.client_id)
+        }
+    }
+}
+
+pub type CallParticipants = HashMap<ClientId, CallTarget>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CallErrorReason {
     TargetNotFound,
+    AlreadyParticipant,
+    CallNotFound,
     CallActive,
     WebrtcFailure,
     AudioFailure,
     CallFailure,
     SignalingFailure,
     AutoHangup,
+    NotConferenceLeader,
+    NotParticipant,
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CallInvite {
-    pub call_id: CallId,
-    pub source: CallSource,
-    pub target: CallTarget,
-    pub prio: bool,
-}
+// CallInvite: CallId, Target, Source, Invited/Pending_Participants, Joined/Active_Participants
+// CallUpdate: CallId, Invited/Pending_Participants, Joined/Active_Participants -> sent WHENEVER a calls participants are updated, to every participant which did not reject/error
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -187,18 +229,6 @@ impl From<PositionId> for CallTarget {
 impl From<StationId> for CallTarget {
     fn from(value: StationId) -> Self {
         Self::Station(value)
-    }
-}
-
-impl From<CallInvite> for ClientMessage {
-    fn from(value: CallInvite) -> Self {
-        Self::CallInvite(value)
-    }
-}
-
-impl From<CallInvite> for ServerMessage {
-    fn from(value: CallInvite) -> Self {
-        Self::CallInvite(value)
     }
 }
 
