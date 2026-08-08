@@ -863,6 +863,7 @@ mod tests {
     use crate::test_utils::RecvWithTimeoutExt;
     use crate::transport::mock::MockTransport;
     use pretty_assertions::{assert_eq, assert_matches};
+    use std::collections::{HashMap, HashSet};
     use test_log::test;
     use tokio::sync::Notify;
     use vacs_protocol::vatsim::{ClientId, PositionId};
@@ -956,14 +957,16 @@ mod tests {
         let mut outgoing_rx = transport.outgoing_tx.subscribe();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ClientMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ClientMessage::CallInvite(vacs_protocol::ws::client::CallInvite {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
                 position_id: None,
                 station_id: None,
             },
-            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
+                ClientId::from("client2"),
+            )]),
             prio: false,
         });
         let serialized = tungstenite::Message::from(ClientMessage::serialize(&msg).unwrap());
@@ -1032,14 +1035,16 @@ mod tests {
         let client_clone = client.clone();
         tokio::spawn(async move {
             transport_ready.notified().await;
-            let msg = ClientMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+            let msg = ClientMessage::CallInvite(vacs_protocol::ws::client::CallInvite {
                 call_id: vacs_protocol::ws::shared::CallId::new(),
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: ClientId::from("client1"),
                     position_id: None,
                     station_id: None,
                 },
-                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+                targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
+                    ClientId::from("client2"),
+                )]),
                 prio: false,
             });
 
@@ -1113,14 +1118,18 @@ mod tests {
         let incoming_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
                 position_id: None,
                 station_id: None,
             },
-            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_participants: HashMap::from([(
+                ClientId::from("client2"),
+                vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            )]),
+            joined_participants: HashMap::new(),
             prio: false,
         });
 
@@ -1167,14 +1176,18 @@ mod tests {
         let incoming_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
                 position_id: None,
                 station_id: None,
             },
-            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_participants: HashMap::from([(
+                ClientId::from("client2"),
+                vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            )]),
+            joined_participants: HashMap::new(),
             prio: false,
         });
 
@@ -1196,14 +1209,18 @@ mod tests {
         let incoming_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
                 position_id: None,
                 station_id: None,
             },
-            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_participants: HashMap::from([(
+                ClientId::from("client2"),
+                vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            )]),
+            joined_participants: HashMap::new(),
             prio: false,
         });
 
