@@ -1,15 +1,16 @@
 use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::state::AppState;
-use crate::state::calls::{CallTerminationOutcome, StartCallError};
+use crate::state::calls::{CallTerminationOutcome, StartCallError, UpdateCallAction};
 use crate::state::clients::session::ClientSession;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use vacs_protocol::ws::client::{CallReject, ClientMessage};
-use vacs_protocol::ws::server::CallCancelReason;
+use vacs_protocol::vatsim::ClientId;
+use vacs_protocol::ws::client::{CallInvite, CallReject, ClientMessage};
+use vacs_protocol::ws::server::{CallCancelReason, CallInvitation};
 use vacs_protocol::ws::shared::{
-    CallAccept, CallEnd, CallError, CallErrorReason, CallId, CallInvite, CallTarget, ErrorReason,
-    WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer,
+    CallAccept, CallEnd, CallError, CallErrorReason, CallId, CallTarget, ErrorReason, WebrtcAnswer,
+    WebrtcIceCandidate, WebrtcOffer,
 };
 use vacs_protocol::ws::{server, shared};
 
@@ -99,44 +100,90 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         return;
     }
 
-    let target_clients = match &invite.target {
-        CallTarget::Client(client_id) => {
-            if state.clients.is_client_connected(client_id).await {
-                HashSet::from([client_id.clone()])
-            } else {
-                HashSet::new()
+    let mut invited_participants = HashMap::new();
+    let mut joined_participants = HashMap::new();
+    let mut all_target_clients = HashSet::new();
+
+    for target in &invite.targets {
+        let target_clients: HashSet<ClientId> = match target {
+            CallTarget::Client(client_id) => {
+                if state.clients.is_client_connected(client_id).await {
+                    HashSet::from([client_id.clone()])
+                } else {
+                    HashSet::new()
+                }
+            }
+            CallTarget::Position(position_id) => {
+                state.clients.clients_for_position(position_id).await
+            }
+            CallTarget::Station(station_id) => state.clients.clients_for_station(station_id).await,
+        }
+        .into_iter()
+        .filter(|client_id| client_id != client.id())
+        .collect();
+
+        if target_clients.is_empty() {
+            tracing::debug!("Call target has no clients, skipping target");
+            send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await; // TODO: this should only be a fe error, not a call error
+            continue;
+        }
+
+        match state.calls.attempt_call(
+            call_id,
+            client.id(),
+            &invite.source,
+            target,
+            &target_clients,
+        ) {
+            Ok((invited, joined)) => {
+                invited_participants.extend(invited);
+                joined_participants.extend(joined);
+                all_target_clients.extend(target_clients);
+            }
+            Err(StartCallError::CallerBusy) => {
+                tracing::debug!("Client already has an outgoing call, rejecting call invite");
+                send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
+                return;
+            }
+            Err(StartCallError::NotParticipant) => {
+                tracing::debug!("Client is not participant of call id, rejecting call invite");
+                send_call_error(client, call_id, CallErrorReason::NotParticipant, None).await;
+                return;
+            }
+            Err(StartCallError::AlreadyParticipant) => {
+                tracing::debug!("Target or client is already a participant, rejecting call invite");
+                send_call_error(client, call_id, CallErrorReason::AlreadyParticipant, None).await; // TODO: this should only be a fe error, not a call error
+                continue;
+            }
+            Err(StartCallError::NotConferenceLeader) => {
+                tracing::debug!("Caller is not conference leader, rejecting call invite");
+                send_call_error(client, call_id, CallErrorReason::NotConferenceLeader, None).await; // TODO: this should only be a fe error, not a call error
+                continue;
             }
         }
-        CallTarget::Position(position_id) => state.clients.clients_for_position(position_id).await,
-        CallTarget::Station(station_id) => state.clients.clients_for_station(station_id).await,
+
+        // TODO: send CallUpdate to participating clients
     }
-    .into_iter()
-    .filter(|client_id| client_id != client.id())
-    .collect::<HashSet<_>>();
 
-    CallMetrics::call_invite(&invite.source, &invite.target, invite.prio);
+    // TODO CallMetrics::call_invite(&invite.source, &invite.target, invite.prio);
 
-    if target_clients.is_empty() {
+    if all_target_clients.is_empty() {
         tracing::trace!("No clients found for call invite, returning target not found error");
-        send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
+        send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await; // TODO: this should only be a fe error, if the call continues to exist (conference)
         return;
     }
 
-    match state
-        .calls
-        .start_call_attempt(call_id, client.id(), &invite.target, &target_clients)
-    {
-        Ok(_) => {}
-        Err(StartCallError::CallerBusy) => {
-            tracing::debug!("Client already has an outgoing call, rejecting call invite");
-            send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
-            return;
-        }
-    }
+    let invitation = CallInvitation {
+        call_id: invite.call_id,
+        source: invite.source,
+        invited_participants,
+        joined_participants,
+        prio: invite.prio,
+    };
 
-    for callee_id in target_clients {
+    for callee_id in all_target_clients {
         tracing::trace!(?callee_id, "Sending call invite to target");
-        if let Err(err) = state.send_message(&callee_id, invite.clone()).await {
+        if let Err(err) = state.send_message(&callee_id, invitation.clone()).await {
             tracing::warn!(?err, ?callee_id, "Failed to send call invite to target");
             if let CallTerminationOutcome::Failed(_) = state.calls.call_error(call_id, &callee_id) {
                 tracing::trace!(?callee_id, "All call attempts failed, returning call error");
@@ -165,26 +212,71 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         return;
     }
 
-    let Some(ringing) = state.calls.accept_call(call_id, answerer_id) else {
-        tracing::warn!("No ringing call found, returning call error");
+    let Some((participants, notified_clients)) = state.calls.accept_call(call_id, answerer_id)
+    else {
+        tracing::warn!("No ringing call for accepting client found, returning call error");
         send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
         return;
     };
 
-    tracing::trace!("Sending call accept to source client");
-    if let Err(err) = state.send_message(&ringing.caller_id, accept.clone()).await {
-        tracing::warn!(?err, "Failed to send call accept to source client");
-        send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
-        return;
+    tracing::trace!("Sending call accept to all other participants");
+    for (participant_id, _) in participants {
+        if participant_id == *answerer_id {
+            continue;
+        }
+
+        if let Err(err) = state.send_message(&participant_id, accept.clone()).await {
+            tracing::warn!(
+                ?err,
+                ?participant_id,
+                "Failed to send call accept to participant"
+            );
+
+            let Some(actions) = state.calls.end_call(call_id, &participant_id) else {
+                tracing::error!(
+                    ?participant_id,
+                    "Tried to send a call accept message to a participant, which is not a participant anymore"
+                );
+                continue;
+            };
+
+            for action in actions {
+                match action {
+                    UpdateCallAction::CancelRingingTarget(_) => todo!(), // TODO: check if it should be possible that they have something and if we should send them
+                    UpdateCallAction::DropParticipant((_, participant_id)) => {
+                        tracing::trace!("Dropping participant during call end");
+                        if let Err(err) = state
+                            .send_message(
+                                &participant_id,
+                                CallError {
+                                    call_id: *call_id,
+                                    reason: CallErrorReason::SignalingFailure,
+                                    message: None,
+                                },
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                ?err,
+                                ?participant_id,
+                                "Failed to send call error to participant"
+                            );
+                        }
+                    }
+                    UpdateCallAction::UpdateParticipant => todo!(), // TODO CallUpdate
+                }
+            }
+        }
     }
 
-    if ringing.notified_clients.len() > 1 {
+    if notified_clients.len() > 1 {
         let cancelled = server::CallCancelled::new(
             *call_id,
+            HashSet::new(),
             CallCancelReason::AnsweredElsewhere(answerer_id.clone()),
         );
 
-        for callee_id in ringing.notified_clients {
+        for callee_id in notified_clients {
             if callee_id == *answerer_id {
                 continue;
             }
@@ -204,6 +296,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
     }
 }
 
+// TODO: CallUpdate all participants
 #[tracing::instrument(level = "trace", skip(state, client))]
 async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: CallReject) {
     tracing::trace!("Handling call rejection");
@@ -234,15 +327,29 @@ async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: Ca
             return;
         }
         CallTerminationOutcome::Continued => {}
-        CallTerminationOutcome::Failed(ringing) => {
+        CallTerminationOutcome::Failed(ringing_targets) => {
             tracing::trace!(
                 "All notified clients either rejected or errored, call failed, sending call error to source client"
             );
+
+            let Some(caller_id) = ringing_targets.first().map(|r| r.caller_id.clone()) else {
+                tracing::error!(
+                    "Call reject resulted in a failed termination outcome, but ringing targets is empty"
+                );
+                return;
+            };
+
+            let targets = ringing_targets.into_iter().map(|r| r.target).collect();
+
             // TODO send CallCancelled to all notified, just in case?
             if let Err(err) = state
                 .send_message(
-                    &ringing.caller_id,
-                    server::CallCancelled::new(*call_id, CallCancelReason::Rejected(reject.reason)),
+                    &caller_id,
+                    server::CallCancelled::new(
+                        *call_id,
+                        targets,
+                        CallCancelReason::Rejected(reject.reason),
+                    ),
                 )
                 .await
             {
@@ -271,40 +378,65 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
         return;
     }
 
-    if let Some(ringing) = state.calls.end_ringing_call(call_id, ender_id) {
-        tracing::trace!("Ringing call found, canceling");
-        let cancelled = server::CallCancelled::new(*call_id, CallCancelReason::CallerCancelled);
+    match state.calls.end_call(call_id, ender_id) {
+        Some(actions) => {
+            for action in actions {
+                match action {
+                    UpdateCallAction::CancelRingingTarget(ringing_target) => {
+                        tracing::trace!("Ringing target found, canceling");
+                        let cancelled = server::CallCancelled::new(
+                            *call_id,
+                            HashSet::from([ringing_target.target]),
+                            CallCancelReason::CallerCancelled,
+                        );
 
-        for callee_id in ringing.notified_clients {
-            tracing::trace!(?callee_id, "Sending call cancelled to notified client");
-            if let Err(err) = state.send_message(&callee_id, cancelled.clone()).await {
-                tracing::warn!(
-                    ?err,
-                    ?callee_id,
-                    "Failed to send call cancelled to notified client"
-                );
+                        for notified_client in ringing_target.notified_clients {
+                            tracing::trace!(
+                                ?notified_client,
+                                "Sending call cancelled to notified client"
+                            );
+                            if let Err(err) = state
+                                .send_message(&notified_client, cancelled.clone())
+                                .await
+                            {
+                                tracing::warn!(
+                                    ?err,
+                                    ?notified_client,
+                                    "Failed to send call cancelled to notified client"
+                                );
+                            }
+                        }
+                    }
+                    UpdateCallAction::DropParticipant((_, participant_id)) => {
+                        tracing::trace!("Dropping participant during call end");
+                        if let Err(err) = state.send_message(&participant_id, end.clone()).await {
+                            tracing::warn!(
+                                ?err,
+                                ?participant_id,
+                                "Failed to send call end to peer"
+                            );
+                            send_call_error(
+                                client,
+                                call_id,
+                                CallErrorReason::SignalingFailure,
+                                None,
+                            )
+                            .await;
+                        }
+                    }
+                    UpdateCallAction::UpdateParticipant => todo!(), // TODO: CallUpdate
+                }
             }
         }
-    } else if let Some(active) = state.calls.end_active_call(call_id, ender_id) {
-        tracing::trace!("Active call found, ending");
-        if let Some(peer_id) = active.peer(ender_id) {
-            tracing::trace!(?peer_id, "Sending call end to peer");
-            if let Err(err) = state.send_message(peer_id, end.clone()).await {
-                tracing::warn!(?err, ?peer_id, "Failed to send call end to peer");
-                send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
-            }
-        } else {
-            tracing::warn!("No peer found for active call, returning call error");
+        None => {
+            tracing::trace!("No ringing or active call found, returning call error");
             send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
             return;
         }
-    } else {
-        tracing::trace!("No ringing or active call found, returning call error");
-        send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
-        return;
     }
 }
 
+// TODO: CallUpdate all participants
 #[tracing::instrument(level = "trace", skip(state, client))]
 async fn handle_call_error(state: &AppState, client: &ClientSession, error: CallError) {
     tracing::trace!("Handling call error");
@@ -323,15 +455,29 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
             return;
         }
         CallTerminationOutcome::Continued => {}
-        CallTerminationOutcome::Failed(ringing) => {
+        CallTerminationOutcome::Failed(ringing_targets) => {
             tracing::trace!(
                 "All notified clients either rejected or errored, call failed, sending call error to source client"
             );
+
+            let Some(caller_id) = ringing_targets.first().map(|r| r.caller_id.clone()) else {
+                tracing::error!(
+                    "Call error resulted in a failed termination outcome, but ringing targets is empty"
+                );
+                return;
+            };
+
+            let targets = ringing_targets.into_iter().map(|r| r.target).collect();
+
             // TODO send CallCancelled to all notified, just in case?
             if let Err(err) = state
                 .send_message(
-                    &ringing.caller_id,
-                    server::CallCancelled::new(*call_id, CallCancelReason::Errored(error.reason)),
+                    &caller_id,
+                    server::CallCancelled::new(
+                        *call_id,
+                        targets,
+                        CallCancelReason::Errored(error.reason),
+                    ),
                 )
                 .await
             {

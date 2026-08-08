@@ -59,6 +59,14 @@ impl AsMetricLabel for CallAttemptOutcome {
                 "error_signaling_failure"
             }
             CallAttemptOutcome::Error(CallErrorReason::TargetNotFound) => "error_target_not_found",
+            CallAttemptOutcome::Error(CallErrorReason::CallNotFound) => "error_call_not_found",
+            CallAttemptOutcome::Error(CallErrorReason::AlreadyParticipant) => {
+                "error_already_participant"
+            }
+            CallAttemptOutcome::Error(CallErrorReason::NotConferenceLeader) => {
+                "error_not_conference_leader"
+            }
+            CallAttemptOutcome::Error(CallErrorReason::NotParticipant) => "error_not_participant",
             CallAttemptOutcome::Error(CallErrorReason::Other) => "error_other",
         }
     }
@@ -110,7 +118,7 @@ impl AsMetricLabel for ServerMessage {
     fn as_metric_label(&self) -> &'static str {
         match self {
             ServerMessage::LoginFailure(_) => "login_failure",
-            ServerMessage::CallInvite(_) => "call_invite",
+            ServerMessage::CallInvitation(_) => "call_invite",
             ServerMessage::CallAccept(_) => "call_accept",
             ServerMessage::CallEnd(_) => "call_end",
             ServerMessage::CallCancelled(_) => "call_cancelled",
@@ -148,12 +156,16 @@ impl AsMetricLabel for CallErrorReason {
     fn as_metric_label(&self) -> &'static str {
         match self {
             CallErrorReason::TargetNotFound => "target_not_found",
+            CallErrorReason::AlreadyParticipant => "already_participant",
+            CallErrorReason::CallNotFound => "call_not_found",
             CallErrorReason::CallActive => "call_active",
             CallErrorReason::WebrtcFailure => "webrtc_failure",
             CallErrorReason::AudioFailure => "audio_failure",
             CallErrorReason::CallFailure => "call_failure",
             CallErrorReason::SignalingFailure => "signaling_failure",
             CallErrorReason::AutoHangup => "auto_hangup",
+            CallErrorReason::NotConferenceLeader => "not_conference_leader",
+            CallErrorReason::NotParticipant => "not_participant",
             CallErrorReason::Other => "other",
         }
     }

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Duration;
 use test_log::test;
 use vacs_protocol::vatsim::ClientId;
@@ -17,14 +18,14 @@ async fn call_offer() -> anyhow::Result<()> {
     let call_id = CallId::new();
     client1
         .send(ClientMessage::CallInvite(
-            vacs_protocol::ws::shared::CallInvite {
+            vacs_protocol::ws::client::CallInvite {
                 call_id,
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: client1.id().clone(),
                     position_id: None,
                     station_id: None,
                 },
-                target: CallTarget::Client(client2.id().clone()),
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
                 prio: false,
             },
         ))
@@ -32,7 +33,7 @@ async fn call_offer() -> anyhow::Result<()> {
 
     let invite_messages = client2
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallInvite(_))
+            matches!(m, ServerMessage::CallInvitation(_))
         })
         .await;
     assert_eq!(
@@ -140,21 +141,21 @@ async fn call_offer_answer() -> anyhow::Result<()> {
     // Setup call first
     client1
         .send(ClientMessage::CallInvite(
-            vacs_protocol::ws::shared::CallInvite {
+            vacs_protocol::ws::client::CallInvite {
                 call_id,
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: client1.id().clone(),
                     position_id: None,
                     station_id: None,
                 },
-                target: CallTarget::Client(client2.id().clone()),
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
                 prio: false,
             },
         ))
         .await?;
     let _ = client2
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallInvite(_))
+            matches!(m, ServerMessage::CallInvitation(_))
         })
         .await;
     client2
@@ -280,14 +281,14 @@ async fn target_not_found() -> anyhow::Result<()> {
 
     client1
         .send(ClientMessage::CallInvite(
-            vacs_protocol::ws::shared::CallInvite {
+            vacs_protocol::ws::client::CallInvite {
                 call_id: CallId::new(),
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: client1.id().clone(),
                     position_id: None,
                     station_id: None,
                 },
-                target: CallTarget::Client(ClientId::from("client69")),
+                targets: HashSet::from([CallTarget::Client(ClientId::from("client69"))]),
                 prio: false,
             },
         ))
@@ -298,7 +299,7 @@ async fn target_not_found() -> anyhow::Result<()> {
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
             matches!(
                 m,
-                ServerMessage::WebrtcOffer(_) | ServerMessage::CallInvite(_)
+                ServerMessage::WebrtcOffer(_) | ServerMessage::CallInvitation(_)
             )
         })
         .await;
@@ -317,9 +318,9 @@ async fn target_not_found() -> anyhow::Result<()> {
 
     assert_eq!(
         peer_not_found_messages.len(),
-        1,
-        "client1 should have received exactly one CallError message"
-    );
+        2,
+        "client1 should have received exactly two CallError messages"
+    ); // TODO: this will change once all TODOs in application_message.rs are done
 
     match &peer_not_found_messages[0] {
         ServerMessage::CallError(error) => {
