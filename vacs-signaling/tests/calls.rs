@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::Duration;
 use test_log::test;
 use vacs_protocol::vatsim::ClientId;
@@ -17,14 +18,16 @@ async fn call_offer_answer() {
     clients[0]
         .client
         .send(ClientMessage::CallInvite(
-            vacs_protocol::ws::shared::CallInvite {
+            vacs_protocol::ws::client::CallInvite {
                 call_id,
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: ClientId::from("client0"),
                     position_id: None,
                     station_id: None,
                 },
-                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client1")),
+                targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
+                    ClientId::from("client1"),
+                )]),
                 prio: false,
             },
         ))
@@ -34,7 +37,7 @@ async fn call_offer_answer() {
     // 2. Client 1 receives Call Invite
     let event = clients[1]
         .recv_with_timeout_and_filter(Duration::from_millis(100), |e| {
-            matches!(e, SignalingEvent::Message(ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+            matches!(e, SignalingEvent::Message(ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
                 call_id: received_call_id,
                 source,
                 ..
