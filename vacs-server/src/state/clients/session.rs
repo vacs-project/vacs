@@ -559,6 +559,7 @@ mod tests {
     use axum::extract::ws;
     use axum::extract::ws::Utf8Bytes;
     use pretty_assertions::{assert_eq, assert_matches};
+    use std::collections::HashMap;
     use test_log::test;
 
     #[test(tokio::test)]
@@ -703,7 +704,7 @@ mod tests {
     async fn handle_interaction() {
         let client_info_2 = create_client_info(2);
         let setup = TestSetup::new().with_messages(vec![Ok(ws::Message::Text(
-            Utf8Bytes::from_static(r#"{"type":"callInvite","callId":"00000000-0000-0000-0000-000000000000","source":{"clientId":"client1"},"target":{"client":"client2"},"prio":false}"#),
+            Utf8Bytes::from_static(r#"{"type":"callInvite","callId":"00000000-0000-0000-0000-000000000000","source":{"clientId":"client1"},"targets":[{"client":"client2"}],"prio":false}"#),
         ))]);
         let (_, mut client2_rx) = setup.register_client(client_info_2).await;
         let websocket_rx = setup.websocket_rx.clone();
@@ -727,14 +728,18 @@ mod tests {
         let call_invite = client2_rx.recv().await.unwrap();
         assert_eq!(
             call_invite,
-            ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+            ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
                 call_id: vacs_protocol::ws::shared::CallId::from(uuid::Uuid::nil()),
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: ClientId::from("client1"),
                     position_id: None,
                     station_id: None,
                 },
-                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+                invited_participants: HashMap::from([(
+                    ClientId::from("client2"),
+                    vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2"))
+                )]),
+                joined_participants: HashMap::new(),
                 prio: false,
             })
         );
