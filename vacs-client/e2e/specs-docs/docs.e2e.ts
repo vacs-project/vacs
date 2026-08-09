@@ -13,6 +13,7 @@ import {
     tauriApi,
     waitForCallColor,
 } from "../helpers/browser.ts";
+import {annotate, clearAnnotations} from "../helpers/annotate.ts";
 import {captureElement, captureWindow, freezeClock} from "../helpers/screenshot.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -55,6 +56,21 @@ const YOKE = {
 };
 const THROTTLE_BUTTON = {device: THROTTLE.device, button: 3, name: THROTTLE.name};
 
+// The keybind pages render differently per platform, and the capture host's
+// own session decides which variant you get: run this on a Wayland desktop
+// and every image picks up the System Shortcuts button and desktop-managed
+// key fields. Pin the platform so an image does not depend on where it was
+// taken. X11 renders what Windows and macOS render, which is what the rest
+// of the manual's images show.
+const DESKTOP_CAPABILITIES = {
+    alwaysOnTop: true,
+    keybindListener: true,
+    keybindEmitter: true,
+    joystick: true,
+    playback: true,
+    platform: "LinuxX11",
+};
+
 const WAYLAND_CAPABILITIES = {
     alwaysOnTop: false,
     keybindListener: true,
@@ -81,16 +97,56 @@ describe("Documentation screenshots", () => {
         await restartApps();
     });
 
-    it("captures the Call Config page", async () => {
+    it("captures how the settings pages are opened", async () => {
         const clientA = getClient("clientA");
         await loginAndConnectAs(clientA, CID_A, POSITION_A);
         await applyFixtures(clientA, "clientA");
 
         await openSettings(clientA);
-        await openSettingsPage(clientA, "Call");
-        await subPage(clientA, "Call Config").waitForDisplayed();
+        await clientA.$(SETTINGS_BUTTON).waitForDisplayed();
 
-        await captureWindow(clientA, "settings/CallConfig.png");
+        // Both images show the same two steps: the settings button, then the
+        // button for the page in question.
+        for (const page of ["Transmit", "Hotkeys"] as const) {
+            await annotate(clientA, [
+                {target: SETTINGS_BUTTON, badge: 1, place: "top-left"},
+                {target: settingsPageButtonSelector(page), badge: 2, place: "top-right"},
+            ]);
+            await captureWindow(clientA, `settings/${page}Config.png`);
+            await clearAnnotations(clientA);
+        }
+    });
+
+    it("captures the Hotkeys Config", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        await openSettings(clientA);
+        await openSettingsPage(clientA, "Hotkeys");
+        const dialog = subPage(clientA, "Hotkeys Config");
+        await dialog.waitForDisplayed();
+
+        // The page walks through assigning and clearing a binding; the
+        // callouts mark the two controls that do it.
+        // Badges only: the field and its clear button sit next to each other,
+        // so boxes would collide, and the row is unambiguous without them.
+        await annotate(clientA, [
+            {
+                target: keyFieldSelector("Toggle RADIO PRIO"),
+                badge: 1,
+                place: "bottom-left",
+                box: false,
+            },
+            {
+                target: removeButtonSelector("Toggle RADIO PRIO"),
+                badge: 2,
+                place: "below",
+                box: false,
+            },
+        ]);
+        await captureElement(clientA, dialog, "settings/HotkeysConfigPage.png");
+        await clearAnnotations(clientA);
     });
 
     it("captures the Hotkeys Config with a joystick button bound", async () => {
@@ -148,6 +204,72 @@ describe("Documentation screenshots", () => {
         await captureElement(clientA, dialog, "settings/JoystickDevices.png");
     });
 
+    it("captures the Transmit Config with Voice activation and no radio", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        const transmit = await openTransmitConfig(clientA);
+        await captureElement(clientA, transmit, "settings/Transmit-VoiceActivation-None.png");
+    });
+
+    it("captures the Transmit Config with Voice activation and TrackAudio", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        const transmit = await openTransmitConfig(clientA);
+        await selectRadioIntegration(clientA, "TrackAudio");
+
+        // Voice activation has no call key to fall back to, so the radio key
+        // field stays unbound until one is captured for it.
+        await captureElement(clientA, transmit, "settings/Transmit-VoiceActivation-TrackAudio.png");
+    });
+
+    it("captures the Transmit Config with the radio on the call PTT key", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        const transmit = await openTransmitConfig(clientA);
+        await selectCallMicMode(clientA, "PushToTalk");
+        await bindKey(clientA, CALL_KEY_FIELD, "ControlLeft");
+        await selectRadioIntegration(clientA, "TrackAudio");
+
+        // With no radio key of its own, the field shows the call key as a
+        // grey placeholder.
+        await captureElement(clientA, transmit, "settings/Transmit-SamePTT-TrackAudio.png");
+    });
+
+    it("captures the Transmit Config with a separate radio PTT key", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        const transmit = await openTransmitConfig(clientA);
+        await selectCallMicMode(clientA, "PushToTalk");
+        await bindKey(clientA, CALL_KEY_FIELD, "ControlLeft");
+        await selectRadioIntegration(clientA, "TrackAudio");
+        await bindKey(clientA, RADIO_KEY_FIELD, "AltRight");
+
+        await captureElement(clientA, transmit, "settings/Transmit-DifferentPTT-TrackAudio.png");
+    });
+
+    it("captures the Transmit Config with Push-to-mute", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        const transmit = await openTransmitConfig(clientA);
+        await selectCallMicMode(clientA, "PushToMute");
+        await bindKey(clientA, CALL_KEY_FIELD, "AltRight");
+        await selectRadioIntegration(clientA, "TrackAudio");
+
+        // Push-to-mute forces the radio onto the call key, so its field is
+        // locked to the same key.
+        await captureElement(clientA, transmit, "settings/Transmit-PTM-TrackAudio.png");
+    });
+
     it("captures the Wayland variant of the Hotkeys Config", async () => {
         const clientA = getClient("clientA");
         await loginAndConnectAs(clientA, CID_A, POSITION_A);
@@ -192,7 +314,13 @@ describe("Documentation screenshots", () => {
             {timeoutMsg: "Call mic mode did not switch to Push-to-talk"},
         );
 
-        await captureElement(clientA, transmit, "settings/TransmitConfig-wayland.png");
+        // Transmit dialog crops are named after the combination they show,
+        // following the existing Transmit-<mic mode>-<integration> set.
+        await captureElement(
+            clientA,
+            transmit,
+            "settings/Transmit-DifferentPTT-TrackAudio-wayland.png",
+        );
     });
 
     it("captures the radio button in its error state", async () => {
@@ -238,6 +366,17 @@ describe("Documentation screenshots", () => {
         await click(clientB, answerKey);
         await waitForCallColor(clientA, s1, {active: true});
 
+        // Wait out the real negotiation first: a call-connected event arriving
+        // after the degrade event would put the call back to connected and
+        // take the icon away again mid-capture.
+        const indicator = clientA.$(
+            '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]',
+        );
+        await clientA.waitUntil(
+            async () => ((await indicator.getAttribute("class")) ?? "").includes("bg-green"),
+            {timeoutMsg: "Call did not reach the connected state"},
+        );
+
         // A real one-way-audio situation needs a broken network path between
         // two hosts; the event the media watchdog would emit for it does not.
         const callId = await activeCallId("clientA");
@@ -247,14 +386,36 @@ describe("Documentation screenshots", () => {
         await clientA.$('img[alt="No incoming audio"]').waitForDisplayed();
 
         await captureWindow(clientA, "troubleshooting/degraded-call.png");
+
+        // The annotated variant marks the two symptoms the page lists, in the
+        // order the prose lists them. The callouts are anchored to the
+        // elements, so they stay on the right thing when the layout moves.
+        await annotate(clientA, [
+            {
+                target: '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]',
+                badge: 1,
+                // The indicator sits in the window's top-left corner, so the
+                // badge goes below it: the other corners cover the clock.
+                place: "bottom-right",
+            },
+            {
+                target: '//div[img[@alt="No incoming audio"]]',
+                badge: 2,
+                place: "top-left",
+            },
+        ]);
+        await captureWindow(clientA, "troubleshooting/degraded-call-annotated.png");
+        await clearAnnotations(clientA);
     });
 });
 
 /**
  * Pins everything in the window that would otherwise differ per run: the
- * clock, and the version in the header.
+ * clock, the version in the header, and the platform the UI renders for.
  */
 async function applyFixtures(browser: WebdriverIO.Browser, instanceName: string): Promise<void> {
+    await mockCommand(instanceName, "app_platform_capabilities", {resolve: DESKTOP_CAPABILITIES});
+    await refetchCapabilities(instanceName);
     await freezeClock(browser, CLOCK);
     await tauriApi(instanceName).execute((_tauri, version: string) => {
         type Hooks = {setVersion: (version: string) => void};
@@ -271,16 +432,80 @@ async function applyFixtures(browser: WebdriverIO.Browser, instanceName: string)
     });
 }
 
+/** The two key capture fields of the Transmit Config, each next to its select. */
+const CALL_KEY_FIELD = '//select[@name="keybind-mode"]/following-sibling::div[1]/div[1]';
+const RADIO_KEY_FIELD = '//select[@name="radio-integration"]/following-sibling::div[1]/div[1]';
+
+async function openTransmitConfig(browser: WebdriverIO.Browser): Promise<ChainablePromiseElement> {
+    await openSettings(browser);
+    await openSettingsPage(browser, "Transmit");
+    const transmit = subPage(browser, "Transmit Config");
+    await transmit.waitForDisplayed();
+    return transmit;
+}
+
+async function selectCallMicMode(browser: WebdriverIO.Browser, mode: string): Promise<void> {
+    await selectOption(browser, 'select[name="keybind-mode"]', mode);
+    await browser.waitUntil(
+        async () => (await browser.$('//select[@name="keybind-mode"]').getValue()) === mode,
+        {timeoutMsg: `Call mic mode did not switch to ${mode}`},
+    );
+}
+
+async function selectRadioIntegration(
+    browser: WebdriverIO.Browser,
+    integration: string,
+): Promise<void> {
+    await selectOption(browser, 'select[name="radio-integration"]', integration);
+    await browser.waitUntil(
+        async () =>
+            (await browser.$('//select[@name="radio-integration"]').getValue()) === integration,
+        {timeoutMsg: `Radio integration did not switch to ${integration}`},
+    );
+}
+
+/**
+ * Binds a keyboard key in a capture field. The keypress is dispatched into
+ * the page rather than sent through WebDriver, the same reason clicks are:
+ * the capture listens on `document`, and a synthetic event carries the code,
+ * which is all the handler reads.
+ */
+async function bindKey(
+    browser: WebdriverIO.Browser,
+    fieldSelector: string,
+    code: string,
+): Promise<void> {
+    await click(browser, browser.$(fieldSelector));
+    await browser.execute((keyCode: string) => {
+        document.dispatchEvent(
+            new KeyboardEvent("keydown", {code: keyCode, key: keyCode, bubbles: true}),
+        );
+    }, code);
+    await browser.waitUntil(
+        async () => (await browser.$(`${fieldSelector}/p`).getText()) === code,
+        {timeoutMsg: `Key ${code} was not bound`},
+    );
+}
+
+/** The wrench in the window header that opens the settings page. */
+const SETTINGS_BUTTON = '//button[.//img[@alt="Settings"]]';
+
 async function openSettings(browser: WebdriverIO.Browser): Promise<void> {
-    const settingsButton = await browser.$('//button[.//img[@alt="Settings"]]');
+    const settingsButton = await browser.$(SETTINGS_BUTTON);
     await settingsButton.waitForDisplayed();
     await click(browser, settingsButton);
 }
 
+/**
+ * A settings page button. Exact text match: a substring match on "Call" would
+ * also hit the call controls on the page behind the settings menu.
+ */
+function settingsPageButtonSelector(label: string): string {
+    return `//button[./p[text()="${label}"]]`;
+}
+
 async function openSettingsPage(browser: WebdriverIO.Browser, label: string): Promise<void> {
-    // Exact text match: a substring match on "Call" would also hit the call
-    // controls on the page behind the settings menu.
-    const button = await browser.$(`//button[./p[text()="${label}"]]`);
+    const button = await browser.$(settingsPageButtonSelector(label));
     await button.waitForDisplayed();
     await click(browser, button);
 }
@@ -292,7 +517,16 @@ function subPage(browser: WebdriverIO.Browser, title: string): ChainablePromiseE
 
 /** The clickable capture field next to the given action label. */
 function keyField(browser: WebdriverIO.Browser, action: string): ChainablePromiseElement {
-    return browser.$(`//p[text()="${action}"]/following-sibling::div[1]/div[1]`);
+    return browser.$(keyFieldSelector(action));
+}
+
+function keyFieldSelector(action: string): string {
+    return `//p[text()="${action}"]/following-sibling::div[1]/div[1]`;
+}
+
+/** The x that clears the binding, at the right end of the same row. */
+function removeButtonSelector(action: string): string {
+    return `//p[text()="${action}"]/following-sibling::div[1]/*[name()="svg"]`;
 }
 
 function keyFieldLabel(browser: WebdriverIO.Browser, action: string): ChainablePromiseElement {
