@@ -1,4 +1,13 @@
+import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {config as baseConfig} from "./wdio.conf.ts";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+
+// App instances inherit this environment, and the settings page images show
+// the device selects, so the mock backend gets presentable device names here
+// rather than the defaults the behavioral suite asserts on.
+process.env.VACS_MOCK_AUDIO_CONFIG = path.resolve(__dirname, "fixtures", "mock-audio-docs.toml");
 
 /**
  * Documentation screenshot run.
