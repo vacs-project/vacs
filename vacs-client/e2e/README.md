@@ -100,10 +100,20 @@ since these specs produce artifacts rather than assert behavior.
 Everything that would otherwise differ between runs is pinned, so a single
 re-captured image still matches the rest of the set: both clients log in with
 fixed CIDs and positions (`10000001`/`LOVV_E_CTR`), the webview's clock is
-frozen at 10:10:10Z, and the version in the header is set explicitly. That
-version defaults to `vacs-client/package.json`; export
+frozen at 10:10:10Z, the version in the header is set explicitly, and the
+platform capabilities the UI renders from are mocked to `LinuxX11`. That last
+one matters more than it looks: the keybind pages have a separate Wayland
+layout, so capturing on a Wayland desktop would otherwise put the System
+Shortcuts button and desktop-managed key fields into images meant to show the
+ordinary one. The version defaults to `vacs-client/package.json`; export
 `VACS_SCREENSHOT_VERSION=2.6.0` when capturing for a release that has not been
 cut yet.
+
+Image names follow the manual's convention: `XConfig.png` is the settings page
+with callouts showing how to open X, `XConfigPage.png` is the dialog itself,
+and Transmit dialog crops are named after the combination they show
+(`Transmit-<mic mode>-<integration>.png`), with `-wayland` appended for the
+Wayland variant.
 
 Two properties of the setup shape what the images look like:
 
@@ -113,6 +123,15 @@ Two properties of the setup shape what the images look like:
 - Element screenshots return the full frame with the element scrolled into
   view, so `helpers/screenshot.ts` crops the PNG itself from the element's
   bounding rect.
+
+Callouts come from `helpers/annotate.ts`, in the manual's established style:
+a red box around the element and a numbered badge on one of its corners, with
+the numbers explained in the prose beside the image. Both are drawn as an SVG
+overlay positioned from the target's bounding rect, so re-capturing keeps them
+on the right element instead of leaving them where the layout used to be.
+`place` picks the corner or side the badge sits on, which is how you keep it clear
+of neighboring UI. Call `clearAnnotations()` before capturing anything else in
+the same test.
 
 States that need hardware, another platform or a broken network are driven
 through IPC mocks and emitted events (joystick devices, the Wayland layout,

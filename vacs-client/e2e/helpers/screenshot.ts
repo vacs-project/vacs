@@ -91,7 +91,14 @@ export async function freezeClock(browser: WebdriverIO.Browser, iso: string): Pr
     }, iso);
 }
 
+/** Long enough for the UI's color transitions to finish (150ms in Tailwind). */
+const SETTLE_MS = 300;
+
 async function frame(browser: WebdriverIO.Browser): Promise<PNG> {
+    // Without this, a capture taken right after a state change can land
+    // mid-transition, which makes the same image differ between runs: the
+    // clear buttons next to the key fields animate their stroke color.
+    await browser.pause(SETTLE_MS);
     const encoded = await browser.takeScreenshot();
     return PNG.sync.read(Buffer.from(encoded, "base64"));
 }
