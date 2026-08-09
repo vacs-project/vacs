@@ -1,5 +1,5 @@
-pub mod calls;
-pub mod clients;
+pub(crate) mod calls;
+pub(crate) mod clients;
 
 use crate::config;
 use crate::config::AppConfig;

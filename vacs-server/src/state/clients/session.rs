@@ -559,7 +559,7 @@ mod tests {
     use axum::extract::ws;
     use axum::extract::ws::Utf8Bytes;
     use pretty_assertions::{assert_eq, assert_matches};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use test_log::test;
 
     #[test(tokio::test)]
@@ -735,10 +735,8 @@ mod tests {
                     position_id: None,
                     station_id: None,
                 },
-                invited_participants: HashMap::from([(
-                    ClientId::from("client2"),
-                    vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2"))
-                )]),
+                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+                invited_targets: HashSet::new(),
                 joined_participants: HashMap::new(),
                 prio: false,
             })

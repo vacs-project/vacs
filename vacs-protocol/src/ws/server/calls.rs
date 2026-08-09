@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 pub struct CallInvitation {
     pub call_id: CallId,
     pub source: CallSource,
-    pub invited_participants: CallParticipants,
+    pub target: CallTarget,
+    pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
     pub prio: bool,
 }
@@ -20,21 +21,8 @@ pub struct CallInvitation {
 #[serde(rename_all = "camelCase")]
 pub struct CallUpdate {
     pub call_id: CallId,
-    pub invited_participants: CallParticipants,
+    pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
-}
-
-impl CallUpdate {
-    pub fn all_participants(
-        &self,
-    ) -> std::iter::Chain<
-        std::collections::hash_map::Iter<'_, ClientId, CallTarget>,
-        std::collections::hash_map::Iter<'_, ClientId, CallTarget>,
-    > {
-        self.invited_participants
-            .iter()
-            .chain(self.joined_participants.iter())
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

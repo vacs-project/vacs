@@ -242,5 +242,35 @@ impl From<&ActiveCallEntry> for ActiveCall {
 pub enum UpdateCallAction {
     CancelRingingTarget(RingingTarget),
     DropParticipant(CallId, ClientId),
-    UpdateParticipants(CallUpdate),
+    UpdateParticipants(UpdateParticipants),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateParticipants {
+    pub call_id: CallId,
+    pub invited_participants: CallParticipants,
+    pub joined_participants: CallParticipants,
+}
+
+impl UpdateParticipants {
+    pub fn all_participants(
+        &self,
+    ) -> std::iter::Chain<
+        std::collections::hash_map::Iter<'_, ClientId, CallTarget>,
+        std::collections::hash_map::Iter<'_, ClientId, CallTarget>,
+    > {
+        self.invited_participants
+            .iter()
+            .chain(self.joined_participants.iter())
+    }
+}
+
+impl From<&UpdateParticipants> for CallUpdate {
+    fn from(value: &UpdateParticipants) -> Self {
+        Self {
+            call_id: value.call_id,
+            invited_targets: value.invited_participants.values().cloned().collect(),
+            joined_participants: value.joined_participants.clone(),
+        }
+    }
 }
