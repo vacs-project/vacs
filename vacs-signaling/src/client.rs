@@ -1125,10 +1125,8 @@ mod tests {
                 position_id: None,
                 station_id: None,
             },
-            invited_participants: HashMap::from([(
-                ClientId::from("client2"),
-                vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
-            )]),
+            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_targets: HashSet::new(),
             joined_participants: HashMap::new(),
             prio: false,
         });
@@ -1183,10 +1181,8 @@ mod tests {
                 position_id: None,
                 station_id: None,
             },
-            invited_participants: HashMap::from([(
-                ClientId::from("client2"),
-                vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
-            )]),
+            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_targets: HashSet::new(),
             joined_participants: HashMap::new(),
             prio: false,
         });
@@ -1216,10 +1212,8 @@ mod tests {
                 position_id: None,
                 station_id: None,
             },
-            invited_participants: HashMap::from([(
-                ClientId::from("client2"),
-                vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
-            )]),
+            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_targets: HashSet::new(),
             joined_participants: HashMap::new(),
             prio: false,
         });
