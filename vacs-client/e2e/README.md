@@ -89,6 +89,37 @@ Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
   way, since a script executed mid-navigation loses its result and burns the
   full 30s script timeout.
 
+## Documentation screenshots
+
+`npm run -w e2e screenshots` runs `wdio.docs.ts` over `specs-docs/`, which
+captures the images the user manual needs into `e2e/screenshots/` (override
+with `VACS_SCREENSHOT_DIR`, e.g. the docs repo's `static/img`). It reuses the
+regular config's servers and app instances and is kept out of `npm test`,
+since these specs produce artifacts rather than assert behavior.
+
+Everything that would otherwise differ between runs is pinned, so a single
+re-captured image still matches the rest of the set: both clients log in with
+fixed CIDs and positions (`10000001`/`LOVV_E_CTR`), the webview's clock is
+frozen at 10:10:10Z, and the version in the header is set explicitly. That
+version defaults to `vacs-client/package.json`; export
+`VACS_SCREENSHOT_VERSION=2.6.0` when capturing for a release that has not been
+cut yet.
+
+Two properties of the setup shape what the images look like:
+
+- The embedded driver snapshots the **webview only**, so captures carry no
+  title bar or window border. Existing manual images that were taken with a
+  window manager screenshot are 32px taller for that reason.
+- Element screenshots return the full frame with the element scrolled into
+  view, so `helpers/screenshot.ts` crops the PNG itself from the element's
+  bounding rect.
+
+States that need hardware, another platform or a broken network are driven
+through IPC mocks and emitted events (joystick devices, the Wayland layout,
+a degraded call, the radio error state). That is honest for a layout
+screenshot and useless as verification: an image says the UI renders that
+state, never that the underlying platform behavior works.
+
 ## Known gaps (deliberately untested here)
 
 - Real deep-link OAuth (disabled under the `e2e` feature; manual testing).
