@@ -44,7 +44,7 @@ async fn call_offer() -> anyhow::Result<()> {
 
     client2
         .send(ClientMessage::CallAccept(
-            vacs_protocol::ws::shared::CallAccept {
+            vacs_protocol::ws::client::CallAccept {
                 call_id,
                 accepting_client_id: client2.id().clone(),
             },
@@ -53,7 +53,7 @@ async fn call_offer() -> anyhow::Result<()> {
 
     let accept_messages = client1
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallAccept(_))
+            matches!(m, ServerMessage::CallAcceptance(_))
         })
         .await;
     assert_eq!(
@@ -160,7 +160,7 @@ async fn call_offer_answer() -> anyhow::Result<()> {
         .await;
     client2
         .send(ClientMessage::CallAccept(
-            vacs_protocol::ws::shared::CallAccept {
+            vacs_protocol::ws::client::CallAccept {
                 call_id,
                 accepting_client_id: client2.id().clone(),
             },
@@ -168,7 +168,7 @@ async fn call_offer_answer() -> anyhow::Result<()> {
         .await?;
     let _ = client1
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallAccept(_))
+            matches!(m, ServerMessage::CallAcceptance(_))
         })
         .await;
 
@@ -318,15 +318,17 @@ async fn target_not_found() -> anyhow::Result<()> {
 
     assert_eq!(
         peer_not_found_messages.len(),
-        2,
-        "client1 should have received exactly two CallError messages"
-    ); // TODO: this will change once all TODOs in application_message.rs are done
+        1,
+        "client1 should have received exactly one CallError messages"
+    );
 
     match &peer_not_found_messages[0] {
         ServerMessage::CallError(error) => {
             assert_eq!(
                 error.reason,
-                vacs_protocol::ws::shared::CallErrorReason::TargetNotFound,
+                vacs_protocol::ws::shared::CallErrorReason::TargetsNotFound(HashSet::from([
+                    CallTarget::Client(ClientId::from("client69"))
+                ])),
                 "CallErrorReason mismatch"
             );
         }
