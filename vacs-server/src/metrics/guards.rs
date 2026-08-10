@@ -47,7 +47,7 @@ impl Drop for ClientConnectionGuard {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallAttemptOutcome {
     Accepted,
     Rejected,

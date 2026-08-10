@@ -178,7 +178,7 @@ impl CallManager {
 
                         if ringing_target_entry.all_rejected_or_errored() {
                             terminated_targets.push(ringing_target_entry.complete(
-                                outcome,
+                                outcome.clone(),
                                 call_id,
                                 &ringing_call_entry.caller_id,
                                 ringing_target_entry.source.clone(),
@@ -272,7 +272,7 @@ impl CallManager {
         &self,
         call_id: &CallId,
         accepting_client_id: &ClientId,
-    ) -> Option<(HashSet<ClientId>, UpdateParticipants)> /* (cancelled_clients, update_participants) */
+    ) -> Option<(RingingTarget, UpdateParticipants)> /* (accepted_target, update_participants) */
     {
         let (ringing_target, invited_participants) = {
             let mut ringing_calls = self.ringing_calls.write();
@@ -340,7 +340,7 @@ impl CallManager {
 
                 active_call
                     .participants
-                    .insert(accepting_client_id.clone(), ringing_target.target);
+                    .insert(accepting_client_id.clone(), ringing_target.target.clone());
 
                 if active_call.conference_leader.is_none() {
                     if active_call.participants.len() > 3 {
@@ -349,7 +349,7 @@ impl CallManager {
                         );
                     }
 
-                    active_call.conference_leader = Some(ringing_target.caller_id);
+                    active_call.conference_leader = Some(ringing_target.caller_id.clone());
                 }
 
                 let participants = active_call.participants.clone();
@@ -364,10 +364,10 @@ impl CallManager {
             }
             Entry::Vacant(entry) => {
                 let participants = HashMap::from([
-                    (accepting_client_id.clone(), ringing_target.target),
+                    (accepting_client_id.clone(), ringing_target.target.clone()),
                     (
                         ringing_target.caller_id.clone(),
-                        ringing_target.source.into(),
+                        ringing_target.source.clone().into(),
                     ),
                 ]);
 
@@ -393,7 +393,7 @@ impl CallManager {
             joined_participants,
         };
 
-        Some((ringing_target.notified_clients, update))
+        Some((ringing_target, update))
     }
 
     pub fn end_call(

@@ -138,7 +138,7 @@ impl RingingCallEntry {
             .into_iter()
             .map(|(target, mut entry)| {
                 entry.complete(
-                    outcome,
+                    outcome.clone(),
                     &self.call_id,
                     &self.caller_id,
                     entry.source.clone(),

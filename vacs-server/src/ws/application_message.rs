@@ -6,10 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use vacs_protocol::vatsim::ClientId;
-use vacs_protocol::ws::client::{CallInvite, CallReject, ClientMessage};
-use vacs_protocol::ws::server::{CallCancelReason, CallInvitation, ServerMessage};
+use vacs_protocol::ws::client::{CallAccept, CallInvite, CallReject, ClientMessage};
+use vacs_protocol::ws::server::{CallAcceptance, CallCancelReason, CallInvitation, ServerMessage};
 use vacs_protocol::ws::shared::{
-    CallAccept, CallEnd, CallError, CallErrorReason, CallId, CallTarget, ErrorReason, WebrtcAnswer,
+    CallEnd, CallError, CallErrorReason, CallId, CallTarget, ErrorReason, WebrtcAnswer,
     WebrtcIceCandidate, WebrtcOffer,
 };
 use vacs_protocol::ws::{server, shared};
@@ -104,6 +104,8 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     let mut joined_participants = HashMap::new();
     let mut all_target_participants = HashMap::new();
 
+    let mut not_found_targets = HashSet::new();
+
     for target in &invite.targets {
         let target_clients: HashSet<ClientId> = match target {
             CallTarget::Client(client_id) => {
@@ -124,7 +126,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
         if target_clients.is_empty() {
             tracing::debug!("Call target has no clients, skipping target");
-            send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await; // TODO: this should only be a fe error, not a call error
+            not_found_targets.insert(target.clone());
             continue;
         }
 
@@ -156,12 +158,24 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             }
             Err(StartCallError::AlreadyParticipant) => {
                 tracing::debug!("Target or client is already a participant, rejecting call invite");
-                send_call_error(client, call_id, CallErrorReason::AlreadyParticipant, None).await; // TODO: this should only be a fe error, not a call error
+                send_call_error(
+                    client,
+                    call_id,
+                    CallErrorReason::AlreadyParticipant(target.clone()),
+                    None,
+                )
+                .await;
                 continue;
             }
             Err(StartCallError::NotConferenceLeader) => {
                 tracing::debug!("Caller is not conference leader, rejecting call invite");
-                send_call_error(client, call_id, CallErrorReason::NotConferenceLeader, None).await; // TODO: this should only be a fe error, not a call error
+                send_call_error(
+                    client,
+                    call_id,
+                    CallErrorReason::NotConferenceLeader(target.clone()),
+                    None,
+                )
+                .await;
                 continue;
             }
         }
@@ -169,9 +183,15 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
     // TODO CallMetrics::call_invite(&invite.source, &invite.target, invite.prio);
 
-    if all_target_participants.is_empty() {
+    if !not_found_targets.is_empty() {
         tracing::trace!("No clients found for call invite, returning target not found error");
-        send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await; // TODO: this should only be a fe error, if the call continues to exist (conference)
+        send_call_error(
+            client,
+            call_id,
+            CallErrorReason::TargetsNotFound(not_found_targets),
+            None,
+        )
+        .await;
         return;
     }
 
@@ -267,14 +287,14 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         return;
     }
 
-    let Some((cancelled_clients, update)) = state.calls.accept_call(call_id, answerer_id) else {
+    let Some((accepted_target, update)) = state.calls.accept_call(call_id, answerer_id) else {
         tracing::warn!("No ringing call for accepting client found, returning call error");
         send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
         return;
     };
 
     tracing::trace!("Sending call update to all invited participants");
-    for (participant_id, _) in update.all_participants() {
+    for participant_id in update.invited_participants.keys() {
         if let Err(err) = state
             .send_message(participant_id, ServerMessage::CallUpdate((&update).into()))
             .await
@@ -287,23 +307,33 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         }
     }
 
-    tracing::trace!("Sending call accept to all other participants");
+    tracing::trace!("Sending call acceptance to all joined participants");
+
+    let acceptance = CallAcceptance {
+        call_id: *call_id,
+        target: accepted_target.target.clone(),
+        accepting_client_id: answerer_id.clone(),
+    };
+
     for participant_id in update.joined_participants.keys() {
         if participant_id == answerer_id {
             continue;
         }
 
-        if let Err(err) = state.send_message(participant_id, accept.clone()).await {
+        if let Err(err) = state
+            .send_message(participant_id, ServerMessage::from(acceptance.clone()))
+            .await
+        {
             tracing::warn!(
                 ?err,
                 ?participant_id,
-                "Failed to send call accept to participant"
+                "Failed to send call acceptance to participant"
             );
 
             let Some(actions) = state.calls.end_call(call_id, participant_id) else {
                 tracing::error!(
                     ?participant_id,
-                    "Tried to send a call accept message to a participant, which is not a participant anymore"
+                    "Tried to send a call acceptance message to a participant, which is not a participant anymore"
                 );
                 continue;
             };
@@ -312,7 +342,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
                 match action {
                     UpdateCallAction::CancelRingingTarget(ringing_target) => {
                         tracing::trace!(
-                            "Cancelling rining target during call accept, due to failure in sending call accept to a particpant"
+                            "Cancelling ringing target during call accept, due to failure in sending call acceptance to a participant"
                         );
                         let cancelled = server::CallCancelled::new(
                             *call_id,
@@ -339,7 +369,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
                     }
                     UpdateCallAction::DropParticipant(_, participant_id) => {
                         tracing::trace!(
-                            "Dropping participant during call accept, due to failure in sending call accept to a particpant"
+                            "Dropping participant during call accept, due to failure in sending call acceptance to a participant"
                         );
                         if let Err(err) = state
                             .send_message(
@@ -361,7 +391,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
                     }
                     UpdateCallAction::UpdateParticipants(update) => {
                         tracing::trace!(
-                            "Send call update to remaining participants during call accept, due to failure in sending call accept to a particpant"
+                            "Send call update to remaining participants during call accept, due to failure in sending call acceptance to a participant"
                         );
                         for (participant_id, _) in update.all_participants() {
                             if let Err(err) = state
@@ -384,14 +414,14 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         }
     }
 
-    if cancelled_clients.len() > 1 {
+    if accepted_target.notified_clients.len() > 1 {
         let cancelled = server::CallCancelled::new(
             *call_id,
             HashSet::new(),
             CallCancelReason::AnsweredElsewhere(answerer_id.clone()),
         );
 
-        for callee_id in cancelled_clients {
+        for callee_id in accepted_target.notified_clients {
             if callee_id == *answerer_id {
                 continue;
             }
@@ -573,12 +603,13 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
         }
         None => {
             tracing::trace!("No ringing or active call found, returning call error");
-            send_call_error(client, call_id, CallErrorReason::TargetNotFound, None).await;
+            send_call_error(client, call_id, CallErrorReason::CallNotFound, None).await;
             return;
         }
     }
 }
 
+// TODO: forward call error as call error to other participants if the erroring_id is in an active call
 #[tracing::instrument(level = "trace", skip(state, client))]
 async fn handle_call_error(state: &AppState, client: &ClientSession, error: CallError) {
     tracing::trace!("Handling call error");
@@ -662,7 +693,7 @@ async fn handle_webrtc_offer(state: &AppState, client: &ClientSession, offer: We
 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC offer, returning call error");
-        send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
+        send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
         return;
     }
 
@@ -692,7 +723,7 @@ async fn handle_webrtc_answer(state: &AppState, client: &ClientSession, answer: 
 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC answer, returning call error");
-        send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
+        send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
         return;
     }
 
@@ -729,7 +760,7 @@ async fn handle_webrtc_ice_candidate(
 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC ice candidate, returning call error");
-        send_call_error(client, call_id, CallErrorReason::SignalingFailure, None).await;
+        send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
         return;
     }
 
