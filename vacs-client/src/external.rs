@@ -190,7 +190,22 @@ pub unsafe fn redirect_bundled_pipewire() {
 }
 
 /// Opens a URL in the user's default browser.
+///
+/// Only web and mail URLs are accepted, mirroring the opener plugin's ACL scope: this is the shared
+/// primitive every caller funnels through, so the boundary lives here rather than being re-checked
+/// per call site.
 pub fn open_url(url: &str) -> Result<()> {
+    let url = url::Url::parse(url).context("Failed to parse URL")?;
+
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        anyhow::bail!("Refusing to open URL with scheme {}", url.scheme());
+    }
+
+    // Hand over the parser's normalized form, never the caller's raw string: the WHATWG parser
+    // strips control characters and tabs while classifying the scheme, so an input like
+    // "\thttp:..." must not reach the opener in a shape the check above never saw.
+    let url = url.as_str();
+
     #[cfg(target_os = "linux")]
     if app_dir().is_some() {
         return xdg_open(url);

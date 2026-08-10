@@ -1,3 +1,7 @@
 disallowed-methods = [
     { path = "std::process::Command::new", reason = "spawned children inherit the AppImage's PATH and LD_LIBRARY_PATH, silently breaking host programs; go through crate::external::host_command (or open_url/open_path) instead" },
+    # tokio::process::Command::from_std is deliberately NOT listed: it can only be fed a Command
+    # that already came from host_command (Command::new being banned), making it the legitimate
+    # route to an async spawn.
+    { path = "tokio::process::Command::new", reason = "same hazard as std::process::Command::new; build via crate::external::host_command and convert with tokio's Command::from_std" },
 ]

@@ -90,23 +90,18 @@ pub fn app_open_folder(app: AppHandle, folder: AppFolder) -> Result<(), Error> {
     Ok(())
 }
 
-// Async so the PATH walk and process spawn run off the main thread; sync commands execute inline
-// on the webview's event loop.
+// Async keeps the body off the webview's event loop, and spawn_blocking keeps the PATH walk and
+// fork off the shared tokio workers that also drive signaling. The scheme allowlist lives in
+// external::open_url, so every caller gets it.
 #[tauri::command]
 #[vacs_macros::log_err]
 pub async fn app_open_url(url: String) -> Result<(), Error> {
-    let scheme = url::Url::parse(&url)
-        .context("Failed to parse URL")?
-        .scheme()
-        .to_string();
+    tokio::task::spawn_blocking(move || {
+        crate::external::open_url(&url).context("Failed to open URL")
+    })
+    .await
+    .context("URL opener task failed")??;
 
-    // The opener plugin's ACL scope enforced this before commands bypassed it; keep the same
-    // boundary so a compromised or buggy frontend cannot launch file:// or arbitrary URI handlers.
-    if !matches!(scheme.as_str(), "http" | "https" | "mailto") {
-        return Err(anyhow::anyhow!("Refusing to open URL with scheme {scheme}").into());
-    }
-
-    crate::external::open_url(&url).context("Failed to open URL")?;
     Ok(())
 }
 
