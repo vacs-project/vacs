@@ -29,7 +29,8 @@ pub enum CallTerminationOutcome {
     CallNotFound,
     ClientNotNotified,
     Continued,
-    Failed(Vec<RingingTarget>, UpdateParticipants),
+    TargetFailed(Vec<RingingTarget>, UpdateParticipants),
+    Changed(Vec<UpdateCallAction>),
 }
 
 /// Lock order: when holding more than one lock, acquire them in field order —
@@ -160,6 +161,10 @@ impl CallManager {
         let mut ringing_calls = self.ringing_calls.write();
         match ringing_calls.entry(*call_id) {
             Entry::Occupied(mut entry) => {
+                if entry.get().caller_id == *client_id {
+                    return CallTerminationOutcome::ClientNotNotified;
+                }
+
                 let mut marked_once = false;
                 let mut terminated_targets = Vec::new();
 
@@ -232,7 +237,7 @@ impl CallManager {
                         joined_participants,
                     };
 
-                    return CallTerminationOutcome::Failed(terminated_targets, update);
+                    return CallTerminationOutcome::TargetFailed(terminated_targets, update);
                 }
 
                 CallTerminationOutcome::Continued
@@ -259,12 +264,22 @@ impl CallManager {
         call_id: &CallId,
         erroring_client_id: &ClientId,
     ) -> CallTerminationOutcome {
-        self.mark_client_within_ringing_calls(
+        let outcome = self.mark_client_within_ringing_calls(
             call_id,
             erroring_client_id,
             RingingTargetEntry::mark_errored,
             CallAttemptOutcome::Error(CallErrorReason::CallFailure),
-        )
+        );
+
+        match outcome {
+            CallTerminationOutcome::Continued | CallTerminationOutcome::TargetFailed(_, _) => {
+                outcome
+            }
+            _ => match self.end_call(call_id, erroring_client_id) {
+                None => CallTerminationOutcome::CallNotFound,
+                Some(actions) => CallTerminationOutcome::Changed(actions),
+            },
+        }
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
