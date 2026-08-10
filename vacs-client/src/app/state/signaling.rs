@@ -589,7 +589,7 @@ impl AppStateInner {
                 };
 
                 state.cancel_unanswered_call_timers_for_targets(call_id, [target].into_iter());
-                let res = if state.remove_outgoing_call(call_id) {
+                let res = if state.remove_outgoing_call(call_id).is_some() {
                     // TODO: we also need to have a look into our active call (participant joins a conf)
                     app.emit("signaling:outgoing-call-accepted", msg).ok();
 
@@ -615,7 +615,7 @@ impl AppStateInner {
                                 app,
                                 *call_id,
                                 true,
-                                HashSet::from([target]),
+                                HashSet::from([target.clone()]),
                                 reason.clone(),
                             ); // TODO: validate if that makes sense in the FE
                             state
@@ -632,7 +632,7 @@ impl AppStateInner {
                     state
                         .send_signaling_message(shared::CallError {
                             call_id: *call_id,
-                            reason: CallErrorReason::CallFailure,
+                            reason: CallErrorReason::SignalingFailure(own_client_id.clone()),
                             message: None,
                         })
                         .await
@@ -871,9 +871,39 @@ impl AppStateInner {
 
                         state.emit_call_error(app, call_id, false, HashSet::new(), reason);
                     }
-                    CallErrorReason::WebrtcFailure => {} // TODO: this needs a client id
-                    CallErrorReason::AudioFailure => {}  // TODO: this needs a client id
-                    CallErrorReason::SignalingFailure => {} // TODO: this needs a client id
+                    CallErrorReason::WebrtcFailure(erroring_client_id)
+                    | CallErrorReason::AudioFailure(erroring_client_id)
+                    | CallErrorReason::SignalingFailure(erroring_client_id) => {
+                        let state = app.state::<AppState>();
+                        let mut state = state.lock().await;
+
+                        if let Some(active_call) = state.active_call.as_mut()
+                            && active_call.call_id == call_id
+                        {
+                            active_call.joined_participants.remove(erroring_client_id);
+
+                            if active_call.invited_targets.is_empty()
+                                && active_call.joined_participants.len() == 1
+                            {
+                                state.remove_active_call(&call_id);
+                                state.remove_outgoing_call(&call_id);
+                                state.remove_incoming_call(&call_id);
+
+                                state.cancel_all_unanswered_call_timers(&call_id);
+                            }
+
+                            // TODO proper call error/target handling
+                            // TODO frontend state handling
+                            // TODO webrtc cleanup
+                            state.emit_call_error(
+                                app,
+                                call_id,
+                                false,
+                                HashSet::from([CallTarget::Client(erroring_client_id.clone())]),
+                                reason,
+                            );
+                        }
+                    }
                     CallErrorReason::NotConferenceLeader(target) => {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
