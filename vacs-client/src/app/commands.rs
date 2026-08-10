@@ -92,6 +92,13 @@ pub fn app_open_folder(app: AppHandle, folder: AppFolder) -> Result<(), Error> {
 
 #[tauri::command]
 #[vacs_macros::log_err]
+pub fn app_open_url(url: String) -> Result<(), Error> {
+    crate::external::open_url(&url).context("Failed to open URL")?;
+    Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
 pub async fn app_check_for_update(app: AppHandle) -> Result<UpdateInfo, Error> {
     let current_version = VersionInfo::gather().version.to_string();
 

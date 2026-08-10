@@ -4,8 +4,9 @@ mod auth;
 mod build;
 mod config;
 mod error;
+mod external;
 mod keybinds;
-mod platform;
+pub mod platform;
 mod playback;
 mod radio;
 mod remote;
@@ -169,6 +170,7 @@ pub fn run() {
             app::commands::app_load_extra_client_page_config,
             app::commands::app_load_test_profile,
             app::commands::app_open_folder,
+            app::commands::app_open_url,
             app::commands::app_platform_capabilities,
             app::commands::app_quit,
             app::commands::app_reset_window_size,

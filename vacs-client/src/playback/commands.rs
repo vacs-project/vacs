@@ -10,7 +10,6 @@ use crate::radio::{RadioHandle, RadioState};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_opener::OpenerExt;
 use vacs_audio::sources::wav::WavSource;
 
 #[tauri::command]
@@ -287,7 +286,6 @@ pub async fn playback_seek(
 #[tauri::command]
 #[vacs_macros::log_err]
 pub async fn playback_export(
-    app: AppHandle,
     recorder: State<'_, PlaybackRecorderHandle>,
     id: u64,
 ) -> Result<PathBuf, Error> {
@@ -302,7 +300,7 @@ pub async fn playback_export(
         ))));
     };
 
-    if let Err(err) = app.opener().open_path(path.to_string_lossy(), None::<&str>) {
+    if let Err(err) = crate::external::open_path(&path) {
         return Err(
             PlaybackError::Other(anyhow::anyhow!("Cannot open export directory: {err}")).into(),
         );

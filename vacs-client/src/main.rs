@@ -1,16 +1,12 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod platform;
-
 fn main() {
     #[cfg(unix)]
     {
-        let platform = platform::Platform::get();
-        if matches!(
-            platform,
-            platform::Platform::LinuxWayland | platform::Platform::LinuxX11
-        ) {
+        use vacs_client_lib::platform::Platform;
+
+        if matches!(Platform::get(), Platform::LinuxWayland | Platform::LinuxX11) {
             unsafe {
                 // Workarounds for WebKitGTK rendering issues on Linux.
                 //
