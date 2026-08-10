@@ -14,6 +14,13 @@ pub struct CallInvite {
     pub prio: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallAccept {
+    pub call_id: CallId,
+    pub accepting_client_id: ClientId,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CallRejectReason {
@@ -31,6 +38,12 @@ pub struct CallReject {
 impl From<CallInvite> for ClientMessage {
     fn from(value: CallInvite) -> Self {
         Self::CallInvite(value)
+    }
+}
+
+impl From<CallAccept> for ClientMessage {
+    fn from(value: CallAccept) -> Self {
+        Self::CallAccept(value)
     }
 }
 
