@@ -50,7 +50,7 @@ async fn call_offer_answer() {
     clients[1]
         .client
         .send(ClientMessage::CallAccept(
-            vacs_protocol::ws::shared::CallAccept {
+            vacs_protocol::ws::client::CallAccept {
                 call_id,
                 accepting_client_id: ClientId::from("client1"),
             },
@@ -61,11 +61,12 @@ async fn call_offer_answer() {
     // 4. Client 0 receives Call Accept
     let event = clients[0]
         .recv_with_timeout_and_filter(Duration::from_millis(100), |e| {
-            matches!(e, SignalingEvent::Message(ServerMessage::CallAccept(vacs_protocol::ws::shared::CallAccept {
+            matches!(e, SignalingEvent::Message(ServerMessage::CallAcceptance(vacs_protocol::ws::server::CallAcceptance {
                 call_id: received_call_id,
+                target,
                 accepting_client_id,
                 ..
-            })) if *received_call_id == call_id && accepting_client_id.as_str() == "client1")
+            })) if matches!(target, vacs_protocol::ws::shared::CallTarget::Client(client_id) if client_id.as_str() == "client1") && *received_call_id == call_id && accepting_client_id.as_str() == "client1")
         })
         .await;
     assert!(event.is_some());
