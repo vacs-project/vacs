@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use tauri::{AppHandle, Manager, State};
 use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId};
-use vacs_signaling::protocol::ws::shared;
+use vacs_signaling::protocol::ws::client::CallInvite;
 use vacs_signaling::protocol::ws::shared::{CallId, CallSource, CallTarget};
 
 #[tauri::command]
@@ -77,18 +77,19 @@ pub async fn signaling_start_call(
     app_state: State<'_, AppState>,
     http_state: State<'_, HttpState>,
     audio_manager: State<'_, AudioManagerHandle>,
-    target: CallTarget,
+    targets: HashSet<CallTarget>,
     source: CallSource,
     prio: bool,
 ) -> Result<CallId, Error> {
-    log::debug!("Starting call with {target:?} as {source:?}");
+    // TODO: this might add targets to an active call
+    log::debug!("Starting call with {targets:?} as {source:?}");
 
     let mut state = app_state.lock().await;
 
     let call_id = CallId::new();
-    let invite = shared::CallInvite {
+    let invite = CallInvite {
         call_id,
-        target,
+        targets: targets.clone(),
         source,
         prio,
     };
@@ -98,7 +99,7 @@ pub async fn signaling_start_call(
         refresh_ice_config(&http_state, &mut state).await;
     }
 
-    state.start_unanswered_call_timer(&app, &call_id);
+    state.start_unanswered_call_timer_for_targets(&app, &call_id, targets);
     state.set_outgoing_call(Some(invite));
 
     audio_manager.read().restart(SourceType::Ringback);
@@ -131,7 +132,7 @@ pub async fn signaling_end_call(
     log::debug!("Ending call {call_id:?}");
 
     let mut state = app_state.lock().await;
-    state.end_call(&app, Some(call_id)).await?;
+    state.end_call(&app, &call_id).await?;
 
     Ok(())
 }

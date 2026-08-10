@@ -1,6 +1,7 @@
 import {invoke, InvokeArgs, isTauri, RemoteCommand} from "./transport";
 import {useErrorOverlayStore} from "./stores/error-overlay-store.ts";
 import {CallId} from "./types/generic.ts";
+import {CallTarget} from "./types/call.ts";
 
 export type Error = {
     title: string;
@@ -11,6 +12,7 @@ export type Error = {
 
 export type CallError = {
     callId: CallId;
+    targets: CallTarget[];
     reason: string;
 };
 

@@ -17,6 +17,8 @@ import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
 
+// TODO: CONF label + indication handling
+
 function CallQueue() {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
@@ -92,7 +94,7 @@ function CallQueue() {
                         onClick={() => handleCallDisplayClick(callDisplay.call)}
                         className={clsx(
                             "h-16 text-sm [&_p]:leading-3.5",
-                            cdColor === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
+                            cdColor === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]", // TODO: this should probably always be +1px, to not truncate
                         )}
                     >
                         {callDisplayLabel(callDisplay.call, cid, stationKeys, clients)}
@@ -149,21 +151,28 @@ function callDisplayLabel(
     stationKeys: DirectAccessKey[],
     clients: ClientInfo[],
 ): ComponentChild {
-    return call.source.clientId === cid
-        ? callLabel(
-              call.target.station,
-              call.target.position,
-              call.target.client,
-              stationKeys,
-              clients,
-          )
-        : callLabel(
-              call.source.stationId,
-              call.source.positionId,
-              call.source.clientId,
-              stationKeys,
-              clients,
-          );
+    if (call.source.clientId === cid) {
+        const total_size = call.invitedTargets.length + call.joinedParticipants.size;
+
+        if (total_size > 1) {
+            return "CONF";
+        }
+
+        return callLabel(
+            call.target.station,
+            call.target.position,
+            call.target.client,
+            stationKeys,
+            clients,
+        );
+    }
+    return callLabel(
+        call.source.stationId,
+        call.source.positionId,
+        call.source.clientId,
+        stationKeys,
+        clients,
+    );
 }
 
 const callLabel = (

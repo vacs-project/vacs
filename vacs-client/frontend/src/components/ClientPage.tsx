@@ -112,8 +112,11 @@ function ClientPageGroupKey({
     const involved =
         callDisplay !== undefined &&
         (clientIdsInGroup.includes(callDisplay.call.source.clientId) ||
-            (callDisplay.call.target.client !== undefined &&
-                clientIdsInGroup.includes(callDisplay.call.target.client)));
+            clientIdsInGroup.some(
+                clientId =>
+                    callDisplay.call.invitedTargets.some(target => target.client === clientId) ||
+                    callDisplay.call.joinedParticipants.has(clientId),
+            ));
     const beingCalled = callDisplay?.type === "outgoing" && involved;
     const inCall = callDisplay?.type === "accepted" && involved;
     const isRejected = callDisplay?.type === "rejected" && involved;

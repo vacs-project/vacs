@@ -1,7 +1,7 @@
 import {useCallStore} from "../stores/call-store.ts";
 import {useAuthStore} from "../stores/auth-store.ts";
 import {DirectAccessPage} from "../types/profile.ts";
-import {Call} from "../types/call.ts";
+import {Call, hasTarget} from "../types/call.ts";
 import {ClientId, StationId} from "../types/generic.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
@@ -20,13 +20,17 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
     const stationIds = directAccessPageToStationIds(page);
 
     const incomingCall = incomingCalls.find(
-        call => call.source.stationId !== undefined && stationIds.includes(call.source.stationId),
+        call =>
+            call.source.stationId !== undefined &&
+            (stationIds.includes(call.source.stationId) ||
+                hasTarget(call.joinedParticipants, {station: call.source.stationId})),
     );
     const isCalling = incomingCall !== undefined;
     const beingCalled =
         callDisplay?.type === "outgoing" &&
-        callDisplay.call.target.station !== undefined &&
-        stationIds.includes(callDisplay.call.target.station);
+        stationIds.some(stationId =>
+            callDisplay.call.invitedTargets.some(target => target.station === stationId),
+        );
     const involved =
         callDisplay !== undefined && callInvolvesButtonStations(callDisplay.call, stationIds, cid);
     const inCall = callDisplay?.type === "accepted" && involved;
@@ -66,7 +70,11 @@ function callInvolvesButtonStations(
     cid: ClientId | undefined,
 ) {
     return call.source.clientId === cid
-        ? call.target.station !== undefined && stationIds.includes(call.target.station)
+        ? stationIds.some(
+              stationId =>
+                  call.invitedTargets.some(target => target.station === stationId) ||
+                  hasTarget(call.joinedParticipants, {station: stationId}),
+          )
         : call.source.stationId !== undefined && stationIds.includes(call.source.stationId);
 }
 

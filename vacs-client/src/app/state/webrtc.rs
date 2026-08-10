@@ -3,6 +3,7 @@ use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::source_type::SourceType;
 use crate::error::{CallError, Error};
 use anyhow::Context;
+use std::collections::HashSet;
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, UNIX_EPOCH};
 use tauri::async_runtime::JoinHandle;
@@ -14,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::shared;
-use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId};
+use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, CallTarget};
 use vacs_webrtc::error::WebrtcError;
 use vacs_webrtc::{Peer, PeerConnectionState, PeerEvent};
 
@@ -59,7 +60,7 @@ pub struct UnansweredCallGuard {
     pub handle: JoinHandle<()>,
 }
 
-pub struct Call {
+pub struct WebrtcCall {
     pub(super) call_id: CallId,
     pub(super) peer_id: ClientId,
     peer: Peer,
@@ -78,7 +79,7 @@ pub struct Call {
     peer_supports_reconnect: bool,
 }
 
-impl Debug for Call {
+impl Debug for WebrtcCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Call")
             .field("peer_id", &self.peer_id)
@@ -114,6 +115,7 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
         app: &AppHandle,
         call_id: CallId,
         is_local: bool,
+        targets: HashSet<CallTarget>,
         reason: CallErrorReason,
     );
     fn active_call_id(&self) -> Option<&CallId>;
@@ -129,7 +131,7 @@ impl AppStateWebrtcExt for AppStateInner {
         peer_id: ClientId,
         offer_sdp: Option<String>,
     ) -> Result<String, Error> {
-        if self.active_call.is_some() {
+        if self.active_webrtc_call.is_some() {
             return Err(WebrtcError::CallActive.into());
         }
 
@@ -161,7 +163,7 @@ impl AppStateWebrtcExt for AppStateInner {
             events_cancel.clone(),
         );
 
-        self.active_call = Some(Call {
+        self.active_webrtc_call = Some(WebrtcCall {
             call_id,
             peer_id,
             peer,
@@ -175,7 +177,7 @@ impl AppStateWebrtcExt for AppStateInner {
     }
 
     fn is_active_call_peer(&self, call_id: &CallId, peer_id: &ClientId) -> bool {
-        self.active_call
+        self.active_webrtc_call
             .as_ref()
             .is_some_and(|call| call.call_id == *call_id && call.peer_id == *peer_id)
     }
@@ -202,7 +204,7 @@ impl AppStateWebrtcExt for AppStateInner {
         app.emit("webrtc:call-reconnecting", &call_id).ok();
 
         let old_call = self
-            .active_call
+            .active_webrtc_call
             .take()
             .expect("active call checked directly above");
         self.teardown_call_peer(old_call).await;
@@ -243,7 +245,7 @@ impl AppStateWebrtcExt for AppStateInner {
             events_cancel.clone(),
         );
 
-        self.active_call = Some(Call {
+        self.active_webrtc_call = Some(WebrtcCall {
             call_id,
             peer_id,
             peer,
@@ -263,7 +265,7 @@ impl AppStateWebrtcExt for AppStateInner {
         peer_id: &ClientId,
         answer_sdp: String,
     ) -> Result<(), Error> {
-        if let Some(call) = &mut self.active_call {
+        if let Some(call) = &mut self.active_webrtc_call {
             if call.peer_id == *peer_id {
                 call.peer_supports_reconnect = has_reconnect_capability(&answer_sdp);
                 call.peer.accept_answer(answer_sdp).await?;
@@ -279,7 +281,7 @@ impl AppStateWebrtcExt for AppStateInner {
     }
 
     async fn set_remote_ice_candidate(&self, call_id: &CallId, candidate: String) {
-        let res = if let Some(call) = &self.active_call
+        let res = if let Some(call) = &self.active_webrtc_call
             && call.call_id == *call_id
         {
             call.peer.add_remote_ice_candidate(candidate).await
@@ -297,9 +299,9 @@ impl AppStateWebrtcExt for AppStateInner {
     async fn cleanup_call(&mut self, call_id: &CallId) -> bool {
         log::debug!(
             "Cleaning up call {call_id:?} (active: {:?})",
-            self.active_call.as_ref()
+            self.active_webrtc_call.as_ref()
         );
-        let res = if let Some(call) = &mut self.active_call
+        let res = if let Some(call) = &mut self.active_webrtc_call
             && call.call_id == *call_id
         {
             {
@@ -319,7 +321,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
             call.events_cancel.cancel();
             let result = call.peer.close().await;
-            self.active_call = None;
+            self.active_webrtc_call = None;
             result
         } else if let Some(mut call) = self.held_calls.remove(call_id) {
             call.events_cancel.cancel();
@@ -341,11 +343,12 @@ impl AppStateWebrtcExt for AppStateInner {
         app: &AppHandle,
         call_id: CallId,
         is_local: bool,
+        targets: HashSet<CallTarget>,
         reason: CallErrorReason,
     ) {
         app.emit(
             "webrtc:call-error",
-            CallError::new(call_id, is_local, reason),
+            CallError::new(call_id, is_local, targets, reason),
         )
         .ok();
     }
@@ -394,7 +397,7 @@ impl AppStateInner {
         call_id: &CallId,
         peer_id: &ClientId,
     ) -> Result<(), Error> {
-        if let Some(call) = &mut self.active_call
+        if let Some(call) = &mut self.active_webrtc_call
             && call.peer_id == *peer_id
         {
             let (output_tx, output_rx) = mpsc::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
@@ -458,7 +461,7 @@ impl AppStateInner {
     /// Tears down a call's peer connection without ending the call itself: stops the peer
     /// events task, detaches audio (so the replacement peer can re-attach on connect) and
     /// closes the peer connection.
-    async fn teardown_call_peer(&mut self, mut call: Call) {
+    async fn teardown_call_peer(&mut self, mut call: WebrtcCall) {
         call.events_cancel.cancel();
 
         {
@@ -487,7 +490,7 @@ impl AppStateInner {
         app: &AppHandle,
         call_id: &CallId,
     ) -> Result<Option<String>, Error> {
-        let Some(call) = self.active_call.as_ref() else {
+        let Some(call) = self.active_webrtc_call.as_ref() else {
             log::debug!("No active call for relay reconnect");
             return Ok(None);
         };
@@ -518,7 +521,7 @@ impl AppStateInner {
         app.emit("webrtc:call-reconnecting", call_id).ok();
 
         let old_call = self
-            .active_call
+            .active_webrtc_call
             .take()
             .expect("active call checked directly above");
         let peer_id = old_call.peer_id.clone();
@@ -557,7 +560,7 @@ impl AppStateInner {
             events_cancel.clone(),
         );
 
-        self.active_call = Some(Call {
+        self.active_webrtc_call = Some(WebrtcCall {
             call_id: *call_id,
             peer_id,
             peer,
@@ -607,7 +610,7 @@ fn spawn_peer_events_task(
                                 if let Err(err) = state
                                     .send_signaling_message(shared::CallError {
                                         call_id,
-                                        reason,
+                                        reason: reason.clone(),
                                         message: None,
                                     })
                                     .await
@@ -623,7 +626,7 @@ fn spawn_peer_events_task(
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
 
-                            if let Some(call) = &mut state.active_call
+                            if let Some(call) = &mut state.active_webrtc_call
                                 && call.peer_id == peer_id
                             {
                                 call.peer.pause();
@@ -722,7 +725,7 @@ fn spawn_peer_events_task(
                                 if let Err(err) = state
                                     .send_signaling_message(shared::CallError {
                                         call_id,
-                                        reason,
+                                        reason: reason.clone(),
                                         message: None,
                                     })
                                     .await

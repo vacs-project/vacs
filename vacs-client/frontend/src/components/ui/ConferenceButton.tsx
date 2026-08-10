@@ -32,6 +32,7 @@ function ConferenceButton() {
             }
             onClick={handleOnClick}
             disabled={!establishedCall}
+            title="Conference Call"
         >
             CONF
         </Button>
