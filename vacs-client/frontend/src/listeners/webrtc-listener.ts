@@ -4,7 +4,7 @@ import {CallError} from "../error.ts";
 import {CallId} from "../types/generic.ts";
 
 export function setupWebrtcListeners() {
-    const {errorCall, setConnectionState} = useCallStore.getState().actions;
+    const {errorTargets, setConnectionState} = useCallStore.getState().actions;
 
     const unlistenFns: Promise<UnlistenFn>[] = [];
 
@@ -23,7 +23,7 @@ export function setupWebrtcListeners() {
                 setConnectionState(event.payload, "connecting");
             }),
             listen<CallError>("webrtc:call-error", event => {
-                errorCall(event.payload.callId, event.payload.reason);
+                errorTargets(event.payload);
             }),
         );
     };
