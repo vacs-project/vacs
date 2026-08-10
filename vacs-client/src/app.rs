@@ -122,6 +122,11 @@ pub fn open_app_folder(app: &AppHandle, folder: AppFolder) -> Result<(), Error> 
             .app_log_dir()
             .context("Failed to get logs folder")?,
     };
+
+    // The config directory only appears once settings are first persisted, so on a fresh install
+    // there is nothing to open and the opener reports a missing path.
+    std::fs::create_dir_all(&folder_path).context("Failed to create folder")?;
+
     crate::external::open_path(&folder_path).context("Failed to open folder")?;
 
     Ok(())
