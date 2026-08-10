@@ -8,8 +8,14 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
+        # The two *-modules packages are runtime, not build, dependencies: the AppImage copies both
+        # plugin directories into the bundle (see tauri.appimage.conf.json), because libpipewire
+        # resolves them through paths compiled in at build time that do not exist on other
+        # distributions. libspa-0.2-modules already arrived as a transitive dependency of
+        # libpipewire-0.3-0t64, but the bundle must not rely on that.
         sudo apt-get install -y --no-install-recommends \
           libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
           libssl-dev libasound2-dev libgtk-3-dev libopus-dev \
           libpipewire-0.3-dev libspa-0.2-dev \
+          libpipewire-0.3-modules libspa-0.2-modules \
           cmake patchelf
