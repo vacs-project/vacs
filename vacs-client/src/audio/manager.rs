@@ -18,7 +18,6 @@ use vacs_audio::sources::opus::OpusSource;
 use vacs_audio::sources::{AudioSource, AudioSourceId};
 use vacs_audio::stream::capture::{CaptureStream, InputLevel};
 use vacs_audio::stream::playback::PlaybackStream;
-use vacs_signaling::protocol::ws::shared;
 use vacs_signaling::protocol::ws::shared::CallErrorReason;
 
 const AUDIO_STREAM_ERROR_CHANNEL_SIZE: usize = 32;
@@ -175,16 +174,13 @@ impl AudioManager {
                     log::debug!("Ending active call {call_id} due to capture stream error");
 
                     state.cleanup_call(&call_id).await;
-                    if let Err(err) = state
-                        .send_signaling_message(shared::CallError {
+                    state
+                        .try_send_call_error_with_client_id(
                             call_id,
-                            reason: CallErrorReason::AudioFailure,
-                            message: None,
-                        })
-                        .await
-                    {
-                        log::warn!("Failed to send call end signaling message: {:?}", err);
-                    };
+                            CallErrorReason::AudioFailure,
+                            None,
+                        )
+                        .await;
                     state.set_outgoing_call(None);
                     app.state::<AudioManagerHandle>()
                         .read()
@@ -654,16 +650,9 @@ async fn handle_playback_stream_error(
         log::debug!("Ending active call {call_id} due to playback stream error");
 
         state.cleanup_call(&call_id).await;
-        if let Err(err) = state
-            .send_signaling_message(shared::CallError {
-                call_id,
-                reason: CallErrorReason::AudioFailure,
-                message: None,
-            })
-            .await
-        {
-            log::warn!("Failed to send call end signaling message: {:?}", err);
-        };
+        state
+            .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
+            .await;
         state.set_outgoing_call(None);
         app.state::<AudioManagerHandle>()
             .read()
