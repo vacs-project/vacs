@@ -213,6 +213,13 @@ jobs:
         if: matrix.platform == 'ubuntu-24.04'
         uses: ./.github/actions/install-linux-deps
 
+      # Kept out of tauri.conf.json because the source paths are Debian specific and the bundler
+      # aborts when one is missing, which would break AppImage builds on any other distribution.
+      - name: Bundle the PipeWire plugins into the AppImage (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: echo "EXTRA_TAURI_ARGS=${EXTRA_TAURI_ARGS} --config tauri.appimage.conf.json" >> "$GITHUB_ENV"
+
       - name: Install build dependencies (macOS, aarch64)
         if: matrix.platform == 'macos-latest' && matrix.arch == 'aarch64'
         run: |

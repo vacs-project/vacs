@@ -4,7 +4,7 @@ mod auth;
 mod build;
 mod config;
 mod error;
-mod external;
+pub mod external;
 mod keybinds;
 pub mod platform;
 mod playback;

@@ -54,7 +54,9 @@ const BUNDLE_OVERRIDES: &[&str] = &[
     "GTK_IM_MODULE_FILE",
     "GTK_THEME",
     "LD_PRELOAD",
+    "PIPEWIRE_MODULE_DIR",
     "PYTHONHOME",
+    "SPA_PLUGIN_DIR",
 ];
 
 /// The AppDir we are running out of, if this process was launched from an AppImage.
@@ -135,6 +137,38 @@ fn resolve_in_path(path: &OsString, program: &str) -> Option<PathBuf> {
                 .metadata()
                 .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
         })
+}
+
+/// Points PipeWire at the SPA plugins and modules we ship, when there are any.
+///
+/// libpipewire resolves both directories through paths compiled in at build time, so a bundle
+/// built on one distribution looks for them in a layout the user's machine does not have. Without
+/// them the client cannot construct even a main loop, `check_pipewire` fails, and playback reports
+/// itself unsupported. An existing value is left alone, and so is a bundle that ships no plugins,
+/// which then falls back to the compiled-in paths exactly as before.
+///
+/// # Safety
+///
+/// Mutates the environment, so this must be called before any other thread exists.
+#[cfg(target_os = "linux")]
+pub unsafe fn redirect_bundled_pipewire() {
+    let Some(app_dir) = app_dir() else {
+        return;
+    };
+
+    for (key, relative) in [
+        ("SPA_PLUGIN_DIR", "usr/lib/spa-0.2"),
+        ("PIPEWIRE_MODULE_DIR", "usr/lib/pipewire-0.3"),
+    ] {
+        if std::env::var_os(key).is_some() {
+            continue;
+        }
+
+        let dir = app_dir.join(relative);
+        if dir.is_dir() {
+            unsafe { std::env::set_var(key, &dir) };
+        }
+    }
 }
 
 /// Opens a URL in the user's default browser.

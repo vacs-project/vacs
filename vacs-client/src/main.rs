@@ -2,6 +2,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: nothing else has started yet, so no other thread can read the environment.
+    unsafe {
+        vacs_client_lib::external::redirect_bundled_pipewire();
+    }
+
     #[cfg(unix)]
     {
         use vacs_client_lib::platform::Platform;
