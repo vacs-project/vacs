@@ -58,12 +58,14 @@ impl AsMetricLabel for CallAttemptOutcome {
             CallAttemptOutcome::Error(CallErrorReason::SignalingFailure) => {
                 "error_signaling_failure"
             }
-            CallAttemptOutcome::Error(CallErrorReason::TargetNotFound) => "error_target_not_found",
+            CallAttemptOutcome::Error(CallErrorReason::TargetsNotFound(_)) => {
+                "error_target_not_found"
+            }
             CallAttemptOutcome::Error(CallErrorReason::CallNotFound) => "error_call_not_found",
-            CallAttemptOutcome::Error(CallErrorReason::AlreadyParticipant) => {
+            CallAttemptOutcome::Error(CallErrorReason::AlreadyParticipant(_)) => {
                 "error_already_participant"
             }
-            CallAttemptOutcome::Error(CallErrorReason::NotConferenceLeader) => {
+            CallAttemptOutcome::Error(CallErrorReason::NotConferenceLeader(_)) => {
                 "error_not_conference_leader"
             }
             CallAttemptOutcome::Error(CallErrorReason::NotParticipant) => "error_not_participant",
@@ -119,7 +121,7 @@ impl AsMetricLabel for ServerMessage {
         match self {
             ServerMessage::LoginFailure(_) => "login_failure",
             ServerMessage::CallInvitation(_) => "call_invite",
-            ServerMessage::CallAccept(_) => "call_accept",
+            ServerMessage::CallAcceptance(_) => "call_acceptance",
             ServerMessage::CallEnd(_) => "call_end",
             ServerMessage::CallUpdate(_) => "call_update",
             ServerMessage::CallCancelled(_) => "call_cancelled",
@@ -156,8 +158,8 @@ impl AsMetricLabel for ErrorReason {
 impl AsMetricLabel for CallErrorReason {
     fn as_metric_label(&self) -> &'static str {
         match self {
-            CallErrorReason::TargetNotFound => "target_not_found",
-            CallErrorReason::AlreadyParticipant => "already_participant",
+            CallErrorReason::TargetsNotFound(_) => "target_not_found",
+            CallErrorReason::AlreadyParticipant(_) => "already_participant",
             CallErrorReason::CallNotFound => "call_not_found",
             CallErrorReason::CallActive => "call_active",
             CallErrorReason::WebrtcFailure => "webrtc_failure",
@@ -165,7 +167,7 @@ impl AsMetricLabel for CallErrorReason {
             CallErrorReason::CallFailure => "call_failure",
             CallErrorReason::SignalingFailure => "signaling_failure",
             CallErrorReason::AutoHangup => "auto_hangup",
-            CallErrorReason::NotConferenceLeader => "not_conference_leader",
+            CallErrorReason::NotConferenceLeader(_) => "not_conference_leader",
             CallErrorReason::NotParticipant => "not_participant",
             CallErrorReason::Other => "other",
         }
