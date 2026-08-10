@@ -253,15 +253,18 @@ pub struct UpdateParticipants {
 }
 
 impl UpdateParticipants {
-    pub fn all_participants(
-        &self,
-    ) -> std::iter::Chain<
-        std::collections::hash_map::Iter<'_, ClientId, CallTarget>,
-        std::collections::hash_map::Iter<'_, ClientId, CallTarget>,
-    > {
+    pub fn all_participants(&self) -> impl Iterator<Item = (&ClientId, &CallTarget)> {
         self.invited_participants
             .iter()
             .chain(self.joined_participants.iter())
+    }
+
+    pub fn all_participants_without_self(
+        &self,
+        client_id: ClientId,
+    ) -> impl Iterator<Item = (&ClientId, &CallTarget)> {
+        self.all_participants()
+            .filter(move |(id, _)| **id != client_id)
     }
 }
 
