@@ -19,6 +19,14 @@ pub struct CallInvitation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CallAcceptance {
+    pub call_id: CallId,
+    pub target: CallTarget,
+    pub accepting_client_id: ClientId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CallUpdate {
     pub call_id: CallId,
     pub invited_targets: HashSet<CallTarget>,
@@ -56,6 +64,12 @@ impl CallCancelled {
 impl From<CallInvitation> for ServerMessage {
     fn from(value: CallInvitation) -> Self {
         Self::CallInvitation(value)
+    }
+}
+
+impl From<CallAcceptance> for ServerMessage {
+    fn from(value: CallAcceptance) -> Self {
+        Self::CallAcceptance(value)
     }
 }
 
