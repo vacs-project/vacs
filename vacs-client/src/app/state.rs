@@ -8,7 +8,7 @@ pub(crate) mod signaling;
 pub(crate) mod webrtc;
 
 use crate::app::state::signaling::{AppStateSignalingExt, ConnectionState};
-use crate::app::state::webrtc::{Call, UnansweredCallGuard};
+use crate::app::state::webrtc::{UnansweredCallGuard, WebrtcCall};
 use crate::audio::manager::{AudioManager, AudioManagerHandle};
 use crate::config::AppConfig;
 use crate::error::{StartupError, StartupErrorExt};
@@ -26,8 +26,9 @@ use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::SignalingClient;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
-use vacs_signaling::protocol::ws::server;
-use vacs_signaling::protocol::ws::shared::{CallId, CallInvite};
+use vacs_signaling::protocol::ws::client::CallInvite;
+use vacs_signaling::protocol::ws::server::{self, CallInvitation};
+use vacs_signaling::protocol::ws::shared::{CallId, CallTarget};
 use vacs_signaling::transport::tokio::TokioTransport;
 
 pub struct AppStateInner {
@@ -38,11 +39,12 @@ pub struct AppStateInner {
     keybind_engine: KeybindEngineHandle,
     playback_recorder: PlaybackRecorderHandle,
     radio: RadioHandle,
-    active_call: Option<Call>,
-    unanswered_call_guard: Option<UnansweredCallGuard>,
-    held_calls: HashMap<CallId, Call>, // call_id -> call
+    active_webrtc_call: Option<WebrtcCall>,
+    unanswered_call_guards: HashMap<CallTarget, UnansweredCallGuard>,
+    held_calls: HashMap<CallId, WebrtcCall>,
     pub(crate) outgoing_call: Option<CallInvite>,
-    pub(crate) incoming_calls: HashMap<CallId, CallInvite>,
+    pub(crate) active_call: Option<CallInvitation>,
+    pub(crate) incoming_calls: HashMap<CallId, CallInvitation>,
     pub test_profile_watcher: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
     pub(crate) client_id: Option<ClientId>,
     pub(crate) connection_state: ConnectionState,
@@ -86,10 +88,11 @@ impl AppStateInner {
             playback_recorder: Arc::new(RwLock::new(None)),
             radio: Arc::new(RwLock::new(None)),
             shutdown_token,
-            active_call: None,
-            unanswered_call_guard: None,
+            active_webrtc_call: None,
+            unanswered_call_guards: HashMap::new(),
             held_calls: HashMap::new(),
             outgoing_call: None,
+            active_call: None,
             incoming_calls: HashMap::new(),
             test_profile_watcher: None,
             client_id: None,
