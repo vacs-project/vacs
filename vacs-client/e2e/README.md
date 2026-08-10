@@ -139,6 +139,20 @@ a degraded call, the radio error state). That is honest for a layout
 screenshot and useless as verification: an image says the UI renders that
 state, never that the underlying platform behavior works.
 
+### Capturing on Windows or macOS
+
+The **Documentation screenshots** workflow runs the same command on a runner of
+your choice and uploads the result as a `screenshots-<platform>` artifact. It
+takes a version to stamp into the header, and shares its cargo cache with the
+E2E workflow, so a capture run usually skips the cold workspace build.
+
+Use it when the images should match the platform most users are on: the UI
+bundles its own font and the capability mock pins the layout, so what still
+differs between platforms is glyph rasterization and the native form controls
+each webview draws. Nothing about the capture needs a visible desktop, on any
+platform - the driver renders inside the webview rather than grabbing the
+screen.
+
 ## Known gaps (deliberately untested here)
 
 - Real deep-link OAuth (disabled under the `e2e` feature; manual testing).

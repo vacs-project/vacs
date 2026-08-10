@@ -23,8 +23,9 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const CLOCK = "2026-01-01T10:10:10Z";
 // The version in the header. Defaults to the client's current version; set
 // VACS_SCREENSHOT_VERSION when capturing for a release that is not cut yet.
+// Empty counts as unset: an omitted workflow_dispatch input arrives as "".
 const VERSION =
-    process.env.VACS_SCREENSHOT_VERSION ??
+    process.env.VACS_SCREENSHOT_VERSION ||
     (
         JSON.parse(readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8")) as {
             version: string;
