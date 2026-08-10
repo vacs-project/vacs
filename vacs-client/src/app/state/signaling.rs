@@ -52,6 +52,19 @@ pub trait AppStateSignalingExt: sealed::Sealed {
     async fn disconnect_signaling(&mut self, app: &AppHandle);
     async fn handle_signaling_connection_closed(&mut self, app: &AppHandle);
     async fn send_signaling_message(&mut self, msg: impl Into<ClientMessage>) -> Result<(), Error>;
+    async fn try_send_call_error(
+        &mut self,
+        call_id: CallId,
+        reason: CallErrorReason,
+        message: Option<String>,
+    );
+    async fn try_send_call_error_with_client_id<F>(
+        &mut self,
+        call_id: CallId,
+        make_reason: F,
+        message: Option<String>,
+    ) where
+        F: FnOnce(ClientId) -> CallErrorReason;
     fn set_client_id(&mut self, client_id: Option<ClientId>);
     fn remove_active_call(&mut self, call_id: &CallId) -> Option<CallInvitation>;
     fn outgoing_call_id(&self) -> Option<&CallId>;
@@ -83,7 +96,7 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         call_id: &CallId,
         targets: impl Iterator<Item = &'a CallTarget>,
     );
-    fn cancel_all_unanswered_call_timers<'a>(&mut self, call_id: &CallId);
+    fn cancel_all_unanswered_call_timers(&mut self, call_id: &CallId);
     async fn accept_call(
         &mut self,
         app: &AppHandle,
@@ -160,6 +173,40 @@ impl AppStateSignalingExt for AppStateInner {
         Ok(())
     }
 
+    async fn try_send_call_error(
+        &mut self,
+        call_id: CallId,
+        reason: CallErrorReason,
+        message: Option<String>,
+    ) {
+        if let Err(err) = self
+            .send_signaling_message(shared::CallError {
+                call_id,
+                reason,
+                message,
+            })
+            .await
+        {
+            log::warn!("Failed to send call error signaling message: {err:?}");
+        }
+    }
+
+    async fn try_send_call_error_with_client_id<F>(
+        &mut self,
+        call_id: CallId,
+        make_reason: F,
+        message: Option<String>,
+    ) where
+        F: FnOnce(ClientId) -> CallErrorReason,
+    {
+        let Some(own_client_id) = self.client_id.clone() else {
+            log::error!("Cannot send call error for {call_id}: own client ID unknown");
+            return;
+        };
+        self.try_send_call_error(call_id, make_reason(own_client_id), message)
+            .await;
+    }
+
     fn set_client_id(&mut self, client_id: Option<ClientId>) {
         self.client_id = client_id;
     }
@@ -179,9 +226,8 @@ impl AppStateSignalingExt for AppStateInner {
     fn remove_outgoing_call(&mut self, call_id: &CallId) -> Option<CallInvite> {
         self.outgoing_call
             .take_if(|c| &c.call_id == call_id)
-            .and_then(|c| {
+            .inspect(|_| {
                 self.audio_manager.read().stop(SourceType::Ringback);
-                Some(c)
             })
     }
 
@@ -256,7 +302,7 @@ impl AppStateSignalingExt for AppStateInner {
     ) {
         self.cancel_unanswered_call_timers_for_targets(call_id, targets.iter());
 
-        let Some(own_client_id) = self.client_id.as_ref().cloned() else {
+        let Some(own_client_id) = &self.client_id else {
             log::warn!("Cannot start unanswered call timer without own client ID");
             return;
         };
@@ -352,7 +398,7 @@ impl AppStateSignalingExt for AppStateInner {
         app: &AppHandle,
         call_id: Option<CallId>,
     ) -> Result<bool, Error> {
-        let Some(own_client_id) = self.client_id.as_ref().cloned() else {
+        let Some(own_client_id) = &self.client_id else {
             log::warn!("Cannot accept call without own client ID");
             return Err(Error::Unauthorized);
         };
@@ -380,7 +426,7 @@ impl AppStateSignalingExt for AppStateInner {
 
         self.send_signaling_message(client::CallAccept {
             call_id,
-            accepting_client_id: own_client_id,
+            accepting_client_id: own_client_id.clone(),
         })
         .await?;
         self.remove_incoming_call(&call_id);
@@ -394,7 +440,7 @@ impl AppStateSignalingExt for AppStateInner {
     }
 
     async fn end_call(&mut self, app: &AppHandle, call_id: &CallId) -> Result<bool, Error> {
-        let Some(own_client_id) = self.client_id.as_ref().cloned() else {
+        let Some(own_client_id) = self.client_id.clone() else {
             log::warn!("Cannot end call without own client ID");
             return Err(Error::Unauthorized);
         };
@@ -414,7 +460,7 @@ impl AppStateSignalingExt for AppStateInner {
         };
         log::debug!("Ending call {call_id}");
 
-        self.cancel_unanswered_call_timers_for_targets(&call_id, call.targets.iter());
+        self.cancel_unanswered_call_timers_for_targets(call_id, call.targets.iter());
 
         self.send_signaling_message(shared::CallEnd {
             call_id: call.call_id,
@@ -422,7 +468,7 @@ impl AppStateSignalingExt for AppStateInner {
         })
         .await?;
 
-        self.cleanup_call(&call_id).await;
+        self.cleanup_call(call_id).await;
 
         self.audio_manager.read().stop(SourceType::Ringback);
 
@@ -535,7 +581,7 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                let Some(own_client_id) = state.client_id.as_ref().cloned() else {
+                let Some(own_client_id) = state.client_id.clone() else {
                     log::warn!("Cannot handle call invite without own client ID");
                     return;
                 };
@@ -583,7 +629,7 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                let Some(own_client_id) = state.client_id.as_ref().cloned() else {
+                let Some(own_client_id) = state.client_id.clone() else {
                     log::warn!("Cannot handle call accept without own client ID");
                     return;
                 };
@@ -594,14 +640,20 @@ impl AppStateInner {
                     app.emit("signaling:outgoing-call-accepted", msg).ok();
 
                     match state
-                        .init_call(app.clone(), *call_id, accepting_client_id.clone(), None)
+                        .init_call(
+                            app.clone(),
+                            *call_id,
+                            accepting_client_id.clone(),
+                            &own_client_id,
+                            None,
+                        )
                         .await
                     {
                         Ok(sdp) => {
                             state
                                 .send_signaling_message(shared::WebrtcOffer {
                                     call_id: *call_id,
-                                    from_client_id: own_client_id,
+                                    from_client_id: own_client_id.clone(),
                                     to_client_id: accepting_client_id.clone(),
                                     sdp,
                                 })
@@ -610,7 +662,8 @@ impl AppStateInner {
                         Err(err) => {
                             log::warn!("Failed to start call: {err:?}");
 
-                            let reason: CallErrorReason = err.into();
+                            let reason: CallErrorReason =
+                                err.into_call_error_reason(own_client_id.clone());
                             state.emit_call_error(
                                 app,
                                 *call_id,
@@ -731,15 +784,32 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
+                let Some(own_client_id) = state.client_id.clone() else {
+                    log::warn!("Cannot handle WebRTC offer without own client ID");
+                    return;
+                };
+
                 // A new offer for the already active call means the peer detected a broken
                 // media path and reconnects with a fresh peer connection (usually relayed).
                 let res = if state.is_active_call_peer(&call_id, &from_client_id) {
                     state
-                        .reaccept_call_offer(app.clone(), call_id, from_client_id.clone(), sdp)
+                        .reaccept_call_offer(
+                            app.clone(),
+                            call_id,
+                            from_client_id.clone(),
+                            &own_client_id,
+                            sdp,
+                        )
                         .await
                 } else {
                     state
-                        .init_call(app.clone(), call_id, from_client_id.clone(), Some(sdp))
+                        .init_call(
+                            app.clone(),
+                            call_id,
+                            from_client_id.clone(),
+                            &own_client_id,
+                            Some(sdp),
+                        )
                         .await
                 };
 
@@ -756,8 +826,9 @@ impl AppStateInner {
                     }
                     Err(err) => {
                         log::warn!("Failed to accept call offer: {err:?}");
-                        let reason: CallErrorReason = err.into();
-                        state.emit_call_error(app, call_id, true, reason.clone());
+                        let reason: CallErrorReason =
+                            err.into_call_error_reason(own_client_id.clone());
+                        state.emit_call_error(app, call_id, true, HashSet::new(), reason.clone()); // TODO targets
                         state
                             .send_signaling_message(shared::CallError {
                                 call_id,
@@ -783,12 +854,17 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
+                let Some(own_client_id) = state.client_id.clone() else {
+                    log::warn!("Cannot handle WebRTC answer without own client ID");
+                    return;
+                };
+
                 if let Err(err) = state.accept_call_answer(&from_client_id, sdp).await {
                     log::warn!("Failed to accept answer: {err:?}");
                     if let Err(err) = state
                         .send_signaling_message(shared::CallError {
                             call_id,
-                            reason: err.into(),
+                            reason: err.into_call_error_reason(own_client_id),
                             message: None,
                         })
                         .await

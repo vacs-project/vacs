@@ -10,6 +10,7 @@ use std::fmt::{Debug, Display, Formatter};
 use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
+use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::server::{DisconnectReason, LoginFailureReason};
 use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, CallTarget, ErrorReason};
 
@@ -272,14 +273,14 @@ fn format_signaling_error(err: &SignalingError) -> String {
     }
 }
 
-impl From<Error> for CallErrorReason {
-    fn from(err: Error) -> Self {
-        match err {
-            Error::AudioDevice(_) => CallErrorReason::AudioFailure,
+impl Error {
+    pub fn into_call_error_reason(self, own_client_id: ClientId) -> CallErrorReason {
+        match self {
+            Error::AudioDevice(_) => CallErrorReason::AudioFailure(own_client_id),
             Error::Webrtc(err) => match err.as_ref() {
                 vacs_webrtc::error::WebrtcError::CallActive => CallErrorReason::CallFailure,
                 vacs_webrtc::error::WebrtcError::NoCallActive => CallErrorReason::CallFailure,
-                _ => CallErrorReason::WebrtcFailure,
+                _ => CallErrorReason::WebrtcFailure(own_client_id),
             },
             _ => CallErrorReason::Other,
         }
@@ -308,14 +309,14 @@ impl CallError {
                 "{} {}",
                 if is_local { "Local" } else { "Remote" },
                 match reason {
-                    CallErrorReason::WebrtcFailure => "Connection failure",
-                    CallErrorReason::AudioFailure => "Audio failure",
+                    CallErrorReason::WebrtcFailure(_) => "Connection failure",
+                    CallErrorReason::AudioFailure(_) => "Audio failure",
                     CallErrorReason::CallFailure => "Call failure",
                     CallErrorReason::CallActive => "Call already active",
-                    CallErrorReason::SignalingFailure => "Target not reachable",
+                    CallErrorReason::SignalingFailure(_) => "Target not reachable",
                     CallErrorReason::AutoHangup => "Target did not answer",
                     CallErrorReason::Other => "Unknown failure",
-                    CallErrorReason::TargetsNotFound(targets) if targets.len() == 0 =>
+                    CallErrorReason::TargetsNotFound(targets) if targets.is_empty() =>
                         "Target not found",
                     CallErrorReason::TargetsNotFound(_) => "Targets not found",
                     CallErrorReason::AlreadyParticipant(_) => "Target participating",

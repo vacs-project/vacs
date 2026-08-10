@@ -93,6 +93,7 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
         app: AppHandle,
         call_id: CallId,
         peer_id: ClientId,
+        own_client_id: &ClientId,
         offer_sdp: Option<String>,
     ) -> Result<String, Error>;
     fn is_active_call_peer(&self, call_id: &CallId, peer_id: &ClientId) -> bool;
@@ -101,6 +102,7 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
         app: AppHandle,
         call_id: CallId,
         peer_id: ClientId,
+        own_client_id: &ClientId,
         offer_sdp: String,
     ) -> Result<String, Error>;
     async fn accept_call_answer(
@@ -129,6 +131,7 @@ impl AppStateWebrtcExt for AppStateInner {
         app: AppHandle,
         call_id: CallId,
         peer_id: ClientId,
+        own_client_id: &ClientId,
         offer_sdp: Option<String>,
     ) -> Result<String, Error> {
         if self.active_webrtc_call.is_some() {
@@ -159,6 +162,7 @@ impl AppStateWebrtcExt for AppStateInner {
             app,
             call_id,
             peer_id.clone(),
+            own_client_id.clone(),
             events_rx,
             events_cancel.clone(),
         );
@@ -190,6 +194,7 @@ impl AppStateWebrtcExt for AppStateInner {
         app: AppHandle,
         call_id: CallId,
         peer_id: ClientId,
+        own_client_id: &ClientId,
         offer_sdp: String,
     ) -> Result<String, Error> {
         if !self.is_active_call_peer(&call_id, &peer_id) {
@@ -241,6 +246,7 @@ impl AppStateWebrtcExt for AppStateInner {
             app,
             call_id,
             peer_id.clone(),
+            own_client_id.clone(),
             events_rx,
             events_cancel.clone(),
         );
@@ -489,6 +495,7 @@ impl AppStateInner {
         &mut self,
         app: &AppHandle,
         call_id: &CallId,
+        own_client_id: &ClientId,
     ) -> Result<Option<String>, Error> {
         let Some(call) = self.active_webrtc_call.as_ref() else {
             log::debug!("No active call for relay reconnect");
@@ -556,6 +563,7 @@ impl AppStateInner {
             app.clone(),
             *call_id,
             peer_id.clone(),
+            own_client_id.clone(),
             events_rx,
             events_cancel.clone(),
         );
@@ -580,6 +588,7 @@ fn spawn_peer_events_task(
     app: AppHandle,
     call_id: CallId,
     peer_id: ClientId,
+    own_client_id: ClientId,
     mut events_rx: broadcast::Receiver<PeerEvent>,
     cancel: CancellationToken,
 ) {
@@ -605,8 +614,9 @@ fn spawn_peer_events_task(
                             if let Err(err) =
                                 state.on_peer_connected(&app, &call_id, &peer_id).await
                             {
-                                let reason: CallErrorReason = err.into();
                                 state.cleanup_call(&call_id).await;
+
+                                let reason = err.into_call_error_reason(own_client_id.clone());
                                 if let Err(err) = state
                                     .send_signaling_message(shared::CallError {
                                         call_id,
@@ -617,7 +627,7 @@ fn spawn_peer_events_task(
                                 {
                                     log::warn!("Failed to send call message: {err:?}");
                                 }
-                                state.emit_call_error(&app, call_id, true, reason);
+                                state.emit_call_error(&app, call_id, true, HashSet::new(), reason); // TODO targets
                             }
                         }
                         PeerConnectionState::Disconnected => {
@@ -655,7 +665,8 @@ fn spawn_peer_events_task(
                                 &app,
                                 call_id,
                                 true,
-                                CallErrorReason::WebrtcFailure,
+                                HashSet::new(), // TODO targets
+                                CallErrorReason::WebrtcFailure(own_client_id.clone()),
                             );
                         }
                         PeerConnectionState::Closed => {
@@ -676,15 +687,10 @@ fn spawn_peer_events_task(
                         let app_state = app.state::<AppState>();
                         let mut state = app_state.lock().await;
 
-                        let Some(own_client_id) = state.client_id.as_ref().cloned() else {
-                            log::warn!("Cannot send ICE candidate without own client ID");
-                            return;
-                        };
-
                         if let Err(err) = state
                             .send_signaling_message(shared::WebrtcIceCandidate {
                                 call_id,
-                                from_client_id: own_client_id,
+                                from_client_id: own_client_id.clone(),
                                 to_client_id: peer_id.clone(),
                                 candidate,
                             })
@@ -697,17 +703,15 @@ fn spawn_peer_events_task(
                         let app_state = app.state::<AppState>();
                         let mut state = app_state.lock().await;
 
-                        match state.try_relay_reconnect(&app, &call_id).await {
+                        match state
+                            .try_relay_reconnect(&app, &call_id, &own_client_id)
+                            .await
+                        {
                             Ok(Some(sdp)) => {
-                                let Some(own_client_id) = state.client_id.as_ref().cloned() else {
-                                    log::warn!("Cannot send WebRTC offer without own client ID");
-                                    return;
-                                };
-
                                 if let Err(err) = state
                                     .send_signaling_message(shared::WebrtcOffer {
                                         call_id,
-                                        from_client_id: own_client_id,
+                                        from_client_id: own_client_id.clone(),
                                         to_client_id: peer_id.clone(),
                                         sdp,
                                     })
@@ -720,7 +724,7 @@ fn spawn_peer_events_task(
                             Err(err) => {
                                 log::warn!("Failed to reconnect call via relay: {err:?}");
 
-                                let reason = CallErrorReason::WebrtcFailure;
+                                let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
                                 state.cleanup_call(&call_id).await;
                                 if let Err(err) = state
                                     .send_signaling_message(shared::CallError {
@@ -732,7 +736,7 @@ fn spawn_peer_events_task(
                                 {
                                     log::warn!("Failed to send call message: {err:?}");
                                 }
-                                state.emit_call_error(&app, call_id, true, reason);
+                                state.emit_call_error(&app, call_id, true, HashSet::new(), reason); // TODO targets
                             }
                         }
                     }
