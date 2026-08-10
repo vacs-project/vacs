@@ -455,7 +455,8 @@ impl DesktopEnvironment {
             };
 
             match result {
-                Ok(_) => {
+                Ok(child) => {
+                    crate::external::reap_detached(child);
                     log::info!("Successfully opened keyboard shortcuts settings");
                     Ok(())
                 }

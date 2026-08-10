@@ -92,6 +92,7 @@ fn strip_app_dir(value: &OsString, app_dir: &Path) -> Option<OsString> {
 /// inherits. The program is resolved against the cleaned `PATH` by hand: `execvp` searches the
 /// parent's `PATH`, so setting it on the child is not enough to stop the bundled copy from winning.
 #[cfg(target_os = "linux")]
+#[allow(clippy::disallowed_methods)] // the escape hatch the rest of the crate is barred from
 pub fn host_command(program: &str) -> Command {
     let Some(app_dir) = app_dir() else {
         return Command::new(program);
@@ -121,22 +122,34 @@ pub fn host_command(program: &str) -> Command {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(clippy::disallowed_methods)] // the escape hatch the rest of the crate is barred from
 pub fn host_command(program: &str) -> std::process::Command {
     std::process::Command::new(program)
 }
 
-/// Finds the first executable named `program` in a colon-separated search path.
+/// Finds the first entry of a colon-separated search path holding a `program` the current user can
+/// actually execute, mirroring `execvp`: a file we lack permission for is skipped, not selected.
 #[cfg(target_os = "linux")]
 fn resolve_in_path(path: &OsString, program: &str) -> Option<PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-
     std::env::split_paths(path)
         .map(|dir| dir.join(program))
         .find(|candidate| {
-            candidate
-                .metadata()
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            candidate.metadata().is_ok_and(|meta| meta.is_file()) && is_executable(candidate)
         })
+}
+
+/// Whether the current user may execute `path`, per `access(2)`. The mode bits alone cannot answer
+/// this: a root-owned `0700` file has an execute bit set but is not runnable by us.
+#[cfg(target_os = "linux")]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+
+    // SAFETY: the pointer is a valid NUL-terminated string for the duration of the call.
+    unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
 }
 
 /// Points PipeWire at the SPA plugins and modules we ship, when there are any.
@@ -156,11 +169,16 @@ pub unsafe fn redirect_bundled_pipewire() {
         return;
     };
 
+    // These AppDir paths are the destination keys of `bundle.linux.appimage.files` in
+    // tauri.appimage.conf.json, which CI applies on the Linux release leg; a rename there without
+    // one here skips the redirect silently. Locally built AppImages do not carry the overlay (its
+    // source paths are Debian specific) and fall through the is_dir check below by design.
     for (key, relative) in [
         ("SPA_PLUGIN_DIR", "usr/lib/spa-0.2"),
         ("PIPEWIRE_MODULE_DIR", "usr/lib/pipewire-0.3"),
     ] {
-        if std::env::var_os(key).is_some() {
+        // Empty counts as unset: a placeholder export must not suppress the redirect.
+        if std::env::var_os(key).is_some_and(|value| !value.is_empty()) {
             continue;
         }
 
@@ -185,17 +203,17 @@ pub fn open_url(url: &str) -> Result<()> {
 pub fn open_path(path: &Path) -> Result<()> {
     #[cfg(target_os = "linux")]
     if app_dir().is_some() {
-        return xdg_open(&path.to_string_lossy());
+        return xdg_open(path);
     }
 
     tauri_plugin_opener::open_path(path, None::<&str>).context("Failed to open path")
 }
 
-/// Hands `target` to the host `xdg-open`. Reaped on a detached thread: `xdg-open` returns as soon
-/// as it has handed off, but leaving the child unwaited would keep a zombie for the app's lifetime.
+/// Hands `target` to the host `xdg-open`. Takes an `OsStr` so non-UTF8 paths, which are legal on
+/// Linux filesystems, pass through byte for byte instead of being mangled by a lossy conversion.
 #[cfg(target_os = "linux")]
-fn xdg_open(target: &str) -> Result<()> {
-    let mut child = host_command("xdg-open")
+fn xdg_open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
+    let child = host_command("xdg-open")
         .arg(target)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -203,13 +221,20 @@ fn xdg_open(target: &str) -> Result<()> {
         .spawn()
         .context("Failed to run xdg-open")?;
 
-    std::thread::spawn(move || {
-        if let Err(err) = child.wait() {
-            log::warn!("Failed to reap xdg-open: {err}");
-        }
-    });
+    reap_detached(child);
 
     Ok(())
+}
+
+/// Waits for a detached child on a background thread. The child returns as soon as it has handed
+/// off its work, but leaving it unwaited would keep a zombie around for the app's lifetime.
+#[cfg(target_os = "linux")]
+pub fn reap_detached(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        if let Err(err) = child.wait() {
+            log::warn!("Failed to reap detached child process: {err}");
+        }
+    });
 }
 
 #[cfg(all(test, target_os = "linux"))]

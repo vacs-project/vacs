@@ -47,6 +47,7 @@ http-body-util = "0.1.3"
 jsonwebtoken = "10.4.0"
 keyboard-types = { version = "0.8.3", features = ["serde"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-openssl"] }
+libc = "0.2.186"
 log = "0.4.30"
 lru = "0.18.0"
 metrics = "0.24.6"
