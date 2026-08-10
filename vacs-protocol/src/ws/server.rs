@@ -6,9 +6,7 @@ pub use auth::*;
 pub use calls::*;
 pub use network::*;
 
-use crate::ws::shared::{
-    CallAccept, CallEnd, CallError, Error, WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer,
-};
+use crate::ws::shared::{CallEnd, CallError, Error, WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -16,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub enum ServerMessage {
     LoginFailure(LoginFailure),
     CallInvitation(CallInvitation),
-    CallAccept(CallAccept),
+    CallAcceptance(CallAcceptance),
     CallEnd(CallEnd),
     CallUpdate(CallUpdate),
     CallCancelled(CallCancelled),
@@ -52,7 +50,7 @@ impl ServerMessage {
         match self {
             ServerMessage::LoginFailure(_) => "LoginFailure",
             ServerMessage::CallInvitation(_) => "CallInvite",
-            ServerMessage::CallAccept(_) => "CallAccept",
+            ServerMessage::CallAcceptance(_) => "CallAcceptance",
             ServerMessage::CallEnd(_) => "CallEnd",
             ServerMessage::CallUpdate(_) => "CallUpdate",
             ServerMessage::CallCancelled(_) => "CallCancelled",

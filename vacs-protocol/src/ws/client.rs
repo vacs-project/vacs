@@ -4,9 +4,7 @@ pub mod calls;
 pub use auth::*;
 pub use calls::*;
 
-use crate::ws::shared::{
-    CallAccept, CallEnd, CallError, Error, WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer,
-};
+use crate::ws::shared::{CallEnd, CallError, Error, WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer};
 use serde::{Deserialize, Serialize};
 
 // TODO: add CallDropTarget

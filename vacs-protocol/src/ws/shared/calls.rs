@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::vatsim::{ClientId, PositionId, StationId};
 use crate::ws::client::ClientMessage;
@@ -73,11 +73,11 @@ impl From<CallSource> for CallTarget {
 
 pub type CallParticipants = HashMap<ClientId, CallTarget>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CallErrorReason {
-    TargetNotFound,
-    AlreadyParticipant,
+    TargetsNotFound(HashSet<CallTarget>),
+    AlreadyParticipant(CallTarget),
     CallNotFound,
     CallActive,
     WebrtcFailure,
@@ -85,19 +85,9 @@ pub enum CallErrorReason {
     CallFailure,
     SignalingFailure,
     AutoHangup,
-    NotConferenceLeader,
+    NotConferenceLeader(CallTarget),
     NotParticipant,
     Other,
-}
-
-// CallInvite: CallId, Target, Source, Invited/Pending_Participants, Joined/Active_Participants
-// CallUpdate: CallId, Invited/Pending_Participants, Joined/Active_Participants -> sent WHENEVER a calls participants are updated, to every participant which did not reject/error
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CallAccept {
-    pub call_id: CallId,
-    pub accepting_client_id: ClientId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,18 +219,6 @@ impl From<PositionId> for CallTarget {
 impl From<StationId> for CallTarget {
     fn from(value: StationId) -> Self {
         Self::Station(value)
-    }
-}
-
-impl From<CallAccept> for ClientMessage {
-    fn from(value: CallAccept) -> Self {
-        Self::CallAccept(value)
-    }
-}
-
-impl From<CallAccept> for ServerMessage {
-    fn from(value: CallAccept) -> Self {
-        Self::CallAccept(value)
     }
 }
 
