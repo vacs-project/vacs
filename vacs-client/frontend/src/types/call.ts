@@ -12,12 +12,34 @@ export type CallTarget = {
     station?: StationId;
 };
 
+export type CallParticipants = Map<ClientId, CallTarget>;
+
 export type Call = {
     callId: CallId;
     source: CallSource;
     target: CallTarget;
+    invitedTargets: CallTarget[];
+    joinedParticipants: CallParticipants;
     prio: boolean;
 };
+
+export type CallUpdate = {
+    callId: CallId;
+    invitedTargets: CallTarget[];
+    joinedParticipants: CallParticipants;
+};
+
+export function hasTarget(participants: CallParticipants, target: CallTarget) {
+    for (const value of participants.values()) {
+        if (
+            value.client === target.client &&
+            value.position === target.position &&
+            value.station === target.station
+        )
+            return true;
+    }
+    return false;
+}
 
 export function callSourceToTarget(source: CallSource): CallTarget {
     if (source.stationId !== undefined) {

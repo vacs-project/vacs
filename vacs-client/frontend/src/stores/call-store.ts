@@ -1,8 +1,8 @@
 import {create} from "zustand/react";
-import {invokeStrict} from "../error.ts";
+import {CallError, invokeStrict} from "../error.ts";
 import {useErrorOverlayStore} from "./error-overlay-store.ts";
 import {useAuthStore} from "./auth-store.ts";
-import {Call, CallSource, CallTarget} from "../types/call.ts";
+import {Call, CallSource, CallTarget, CallUpdate} from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
 import {useCallListStore} from "./call-list-store.ts";
@@ -16,6 +16,8 @@ export type CallDisplay = {
     type: CallDisplayType;
     call: Call;
     targetClientId?: ClientId;
+    erroredTargets: {target: CallTarget; reason: string}[];
+    rejectedTargets: CallTarget[];
     errorReason?: string;
     connectionState?: ConnectionState;
 };
@@ -33,10 +35,11 @@ type CallState = {
         setOutgoingCallAccepted: (calLId: CallId, targetClientId: ClientId) => void;
         endCall: () => void;
         addIncomingCall: (call: Call) => void;
+        updateCall: (update: CallUpdate) => void;
         removeCall: (id: CallId, callEnd?: boolean) => void;
-        rejectCall: (id: CallId) => void;
+        rejectCall: (id: CallId, targets: CallTarget[]) => void;
         dismissRejectedCall: () => void;
-        errorCall: (id: CallId, reason: string) => void;
+        errorTargets: (error: CallError) => void;
         dismissErrorCall: () => void;
         setConnectionState: (id: CallId, connectionState: ConnectionState) => void;
         setPrio: (prio: boolean) => void;
@@ -59,7 +62,15 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 startBlink();
             }
 
-            set({callDisplay: {type: "outgoing", call, connectionState: undefined}});
+            set({
+                callDisplay: {
+                    type: "outgoing",
+                    call,
+                    rejectedTargets: [],
+                    erroredTargets: [],
+                    connectionState: undefined,
+                },
+            });
         },
         acceptIncomingCall: callId => {
             const incomingCall = get().incomingCalls.find(call => call.callId === callId);
@@ -76,6 +87,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     type: "accepted",
                     call: incomingCall,
                     targetClientId: incomingCall.source.clientId,
+                    rejectedTargets: [],
+                    erroredTargets: [],
                     connectionState: "connecting",
                 },
                 incomingCalls,
@@ -111,6 +124,25 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             set({incomingCalls: [...incomingCalls, call]});
         },
+        updateCall: update => {
+            const incomingCall = get().incomingCalls.find(call => call.callId === update.callId);
+            const callDisplay = get().callDisplay;
+
+            if (incomingCall !== undefined) {
+                set({
+                    incomingCalls: get().incomingCalls.map(call =>
+                        call.callId === update.callId ? {...incomingCall, ...update} : call,
+                    ),
+                });
+            } else if (callDisplay?.call.callId === update.callId) {
+                set({
+                    callDisplay: {
+                        ...callDisplay,
+                        call: {...callDisplay.call, ...update},
+                    },
+                });
+            }
+        },
         removeCall: (callId, callEnd) => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== callId);
             let callDisplay = get().callDisplay;
@@ -130,8 +162,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
             tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState); // TODO: validate conference state
             set({incomingCalls, callDisplay, conferenceState});
         },
-        rejectCall: callId => {
-            const callDisplay = get().callDisplay;
+        rejectCall: (callId, targets) => {
+            let callDisplay = get().callDisplay;
 
             if (
                 callDisplay === undefined ||
@@ -142,11 +174,30 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
+            callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
+                target =>
+                    !targets.some(
+                        rejectedTarget =>
+                            rejectedTarget.client === target.client &&
+                            rejectedTarget.position === target.position &&
+                            rejectedTarget.station === target.station,
+                    ),
+            );
+
+            if (
+                callDisplay.call.invitedTargets.length + callDisplay.call.joinedParticipants.size >
+                0
+            ) {
+                callDisplay.rejectedTargets.push(...targets);
+            } else {
+                callDisplay.type = "rejected";
+                callDisplay.rejectedTargets.push(...targets);
+                callDisplay.connectionState = undefined;
+            }
+
             rejectCallInCallListIfUnanswered(callId);
 
-            set({
-                callDisplay: {type: "rejected", call: callDisplay.call, connectionState: undefined},
-            });
+            set({callDisplay});
 
             startBlink();
         },
@@ -154,8 +205,9 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({callDisplay: undefined});
             tryStopBlink(null, undefined, null, null, null);
         },
-        errorCall: (callId, reason) => {
-            const callDisplay = get().callDisplay;
+        errorTargets: error => {
+            const callId = error.callId;
+            let callDisplay = get().callDisplay;
 
             if (
                 callDisplay === undefined ||
@@ -166,14 +218,38 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            set({
-                callDisplay: {
-                    type: "error",
-                    call: callDisplay.call,
-                    errorReason: reason,
-                    connectionState: undefined,
-                },
-            });
+            if (error.targets.length === 0) {
+                callDisplay.call.invitedTargets = [];
+                callDisplay.call.joinedParticipants = new Map();
+            } else {
+                callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
+                    target =>
+                        !error.targets.some(
+                            errorTarget =>
+                                errorTarget.client === target.client &&
+                                errorTarget.position === target.position &&
+                                errorTarget.station === target.station,
+                        ),
+                );
+            }
+
+            if (
+                callDisplay.call.invitedTargets.length + callDisplay.call.joinedParticipants.size >
+                0
+            ) {
+                callDisplay.erroredTargets.push(
+                    ...error.targets.map(target => ({target, reason: error.reason})),
+                );
+            } else {
+                callDisplay.type = "error";
+                callDisplay.erroredTargets.push(
+                    ...error.targets.map(target => ({target, reason: error.reason})),
+                );
+                callDisplay.errorReason = error.reason;
+                callDisplay.connectionState = undefined;
+            }
+
+            set({callDisplay});
 
             rejectCallInCallListIfUnanswered(callId);
 
@@ -223,7 +299,9 @@ const rejectCallInCallListIfUnanswered = (callId: CallId) =>
         .getState()
         .actions.updateCall(callId, state => ({answered: state.answered || false}));
 
-export const startCall = async (target: CallTarget) => {
+export const startCall = async (...targets: CallTarget[]) => {
+    if (targets.length === 0) return;
+
     const {cid} = useAuthStore.getState();
     const openErrorOverlay = useErrorOverlayStore.getState().open;
 
@@ -235,13 +313,13 @@ export const startCall = async (target: CallTarget) => {
             5000,
         );
         return;
-    } else if (target.client === cid) {
+    } else if (targets.some(target => target.client === cid)) {
         openErrorOverlay("Call error", "You cannot call yourself", false, 5000);
         return;
     }
 
     const {info} = useConnectionStore.getState();
-    const {addOutgoingCall: addOutgoingCallToCallList} = useCallListStore.getState().actions;
+    // const {addOutgoingCall: addOutgoingCallToCallList} = useCallListStore.getState().actions;
     const {prio} = useCallStore.getState();
     const {setOutgoingCall, setPrio} = useCallStore.getState().actions;
     const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
@@ -261,9 +339,16 @@ export const startCall = async (target: CallTarget) => {
     };
 
     try {
-        const callId = await invokeStrict<CallId>("signaling_start_call", {source, target, prio});
-        setOutgoingCall({callId, source, target, prio});
+        const callId = await invokeStrict<CallId>("signaling_start_call", {source, targets, prio});
+        setOutgoingCall({
+            callId,
+            source,
+            target: targets[0],
+            invitedTargets: targets,
+            joinedParticipants: new Map(),
+            prio,
+        });
         setPrio(false);
-        addOutgoingCallToCallList({callId, target});
+        // TODO: addOutgoingCallToCallList({callId, target});
     } catch {}
 };

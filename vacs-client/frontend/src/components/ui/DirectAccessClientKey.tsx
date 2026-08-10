@@ -7,6 +7,7 @@ import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
 import {useBlinkStore} from "../../stores/blink-store.ts";
+import {hasTarget} from "../../types/call.ts";
 
 type DAKeyProps = {
     client: ClientInfo;
@@ -20,13 +21,19 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
-    const incomingCall = incomingCalls.find(call => call.source.clientId === client.id);
+    const incomingCall = incomingCalls.find(
+        call =>
+            call.source.clientId === client.id ||
+            hasTarget(call.joinedParticipants, {client: client.id}),
+    );
     const isCalling = incomingCall !== undefined;
     const beingCalled =
-        callDisplay?.type === "outgoing" && callDisplay.call.target.client === client.id;
+        callDisplay?.type === "outgoing" &&
+        callDisplay.call.invitedTargets.some(target => target.client === client.id);
     const involved =
         callDisplay !== undefined &&
-        (callDisplay.call.target.client === client.id ||
+        (callDisplay.call.invitedTargets.some(target => target.client === client.id) ||
+            callDisplay.call.joinedParticipants.has(client.id) ||
             callDisplay.call.source.clientId === client.id);
     const inCall = callDisplay?.type === "accepted" && involved;
     const isRejected = callDisplay?.type === "rejected" && involved;

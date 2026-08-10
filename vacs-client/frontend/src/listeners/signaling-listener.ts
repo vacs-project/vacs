@@ -9,7 +9,7 @@ import {useProfileStore} from "../stores/profile-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
 import {listen, UnlistenFn} from "../transport";
-import {Call} from "../types/call.ts";
+import {Call, CallTarget, CallUpdate} from "../types/call.ts";
 import {ClientInfo, ClientPageSettings, SessionInfo} from "../types/client.ts";
 import {CallId, ClientId, PositionId} from "../types/generic.ts";
 import {Profile} from "../types/profile.ts";
@@ -25,6 +25,7 @@ export function setupSignalingListeners() {
     } = useStationsStore.getState();
     const {
         addIncomingCall,
+        updateCall,
         removeCall,
         rejectCall,
         acceptIncomingCall,
@@ -98,7 +99,7 @@ export function setupSignalingListeners() {
                     5000,
                 );
             }),
-            listen<Call>("signaling:call-invite", event => {
+            listen<Call>("signaling:call-invitation", event => {
                 addIncomingCall(event.payload);
             }),
             listen<CallId>("signaling:accept-incoming-call", event => {
@@ -110,14 +111,17 @@ export function setupSignalingListeners() {
                     setOutgoingCallAccepted(event.payload.callId, event.payload.acceptingClientId);
                 },
             ),
+            listen<CallUpdate>("signaling:call-update", event => {
+                updateCall(event.payload);
+            }),
             listen<CallId>("signaling:call-end", event => {
                 removeCall(event.payload, true);
             }),
             listen<CallId>("signaling:force-call-end", event => {
                 removeCall(event.payload);
             }),
-            listen<CallId>("signaling:call-reject", event => {
-                rejectCall(event.payload);
+            listen<{callId: CallId; targets: CallTarget[]}>("signaling:call-reject", event => {
+                rejectCall(event.payload.callId, event.payload.targets);
             }),
             listen<IncomingCallListEntry>("signaling:add-incoming-to-call-list", event => {
                 addIncomingCallToCallList(event.payload);

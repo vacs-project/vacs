@@ -36,8 +36,8 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
-use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
-use vacs_signaling::protocol::ws::shared::CallInvite;
+use vacs_signaling::protocol::ws::client::CallInvite;
+use vacs_signaling::protocol::ws::server::{CallInvitation, ClientInfo, SessionInfo, StationInfo};
 
 const BROADCAST_CHANNEL_SIZE: usize = 256;
 const DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -425,7 +425,7 @@ struct SessionStateSnapshot {
     call_config: FrontendCallConfig,
     client_page_settings: FrontendClientPageSettings,
     capabilities: Capabilities,
-    incoming_calls: Vec<CallInvite>,
+    incoming_calls: Vec<CallInvitation>,
     outgoing_call: Option<CallInvite>,
 }
 

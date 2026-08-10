@@ -7,6 +7,7 @@ import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
 import {CustomButtonColor} from "../types/custom-button-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
+import {hasTarget} from "../types/call.ts";
 
 export function useStationKeyInteraction(
     stationId: StationId | undefined,
@@ -32,19 +33,23 @@ export function useStationKeyInteraction(
     const own = station !== undefined && station;
 
     const incomingCall = incomingCalls.find(
-        call => hasStationId && call.source.stationId === stationId,
+        call =>
+            hasStationId &&
+            (call.source.stationId === stationId ||
+                hasTarget(call.joinedParticipants, {station: stationId})),
     );
     const isCalling = incomingCall !== undefined && !own;
     const beingCalled =
         hasStationId &&
         !own &&
         callDisplay?.type === "outgoing" &&
-        callDisplay.call.target.station === stationId;
+        callDisplay.call.invitedTargets.some(target => target.station === stationId);
     const involved =
         !own &&
         callDisplay !== undefined &&
         (callDisplay.call.source.stationId === stationId ||
-            callDisplay.call.target.station === stationId);
+            callDisplay.call.invitedTargets.some(target => target.station === stationId) ||
+            hasTarget(callDisplay.call.joinedParticipants, {station: stationId}));
     const inCall = hasStationId && involved && callDisplay.type === "accepted";
     const isRejected = hasStationId && involved && callDisplay?.type === "rejected";
     const isError = hasStationId && involved && callDisplay?.type === "error";

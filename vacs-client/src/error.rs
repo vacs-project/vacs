@@ -5,12 +5,13 @@ use crate::playback::PlaybackError;
 use crate::radio::RadioError;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
 use vacs_signaling::protocol::ws::server::{DisconnectReason, LoginFailureReason};
-use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, ErrorReason};
+use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, CallTarget, ErrorReason};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -289,13 +290,20 @@ impl From<Error> for CallErrorReason {
 #[serde(rename_all = "camelCase")]
 pub struct CallError {
     call_id: CallId,
+    targets: HashSet<CallTarget>,
     reason: String,
 }
 
 impl CallError {
-    pub fn new(call_id: CallId, is_local: bool, reason: CallErrorReason) -> Self {
+    pub fn new(
+        call_id: CallId,
+        is_local: bool,
+        targets: HashSet<CallTarget>,
+        reason: CallErrorReason,
+    ) -> Self {
         Self {
             call_id,
+            targets,
             reason: format!(
                 "{} {}",
                 if is_local { "Local" } else { "Remote" },
@@ -307,10 +315,12 @@ impl CallError {
                     CallErrorReason::SignalingFailure => "Target not reachable",
                     CallErrorReason::AutoHangup => "Target did not answer",
                     CallErrorReason::Other => "Unknown failure",
-                    CallErrorReason::TargetNotFound => "Call target not found",
-                    CallErrorReason::AlreadyParticipant => "Target participating",
+                    CallErrorReason::TargetsNotFound(targets) if targets.len() == 0 =>
+                        "Target not found",
+                    CallErrorReason::TargetsNotFound(_) => "Targets not found",
+                    CallErrorReason::AlreadyParticipant(_) => "Target participating",
                     CallErrorReason::CallNotFound => "Call not found",
-                    CallErrorReason::NotConferenceLeader => "Call not lead",
+                    CallErrorReason::NotConferenceLeader(_) => "Call not lead",
                     CallErrorReason::NotParticipant => "Call not participating",
                 }
             ),
