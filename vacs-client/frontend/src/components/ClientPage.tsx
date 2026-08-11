@@ -115,7 +115,7 @@ function ClientPageGroupKey({
             clientIdsInGroup.some(
                 clientId =>
                     callDisplay.call.invitedTargets.some(target => target.client === clientId) ||
-                    callDisplay.call.joinedParticipants.has(clientId),
+                    clientId in callDisplay.call.joinedParticipants,
             ));
     const beingCalled = callDisplay?.type === "outgoing" && involved;
     const inCall = callDisplay?.type === "accepted" && involved;

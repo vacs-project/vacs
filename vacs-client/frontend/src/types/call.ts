@@ -12,7 +12,7 @@ export type CallTarget = {
     station?: StationId;
 };
 
-export type CallParticipants = Map<ClientId, CallTarget>;
+export type CallParticipants = Record<ClientId, CallTarget>;
 
 export type Call = {
     callId: CallId;
@@ -29,8 +29,12 @@ export type CallUpdate = {
     joinedParticipants: CallParticipants;
 };
 
+export function participantCount(participants: CallParticipants, excludeSelf: boolean = false) {
+    return Math.max(Object.keys(participants).length - (excludeSelf ? 1 : 0), 0);
+}
+
 export function hasTarget(participants: CallParticipants, target: CallTarget) {
-    for (const value of participants.values()) {
+    for (const value of Object.values(participants)) {
         if (
             value.client === target.client &&
             value.position === target.position &&

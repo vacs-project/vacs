@@ -2,7 +2,7 @@ import {create} from "zustand/react";
 import {CallError, invokeStrict} from "../error.ts";
 import {useErrorOverlayStore} from "./error-overlay-store.ts";
 import {useAuthStore} from "./auth-store.ts";
-import {Call, CallSource, CallTarget, CallUpdate} from "../types/call.ts";
+import {Call, CallSource, CallTarget, CallUpdate, participantCount} from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
 import {useCallListStore} from "./call-list-store.ts";
@@ -185,7 +185,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
             );
 
             if (
-                callDisplay.call.invitedTargets.length + callDisplay.call.joinedParticipants.size >
+                callDisplay.call.invitedTargets.length +
+                    participantCount(callDisplay.call.joinedParticipants) > // TODO: rework
                 0
             ) {
                 callDisplay.rejectedTargets.push(...targets);
@@ -220,7 +221,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             if (error.targets.length === 0) {
                 callDisplay.call.invitedTargets = [];
-                callDisplay.call.joinedParticipants = new Map();
+                callDisplay.call.joinedParticipants = {};
             } else {
                 callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
                     target =>
@@ -234,8 +235,9 @@ export const useCallStore = create<CallState>()((set, get) => ({
             }
 
             if (
-                callDisplay.call.invitedTargets.length + callDisplay.call.joinedParticipants.size >
-                0
+                callDisplay.call.invitedTargets.length +
+                    participantCount(callDisplay.call.joinedParticipants) >
+                0 // TODO: rework
             ) {
                 callDisplay.erroredTargets.push(
                     ...error.targets.map(target => ({target, reason: error.reason})),
@@ -345,7 +347,7 @@ export const startCall = async (...targets: CallTarget[]) => {
             source,
             target: targets[0],
             invitedTargets: targets,
-            joinedParticipants: new Map(),
+            joinedParticipants: {},
             prio,
         });
         setPrio(false);
