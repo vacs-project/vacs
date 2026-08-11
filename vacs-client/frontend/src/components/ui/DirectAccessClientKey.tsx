@@ -33,7 +33,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const involved =
         callDisplay !== undefined &&
         (callDisplay.call.invitedTargets.some(target => target.client === client.id) ||
-            callDisplay.call.joinedParticipants.has(client.id) ||
+            client.id in callDisplay.call.joinedParticipants ||
             callDisplay.call.source.clientId === client.id);
     const inCall = callDisplay?.type === "accepted" && involved;
     const isRejected = callDisplay?.type === "rejected" && involved;
