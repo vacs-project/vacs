@@ -507,7 +507,8 @@ async fn dispatch_command(
 
         AudioGetHosts => {
             let app_state = app.state::<AppState>();
-            dispatch(audio_get_hosts(app_state).await)
+            let audio_manager = app.state::<AudioManagerHandle>();
+            dispatch(audio_get_hosts(app_state, audio_manager).await)
         }
         AudioSetHost => {
             let host_name: String = args!(args, "hostName");

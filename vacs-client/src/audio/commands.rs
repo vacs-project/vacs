@@ -12,13 +12,20 @@ use crate::keybinds::engine::KeybindEngineHandle;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
-use vacs_audio::device::{DeviceSelector, DeviceType};
+use vacs_audio::backend::AudioBackend;
+use vacs_audio::device::{AudioBackendExt, DeviceType};
 use vacs_audio::error::AudioError;
 
 #[tauri::command]
 #[vacs_macros::log_err]
-pub async fn audio_get_hosts(app_state: State<'_, AppState>) -> Result<AudioHosts, Error> {
+pub async fn audio_get_hosts(
+    app_state: State<'_, AppState>,
+    audio_manager: State<'_, AudioManagerHandle>,
+) -> Result<AudioHosts, Error> {
     log::debug!("Getting audio hosts");
+
+    let backend = audio_manager.read().backend();
+    let hosts = backend.all_host_names();
 
     let mut selected = app_state
         .lock()
@@ -28,11 +35,12 @@ pub async fn audio_get_hosts(app_state: State<'_, AppState>) -> Result<AudioHost
         .host_name
         .clone()
         .unwrap_or_default();
-    if selected.is_empty() {
-        selected = DeviceSelector::default_host_name();
+    // A persisted host may not exist on the active backend (different
+    // machine, or a mock-audio build reading a real config); fall back to
+    // the default instead of reporting a host absent from the list.
+    if selected.is_empty() || !hosts.iter().any(|h| h.eq_ignore_ascii_case(&selected)) {
+        selected = backend.default_host_name();
     }
-
-    let hosts = DeviceSelector::all_host_names();
 
     Ok(AudioHosts {
         selected,
@@ -103,11 +111,13 @@ pub async fn audio_get_devices(
     log::debug!("Getting audio devices (type: {:?})", device_type);
 
     let state = app_state.lock().await;
+    let audio_manager = audio_manager.read();
     get_audio_devices(
+        audio_manager.backend().as_ref(),
         device_type,
         &state.config.audio,
-        audio_manager.read().output_device_name(),
-        audio_manager.read().speaker_device_name(),
+        audio_manager.output_device_name(),
+        audio_manager.speaker_device_name(),
     )
 }
 
@@ -153,7 +163,7 @@ pub async fn audio_set_device(
     // persist it alongside the display name. On next startup, the ID is tried
     // first for reliable matching; the name serves as a fallback for old configs.
     let device_id = device_name.as_deref().and_then(|name| {
-        DeviceSelector::resolve_device_id(
+        audio_manager.backend().resolve_device_id(
             device_type.into(),
             state.config.audio.host_name.as_deref(),
             name,
@@ -198,6 +208,7 @@ pub async fn audio_set_device(
         }
 
         let audio_devices = get_audio_devices(
+            audio_manager.backend().as_ref(),
             device_type,
             &state.config.audio,
             audio_manager.output_device_name(),
@@ -376,6 +387,7 @@ pub async fn audio_set_radio_prio(
 }
 
 fn get_audio_devices(
+    backend: &dyn AudioBackend,
     device_type: ClientAudioDeviceType,
     audio_config: &AudioConfig,
     picked_output_device: String,
@@ -386,7 +398,7 @@ fn get_audio_devices(
     let (preferred, picked) = match device_type {
         ClientAudioDeviceType::Input => {
             let preferred = audio_config.input_device_name.clone().unwrap_or_default();
-            let picked = DeviceSelector::picked_device_name(
+            let picked = backend.picked_device_name(
                 DeviceType::Input,
                 host,
                 audio_config.input_device_id.as_deref(),
@@ -411,8 +423,8 @@ fn get_audio_devices(
         }
     };
 
-    let default = DeviceSelector::default_device_name(device_type.into(), host)?;
-    let devices: Vec<String> = DeviceSelector::all_device_names(device_type.into(), host)?;
+    let default = backend.default_device_name(device_type.into(), host)?;
+    let devices: Vec<String> = backend.all_device_names(device_type.into(), host)?;
 
     Ok(AudioDevices {
         preferred,
