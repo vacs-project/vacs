@@ -1,0 +1,19 @@
+# Mock audio devices for the documentation screenshot run. The settings page
+# shows the device selects, and "Mock Speaker" in a manual image reads as a
+# bug rather than as an example; these are plausible names of the length a
+# real headset produces.
+host_name = "MockHost"
+
+[[input_devices]]
+name = "Headset Microphone"
+id = "docs-input-0"
+min_sample_rate = 48000
+max_sample_rate = 48000
+channels = 1
+
+[[output_devices]]
+name = "Headset Earphone"
+id = "docs-output-0"
+min_sample_rate = 48000
+max_sample_rate = 48000
+channels = 2

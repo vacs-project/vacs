@@ -5,6 +5,7 @@
     "beforeBuildCommand": "npm --prefix frontend run build:e2e"
   },
   "app": {
+    "withGlobalTauri": true,
     "security": {
       "capabilities": [
         "default",

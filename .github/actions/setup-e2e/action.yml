@@ -1,0 +1,160 @@
+name: Set up the E2E environment
+description: >
+  Installs everything the E2E harness expects to find running or on PATH:
+  the session store, the build toolchains, the mock VATSIM API and the
+  dataset the specs are written against.
+
+inputs:
+  platform:
+    description: >
+      Runner label, used as the cargo cache key. Runs with the same label
+      share a cache, so keep it stable rather than deriving it per workflow.
+    required: true
+  dataset-ref:
+    description: >
+      vacs-data revision to check out. The specs depend on LO dataset
+      specifics (positions, frequencies, coverage chains); bump deliberately
+      when specs are updated for newer dataset states.
+    default: "39b4712a10b3c84566d3d4b50caf972ed1381769"
+  vatsim-api-rev:
+    description: "vatsim-api revision to build vatsim-mock from. Keep in sync with Cargo.lock."
+    default: "299fb617d343c1c83f9f4fea040f0b66afe5ae7e"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout dataset
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        repository: vacs-project/vacs-data
+        ref: ${{ inputs.dataset-ref }}
+        path: vacs-data
+        sparse-checkout: dataset
+        persist-credentials: false
+
+    - name: Start Valkey (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        docker run -d --name valkey -p 6379:6379 \
+          --health-cmd "valkey-cli ping" \
+          --health-interval 2s \
+          --health-timeout 5s \
+          --health-retries 5 \
+          valkey/valkey:9-alpine
+        until [ "$(docker inspect --format='{{.State.Health.Status}}' valkey)" = "healthy" ]; do sleep 1; done
+
+    - name: Install Memurai (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install memurai-developer -y --no-progress
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $deadline) {
+          try {
+            $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 6379)
+            $tcp.Close()
+            Write-Host "Memurai is ready on port 6379"
+            exit 0
+          } catch {
+            Start-Sleep -Milliseconds 500
+          }
+        }
+        throw "Memurai did not become available within 30s"
+
+    - name: Start Valkey (macOS)
+      if: runner.os == 'macOS'
+      # macOS runners have no docker daemon, so run Valkey via Homebrew.
+      shell: bash
+      run: |
+        brew install valkey
+        valkey-server --daemonize yes
+        for i in $(seq 1 30); do
+          if valkey-cli ping >/dev/null 2>&1; then
+            echo "Valkey is ready on port 6379"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "Valkey did not become available within 30s" >&2
+        exit 1
+
+    - name: Install build dependencies (Linux)
+      if: runner.os == 'Linux'
+      uses: ./.github/actions/install-linux-deps
+
+    - name: Install E2E system dependencies (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get install -y --no-install-recommends xvfb
+
+    - name: Setup Node (LTS)
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: "lts/*"
+        cache: "npm"
+        cache-dependency-path: vacs-client/package-lock.json
+
+    - name: Rust toolchain
+      shell: bash
+      run: rustup toolchain install stable --profile minimal --no-self-update
+
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      with:
+        shared-key: e2e-${{ inputs.platform }}
+        # Failed runs still produce full builds; without this every failed
+        # iteration on a leg rebuilds the workspace from scratch.
+        cache-on-failure: true
+
+    # Restore/save split instead of the combined action: its post step
+    # skips saving when the job fails, which discards the vatsim-mock
+    # build after every failed iteration.
+    - name: Restore vatsim-mock binary
+      id: tools-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/bin/vatsim-mock
+          ~/.cargo/bin/vatsim-mock.exe
+        key: e2e-tools-${{ runner.os }}-vatsim-api-${{ inputs.vatsim-api-rev }}
+
+    - name: Install vatsim-mock
+      if: steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VATSIM_API_REV: ${{ inputs.vatsim-api-rev }}
+      run: |
+        # Switch to crates.io version of vatsim-api once the crate is published - install from git until then
+        cargo install --git https://github.com/MorpheusXAUT/vatsim-api --rev "$VATSIM_API_REV" --features mock-bin --bin vatsim-mock --locked
+
+    # Saving immediately after the install (instead of in a post step)
+    # keeps the binary cached no matter what the later test steps do.
+    - name: Save vatsim-mock binary
+      if: steps.tools-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/bin/vatsim-mock
+          ~/.cargo/bin/vatsim-mock.exe
+        key: e2e-tools-${{ runner.os }}-vatsim-api-${{ inputs.vatsim-api-rev }}
+
+    - name: Compute browser cache key
+      id: browser-week
+      # Rotate weekly: "stable" moves on its own cadence, so a fresh key
+      # forces at most one re-download per week while restore-keys keep
+      # serving the previous browser in the meantime.
+      shell: bash
+      run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Chrome for Testing
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/wdio-browsers
+        key: e2e-browsers-${{ runner.os }}-${{ steps.browser-week.outputs.week }}
+        restore-keys: e2e-browsers-${{ runner.os }}-
+
+    - name: Install npm dependencies
+      shell: bash
+      working-directory: vacs-client
+      run: npm ci

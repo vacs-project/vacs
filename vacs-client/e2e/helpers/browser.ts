@@ -1,3 +1,5 @@
+import {instancePort} from "./app-control.ts";
+
 /**
  * Returns a single browser instance from the multiremote session.
  * Defaults to "clientA", which is convenient for tests that only need one client.
@@ -5,6 +7,57 @@
  */
 export function getClient(instanceName: string = "clientA"): WebdriverIO.Browser {
     return multiRemoteBrowser.getInstance(instanceName);
+}
+
+/**
+ * Returns the browser.tauri API bound to an instance. The service's
+ * direct-eval channel resolves its target port from TAURI_WEBDRIVER_PORT in
+ * the worker process and has no per-instance notion in multiremote, so the
+ * env var is pointed at the instance first. Do not interleave concurrent
+ * tauri.* calls against different instances.
+ */
+export function tauriApi(instanceName: string = "clientA"): WebdriverIO.Browser["tauri"] {
+    process.env.TAURI_WEBDRIVER_PORT = String(instancePort(instanceName));
+    return getClient(instanceName).tauri;
+}
+
+/**
+ * Installs an IPC command mock into the app's wdio mock registry, which the
+ * transport consults in e2e builds. Deliberately not browser.tauri.mock:
+ * the service's worker-side mock store reuses mock objects across sessions,
+ * which silently breaks after restartApps() replaces the page. The registry
+ * installed here dies with the page, matching the fresh-process-per-test
+ * isolation model.
+ */
+export async function mockCommand(
+    instanceName: string,
+    command: string,
+    behavior: {resolve?: unknown; reject?: unknown},
+): Promise<void> {
+    await tauriApi(instanceName).execute(
+        (_tauri, cmd, spec) => {
+            const w = window as Window & {
+                __wdio_mocks__?: Record<string, () => Promise<unknown>>;
+            };
+            w.__wdio_mocks__ = w.__wdio_mocks__ ?? {};
+            w.__wdio_mocks__[cmd] =
+                spec.reject !== undefined
+                    ? () => Promise.reject(spec.reject)
+                    : () => Promise.resolve(spec.resolve);
+        },
+        command,
+        behavior,
+    );
+}
+
+/** Removes a command mock installed by mockCommand. */
+export async function unmockCommand(instanceName: string, command: string): Promise<void> {
+    await tauriApi(instanceName).execute((_tauri, cmd) => {
+        const w = window as Window & {
+            __wdio_mocks__?: Record<string, () => Promise<unknown>>;
+        };
+        delete w.__wdio_mocks__?.[cmd];
+    }, command);
 }
 
 /**

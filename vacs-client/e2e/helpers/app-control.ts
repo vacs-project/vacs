@@ -69,6 +69,15 @@ export function configureInstances(list: AppInstance[]): void {
     instances = list;
 }
 
+/** Returns the embedded WebDriver port of a configured instance. */
+export function instancePort(name: string): number {
+    const instance = instances.find(entry => entry.name === name);
+    if (instance === undefined) {
+        throw new Error(`Unknown app instance ${name}`);
+    }
+    return instance.port;
+}
+
 /**
  * Kills WebView2 processes left behind by a retired app generation. taskkill's
  * tree walk misses orphaned subtrees, and a lingering browser process keeps

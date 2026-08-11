@@ -10,6 +10,7 @@ import {isTauri} from "./transport";
 // served this same bundle over HTTP.
 if (import.meta.env.MODE === "e2e" && isTauri) {
     await import("@wdio/tauri-plugin");
+    (await import("./e2e-hooks.ts")).installE2eHooks();
 }
 
 window.addEventListener("error", ev => {
