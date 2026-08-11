@@ -641,6 +641,7 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
             }
             error.reason
         }
+        CallErrorReason::CallFailure | CallErrorReason::Other => error.reason,
         other => {
             tracing::error!(?other, "Receiving invalid call error reason, rejecting");
             return;
