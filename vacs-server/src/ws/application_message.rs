@@ -197,6 +197,8 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
     let mut failed_targets: HashSet<&CallTarget> = HashSet::new();
 
+    let invited_targets: HashSet<CallTarget> = invited_participants.values().cloned().collect();
+
     for (callee_id, target) in &all_target_participants {
         tracing::trace!(?callee_id, "Sending call invite to target");
 
@@ -204,16 +206,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             call_id: invite.call_id,
             source: invite.source.clone(),
             target: target.clone(),
-            invited_targets: invited_participants
-                .values()
-                .filter_map(|invited_target| {
-                    if invited_target == target {
-                        None
-                    } else {
-                        Some(invited_target.clone())
-                    }
-                })
-                .collect(),
+            invited_targets: invited_targets.clone(),
             joined_participants: joined_participants.clone(),
             prio: invite.prio,
         };
@@ -389,6 +382,20 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
                                 ?err,
                                 ?participant_id,
                                 "Failed to send call error to participant"
+                            );
+                        }
+
+                        if let Err(err) = state
+                            .send_message(
+                                &dropped_participant_id,
+                                CallEnd::new(*call_id, participant_id.clone()),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                ?err,
+                                ?dropped_participant_id,
+                                "Failed to send call end to participant"
                             );
                         }
                     }
@@ -750,6 +757,17 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
                                 "Failed to send call error to participant"
                             );
                         }
+
+                        if let Err(err) = state
+                            .send_message(&client_id, CallEnd::new(*call_id, erroring_id.clone()))
+                            .await
+                        {
+                            tracing::warn!(
+                                ?err,
+                                ?client_id,
+                                "Failed to send call end to participant"
+                            );
+                        }
                     }
                     UpdateCallAction::UpdateParticipants(updates) => {
                         for (client_id, _) in updates.all_participants() {
@@ -770,6 +788,20 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
                                     ?err,
                                     ?client_id,
                                     "Failed to send call error to participant"
+                                );
+                            }
+
+                            if let Err(err) = state
+                                .send_message(
+                                    client_id,
+                                    ServerMessage::CallUpdate((&updates).into()),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    ?err,
+                                    ?client_id,
+                                    "Failed to send call update to participant"
                                 );
                             }
                         }
