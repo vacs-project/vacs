@@ -438,7 +438,7 @@ impl CallManager {
 
         let mut active_calls = self.active_calls.write();
         let active_actions = match active_calls.entry(*call_id) {
-            Entry::Occupied(mut entry) => {
+            Entry::Occupied(mut entry) if entry.get().involves(ending_client_id) => {
                 let active_call = entry.get_mut();
 
                 let participants_without_self =
@@ -449,7 +449,19 @@ impl CallManager {
                         "Ending client has active call, which has no other participant than self"
                     );
                     ErrorMetrics::peer_not_found();
+
                     entry.remove();
+
+                    {
+                        let mut client_active_calls = self.client_active_calls.write();
+                        if client_active_calls
+                            .get(ending_client_id)
+                            .is_some_and(|c| c == call_id)
+                        {
+                            client_active_calls.remove(ending_client_id);
+                        }
+                    }
+
                     Some(Vec::new())
                 } else if active_call.conference_leader.as_ref() == Some(ending_client_id)
                     || participants_without_self.len() <= 1
@@ -466,6 +478,13 @@ impl CallManager {
                             {
                                 client_active_calls.remove(participant_id);
                             }
+                        }
+
+                        if client_active_calls
+                            .get(ending_client_id)
+                            .is_some_and(|c| c == call_id)
+                        {
+                            client_active_calls.remove(ending_client_id);
                         }
                     }
 
@@ -492,7 +511,15 @@ impl CallManager {
 
                     drop(active_calls);
 
-                    self.client_active_calls.write().remove(ending_client_id);
+                    {
+                        let mut client_active_calls = self.client_active_calls.write();
+                        if client_active_calls
+                            .get(ending_client_id)
+                            .is_some_and(|c| c == call_id)
+                        {
+                            client_active_calls.remove(ending_client_id);
+                        }
+                    }
 
                     let invited_participants = self
                         .ringing_calls
@@ -510,7 +537,7 @@ impl CallManager {
                     Some(Vec::from([UpdateCallAction::UpdateParticipants(update)]))
                 }
             }
-            Entry::Vacant(_) => None,
+            _ => None,
         };
 
         match (active_actions, ringing_actions) {
