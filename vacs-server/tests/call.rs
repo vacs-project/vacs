@@ -272,6 +272,204 @@ async fn call_offer_answer() -> anyhow::Result<()> {
 }
 
 #[test(tokio::test)]
+async fn invite_after_call_end() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let _ = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let _ = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallAcceptance(_))
+        })
+        .await;
+
+    // client1 ends the active call; client2 must be notified
+    client1
+        .send(ClientMessage::CallEnd(vacs_protocol::ws::shared::CallEnd {
+            call_id,
+            ending_client_id: client1.id().clone(),
+        }))
+        .await?;
+    let call_end_messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallEnd(_))
+        })
+        .await;
+    assert_eq!(
+        call_end_messages.len(),
+        1,
+        "client2 should receive CallEnd after client1 ended the call"
+    );
+
+    // The ending client must be able to place a new call afterwards
+    let new_call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id: new_call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client3.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+
+    let error_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert!(
+        error_messages.is_empty(),
+        "client1 should not be considered busy after ending its call, but received: {:?}",
+        error_messages
+    );
+
+    let invite_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    assert_eq!(
+        invite_messages.len(),
+        1,
+        "client3 should receive CallInvite for the new call"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn call_end_from_non_participant() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let _ = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let _ = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallAcceptance(_))
+        })
+        .await;
+
+    // client3 is not a participant and must not be able to affect the call
+    client3
+        .send(ClientMessage::CallEnd(vacs_protocol::ws::shared::CallEnd {
+            call_id,
+            ending_client_id: client3.id().clone(),
+        }))
+        .await?;
+
+    let error_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert_eq!(
+        error_messages.len(),
+        1,
+        "client3 should receive CallError for ending a call it does not participate in"
+    );
+    match &error_messages[0] {
+        ServerMessage::CallError(error) => {
+            assert_eq!(
+                error.reason,
+                vacs_protocol::ws::shared::CallErrorReason::CallNotFound,
+                "CallErrorReason mismatch"
+            );
+        }
+        message => panic!("Unexpected message: {:?}, expected CallError", message),
+    };
+
+    // The active call must be untouched: no end or update leaks to the participants
+    for (name, client) in [("client1", &mut client1), ("client2", &mut client2)] {
+        let messages = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(
+                    m,
+                    ServerMessage::CallEnd(_)
+                        | ServerMessage::CallUpdate(_)
+                        | ServerMessage::CallError(_)
+                )
+            })
+            .await;
+        assert!(
+            messages.is_empty(),
+            "{} should have received no messages, but received: {:?}",
+            name,
+            messages
+        );
+    }
+
+    Ok(())
+}
+
+#[test(tokio::test)]
 async fn target_not_found() -> anyhow::Result<()> {
     let test_app = TestApp::new().await;
     let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
