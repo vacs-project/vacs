@@ -2,7 +2,7 @@ import {act} from "@testing-library/preact";
 import {CallId, ClientId, PositionId, StationId} from "../src/types/generic.ts";
 import {Call} from "../src/types/call.ts";
 import {useBlinkStore} from "../src/stores/blink-store.ts";
-import {CallDisplayType} from "../src/stores/call-store.ts";
+import {CallDisplay, CallDisplayType} from "../src/stores/call-store.ts";
 
 export async function flipBlink() {
     await act(() => {
@@ -25,12 +25,24 @@ export function makeTestCall(
         invitedTargets: type === "incoming" ? [] : [{station: "station1" as StationId}],
         joinedParticipants:
             type === "accepted"
-                ? new Map([
-                      ["client0" as ClientId, {station: "station0" as StationId}],
-                      ["client1" as ClientId, {station: "station1" as StationId}],
-                  ])
-                : new Map(),
+                ? {
+                      ["client0" as ClientId]: {station: "station0" as StationId},
+                      ["client1" as ClientId]: {station: "station1" as StationId},
+                  }
+                : {},
         prio: false,
         ...overrides,
+    };
+}
+
+export function makeTestCallDisplay(
+    type: CallDisplayType,
+    overrides: Partial<Call> = {},
+): CallDisplay {
+    return {
+        type,
+        call: makeTestCall(type, overrides),
+        erroredTargets: [],
+        rejectedTargets: [],
     };
 }
