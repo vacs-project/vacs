@@ -8,21 +8,23 @@ use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{self, ServerMessage};
 use vacs_server::test_utils::{
-    TestApp, TestClient, assert_message_matches, assert_raw_message_matches, connect_to_websocket,
-    setup_test_clients,
+    TestClient, TestEnv, assert_message_matches, assert_raw_message_matches, cid,
+    connect_to_websocket,
 };
 
 #[test(tokio::test)]
 async fn login() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let token1 = env.ws_token_for(cid(1)).await.unwrap();
+    let token2 = env.ws_token_for(cid(2)).await.unwrap();
 
     let _client1 = TestClient::new_with_login(
-        test_app.addr(),
-        "client1",
-        "token1",
+        env.ws_url(),
+        cid(1).as_str(),
+        &token1,
         |own, info| {
             assert_eq!(own, true);
-            assert_eq!(info.display_name, "client1");
+            assert_eq!(info.display_name, cid(1));
             Ok(())
         },
         |clients| {
@@ -38,18 +40,18 @@ async fn login() {
     .expect("Failed to log in first client");
 
     let _client2 = TestClient::new_with_login(
-        test_app.addr(),
-        "client2",
-        "token2",
+        env.ws_url(),
+        cid(2).as_str(),
+        &token2,
         |own, info| {
             assert_eq!(own, true);
-            assert_eq!(info.display_name, "client2");
+            assert_eq!(info.display_name, cid(2));
             Ok(())
         },
         |clients| {
             assert_eq!(clients.len(), 1);
-            assert_eq!(clients[0].id, ClientId::from("client1"));
-            assert_eq!(clients[0].display_name, "client1");
+            assert_eq!(clients[0].id, ClientId::from(cid(1)));
+            assert_eq!(clients[0].display_name, cid(1));
             Ok(())
         },
         |stations| {
@@ -63,15 +65,16 @@ async fn login() {
 
 #[test(tokio::test)]
 async fn duplicate_login() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(1).build().await;
+    let token = env.ws_token_for(cid(1)).await.unwrap();
 
     let _client1 = TestClient::new_with_login(
-        test_app.addr(),
-        "client1",
-        "token1",
+        env.ws_url(),
+        cid(1).as_str(),
+        &token,
         |own, info| {
             assert_eq!(own, true);
-            assert_eq!(info.display_name, "client1");
+            assert_eq!(info.display_name, cid(1));
             Ok(())
         },
         |clients| {
@@ -88,9 +91,9 @@ async fn duplicate_login() {
 
     assert!(
         TestClient::new_with_login(
-            test_app.addr(),
-            "client1",
-            "token1",
+            env.ws_url(),
+            cid(1).as_str(),
+            &token,
             |_, _| Ok(()),
             |_| Ok(()),
             |_| Ok(())
@@ -102,12 +105,12 @@ async fn duplicate_login() {
 
 #[test(tokio::test)]
 async fn invalid_login() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
 
     assert!(
         TestClient::new_with_login(
-            test_app.addr(),
-            "client1",
+            env.ws_url(),
+            "anything",
             "",
             |_, _| Ok(()),
             |_| Ok(()),
@@ -120,9 +123,9 @@ async fn invalid_login() {
 
 #[test(tokio::test)]
 async fn unauthorized_message_before_login() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
 
-    let mut ws_stream = connect_to_websocket(test_app.addr()).await;
+    let mut ws_stream = connect_to_websocket(env.ws_url()).await;
 
     ws_stream
         .send(tungstenite::Message::from(
@@ -146,20 +149,22 @@ async fn unauthorized_message_before_login() {
 
 #[test(tokio::test)]
 async fn simultaneous_login_attempts() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(1).build().await;
+    let cid1 = cid(1);
+    let token = env.ws_token_for(cid1.clone()).await.unwrap();
 
     let attempt1 = TestClient::new_with_login(
-        test_app.addr(),
-        "client1",
-        "token1",
+        env.ws_url(),
+        cid1.as_str(),
+        &token,
         |_, _| Ok(()),
         |_| Ok(()),
         |_| Ok(()),
     );
     let attempt2 = TestClient::new_with_login(
-        test_app.addr(),
-        "client1",
-        "token1",
+        env.ws_url(),
+        cid1.as_str(),
+        &token,
         |_, _| Ok(()),
         |_| Ok(()),
         |_| Ok(()),
@@ -177,12 +182,12 @@ async fn simultaneous_login_attempts() {
 #[test(tokio::test)]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login_timeout() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
 
-    let mut ws_stream = connect_to_websocket(test_app.addr()).await;
+    let mut ws_stream = connect_to_websocket(env.ws_url()).await;
 
     tokio::time::sleep(Duration::from_millis(
-        test_app.state().config.auth.login_flow_timeout_millis + 50,
+        env.state().config.auth.login_flow_timeout_millis + 50,
     ))
     .await;
 
@@ -214,25 +219,20 @@ async fn login_timeout() {
 
 #[test(tokio::test)]
 async fn client_connected() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients_map(2).await;
 
-    let mut clients = setup_test_clients(
-        test_app.addr(),
-        &[("client1", "token1"), ("client2", "token2")],
-    )
-    .await;
-
-    let client1 = clients.get_mut(&ClientId::from("client1")).unwrap();
+    let client1 = clients.get_mut(&ClientId::from(cid(1))).unwrap();
     let client_connected = client1.recv_with_timeout(Duration::from_millis(100)).await;
     assert_message_matches(client_connected, |message| match message {
         ServerMessage::ClientConnected(server::ClientConnected { client }) => {
-            assert_eq!(client.id, ClientId::from("client2"));
-            assert_eq!(client.display_name, "client2");
+            assert_eq!(client.id, ClientId::from(cid(2)));
+            assert_eq!(client.display_name, cid(2));
         }
         _ => panic!("Unexpected message: {message:?}"),
     });
 
-    let client2 = clients.get_mut(&ClientId::from("client2")).unwrap();
+    let client2 = clients.get_mut(&ClientId::from(cid(2))).unwrap();
     assert!(
         client2
             .recv_with_timeout(Duration::from_millis(100))
@@ -243,31 +243,26 @@ async fn client_connected() {
 
 #[test(tokio::test)]
 async fn client_disconnected() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients_map(2).await;
 
-    let mut clients = setup_test_clients(
-        test_app.addr(),
-        &[("client1", "token1"), ("client2", "token2")],
-    )
-    .await;
-
-    let client1 = clients.get_mut(&ClientId::from("client1")).unwrap();
+    let client1 = clients.get_mut(&ClientId::from(cid(1))).unwrap();
     let client_connected = client1.recv_with_timeout(Duration::from_millis(100)).await;
     assert_message_matches(client_connected, |message| match message {
         ServerMessage::ClientConnected(server::ClientConnected { client }) => {
-            assert_eq!(client.id, ClientId::from("client2"));
-            assert_eq!(client.display_name, "client2");
+            assert_eq!(client.id, ClientId::from(cid(2)));
+            assert_eq!(client.display_name, cid(2));
         }
         _ => panic!("Unexpected message: {message:?}"),
     });
 
     client1.close().await;
 
-    let client2 = clients.get_mut(&ClientId::from("client2")).unwrap();
+    let client2 = clients.get_mut(&ClientId::from(cid(2))).unwrap();
     let client_disconnected = client2.recv_with_timeout(Duration::from_millis(100)).await;
     assert_message_matches(client_disconnected, |message| match message {
         ServerMessage::ClientDisconnected(server::ClientDisconnected { client_id }) => {
-            assert_eq!(client_id, ClientId::from("client1"));
+            assert_eq!(client_id, ClientId::from(cid(1)));
         }
         _ => panic!("Unexpected message: {message:?}"),
     });
@@ -275,25 +270,17 @@ async fn client_disconnected() {
 
 #[test(tokio::test)]
 async fn login_client_list() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(4).build().await;
+    let _clients = env.setup_clients(3).await;
 
-    let _clients = setup_test_clients(
-        test_app.addr(),
-        &[
-            ("client1", "token1"),
-            ("client2", "token2"),
-            ("client3", "token3"),
-        ],
-    )
-    .await;
-
+    let token4 = env.ws_token_for(cid(4)).await.unwrap();
     let _client4 = TestClient::new_with_login(
-        test_app.addr(),
-        "client4",
-        "token4",
+        env.ws_url(),
+        cid(4).as_str(),
+        &token4,
         |own, info| {
             assert_eq!(own, true);
-            assert_eq!(info.display_name, "client4");
+            assert_eq!(info.display_name, cid(4));
             Ok(())
         },
         |clients| {
@@ -301,17 +288,17 @@ async fn login_client_list() {
             assert!(
                 clients
                     .iter()
-                    .any(|client| client.id == ClientId::from("client1"))
+                    .any(|client| client.id == ClientId::from(cid(1)))
             );
             assert!(
                 clients
                     .iter()
-                    .any(|client| client.id == ClientId::from("client2"))
+                    .any(|client| client.id == ClientId::from(cid(2)))
             );
             assert!(
                 clients
                     .iter()
-                    .any(|client| client.id == ClientId::from("client3"))
+                    .any(|client| client.id == ClientId::from(cid(3)))
             );
             Ok(())
         },
@@ -326,20 +313,15 @@ async fn login_client_list() {
 
 #[test(tokio::test)]
 async fn logout() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients_map(2).await;
 
-    let mut clients = setup_test_clients(
-        test_app.addr(),
-        &[("client1", "token1"), ("client2", "token2")],
-    )
-    .await;
-
-    let client1 = clients.get_mut(&ClientId::from("client1")).unwrap();
+    let client1 = clients.get_mut(&ClientId::from(cid(1))).unwrap();
     let client_connected = client1.recv_with_timeout(Duration::from_millis(100)).await;
     assert_message_matches(client_connected, |message| match message {
         ServerMessage::ClientConnected(server::ClientConnected { client }) => {
-            assert_eq!(client.id, ClientId::from("client2"));
-            assert_eq!(client.display_name, "client2");
+            assert_eq!(client.id, ClientId::from(cid(2)));
+            assert_eq!(client.display_name, cid(2));
         }
         _ => panic!("Unexpected message: {message:?}"),
     });
@@ -352,11 +334,11 @@ async fn logout() {
             .is_none()
     );
 
-    let client2 = clients.get_mut(&ClientId::from("client2")).unwrap();
+    let client2 = clients.get_mut(&ClientId::from(cid(2))).unwrap();
     let client_disconnected = client2.recv_with_timeout(Duration::from_millis(100)).await;
     assert_message_matches(client_disconnected, |message| match message {
         ServerMessage::ClientDisconnected(server::ClientDisconnected { client_id }) => {
-            assert_eq!(client_id, ClientId::from("client1"));
+            assert_eq!(client_id, ClientId::from(cid(1)));
         }
         _ => panic!("Unexpected message: {message:?}"),
     });

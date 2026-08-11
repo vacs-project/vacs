@@ -1,6 +1,5 @@
 use crate::test_utils::connect_to_websocket;
 use futures_util::{SinkExt, StreamExt};
-use std::collections::HashMap;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -245,39 +244,4 @@ impl TestClient {
             .await
             .expect("Failed to close websocket");
     }
-}
-
-#[allow(unused)]
-pub async fn setup_test_clients(
-    addr: &str,
-    clients: &[(&str, &str)],
-) -> HashMap<ClientId, TestClient> {
-    let mut test_clients = HashMap::new();
-    for (id, token) in clients {
-        let client =
-            TestClient::new_with_login(addr, *id, token, |_, _| Ok(()), |_| Ok(()), |_| Ok(()))
-                .await
-                .expect("Failed to create test client");
-        test_clients.insert(client.id.clone(), client);
-    }
-    test_clients
-}
-
-#[allow(unused)]
-pub async fn setup_n_test_clients(addr: &str, num_clients: usize) -> Vec<TestClient> {
-    let mut test_clients = Vec::new();
-    for n in 1..=num_clients {
-        let client = TestClient::new_with_login(
-            addr,
-            format!("client{n}"),
-            &format!("token{n}"),
-            |_, _| Ok(()),
-            |_| Ok(()),
-            |_| Ok(()),
-        )
-        .await
-        .expect("Failed to create test client");
-        test_clients.push(client);
-    }
-    test_clients
 }

@@ -4,12 +4,12 @@ use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::ServerMessage;
 use vacs_protocol::ws::shared::{CallId, CallTarget};
-use vacs_server::test_utils::{TestApp, setup_n_test_clients};
+use vacs_server::test_utils::TestEnv;
 
 #[test(tokio::test)]
 async fn call_offer() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -130,8 +130,8 @@ async fn call_offer() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn call_offer_answer() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -272,8 +272,8 @@ async fn call_offer_answer() -> anyhow::Result<()> {
 
 #[test(tokio::test)]
 async fn target_not_found() -> anyhow::Result<()> {
-    let test_app = TestApp::new().await;
-    let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
+    let env = TestEnv::builder().default_users(5).build().await;
+    let mut clients = env.setup_clients(5).await;
 
     let mut client1 = clients.remove(0);
     let mut client2 = clients.remove(0);
@@ -287,7 +287,7 @@ async fn target_not_found() -> anyhow::Result<()> {
                     position_id: None,
                     station_id: None,
                 },
-                target: CallTarget::Client(ClientId::from("client69")),
+                target: CallTarget::Client(ClientId::from("9999999")),
                 prio: false,
             },
         ))
