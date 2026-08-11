@@ -470,6 +470,119 @@ async fn call_end_from_non_participant() -> anyhow::Result<()> {
 }
 
 #[test(tokio::test)]
+async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let _ = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+
+    // client2 fails to handle the call locally and reports a generic call failure,
+    // as the client maps e.g. WebRTC setup errors to CallFailure
+    client2
+        .send(ClientMessage::CallError(
+            vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::CallFailure,
+                message: None,
+            },
+        ))
+        .await?;
+
+    // The only ringing target failed, so the caller must learn the call is over
+    let cancelled_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallCancelled(_))
+        })
+        .await;
+    assert_eq!(
+        cancelled_messages.len(),
+        1,
+        "client1 should receive CallCancelled after the only target errored"
+    );
+    match &cancelled_messages[0] {
+        ServerMessage::CallCancelled(cancelled) => {
+            assert_eq!(
+                cancelled.targets,
+                HashSet::from([CallTarget::Client(client2.id().clone())]),
+                "CallCancelled targets mismatch"
+            );
+            assert_eq!(
+                cancelled.reason,
+                vacs_protocol::ws::server::CallCancelReason::Errored(
+                    vacs_protocol::ws::shared::CallErrorReason::CallFailure
+                ),
+                "CallCancelReason mismatch"
+            );
+        }
+        message => panic!("Unexpected message: {:?}, expected CallCancelled", message),
+    };
+
+    // The failed call must not leave the caller marked busy
+    let new_call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id: new_call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client3.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+
+    let error_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert!(
+        error_messages.is_empty(),
+        "client1 should not be considered busy after its call failed, but received: {:?}",
+        error_messages
+    );
+
+    let invite_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    assert_eq!(
+        invite_messages.len(),
+        1,
+        "client3 should receive CallInvite for the new call"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
 async fn target_not_found() -> anyhow::Result<()> {
     let test_app = TestApp::new().await;
     let mut clients = setup_n_test_clients(test_app.addr(), 5).await;
