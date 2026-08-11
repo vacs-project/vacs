@@ -135,6 +135,15 @@ pub fn app_get_version() -> String {
     VersionInfo::gather().version.to_string()
 }
 
+/// The E2E harness terminates app instances with SIGKILL via this pid so no
+/// graceful-close side effects (cookie or config persistence) can leak state
+/// between test processes.
+#[cfg(feature = "e2e")]
+#[tauri::command]
+pub fn app_process_id() -> u32 {
+    std::process::id()
+}
+
 #[tauri::command]
 pub fn app_quit(app: AppHandle, window: WebviewWindow) {
     log::info!("Quitting");

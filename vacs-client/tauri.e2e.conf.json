@@ -1,4 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "identifier": "app.vacs.vacs-client-e2e"
+  "identifier": "app.vacs.vacs-client-e2e",
+  "build": {
+    "beforeBuildCommand": "npm --prefix frontend run build:e2e"
+  },
+  "app": {
+    "security": {
+      "capabilities": [
+        "default",
+        {
+          "identifier": "e2e-wdio",
+          "description": "WebDriver automation permissions; E2E builds only",
+          "windows": ["main"],
+          "permissions": ["wdio:default", "wdio-webdriver:default"]
+        }
+      ]
+    }
+  }
 }

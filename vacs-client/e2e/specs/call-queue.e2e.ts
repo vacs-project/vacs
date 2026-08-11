@@ -1,4 +1,5 @@
-import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
+import {restartApps} from "../helpers/app-control.ts";
+import {loginAndConnect, removeController, resetMockState} from "../helpers/auth.ts";
 import {callQueueSlot, click, getClient} from "../helpers/browser.ts";
 import {SignalingTestClient} from "../helpers/signaling-client.ts";
 
@@ -13,7 +14,14 @@ describe("Call Queue", () => {
 
     beforeEach(async () => {
         await resetMockState();
-        await multiRemoteBrowser.reloadSession();
+        // The seed lists 10000001-3 as online controllers; once their grace
+        // period expires the server assigns them positions and the client
+        // keys relabel from CID to position, breaking the CID selectors.
+        // The callers here must stay positionless.
+        for (const cid of ["10000001", "10000002", "10000003"]) {
+            await removeController(cid);
+        }
+        await restartApps();
 
         await loginAndConnect(getClient("clientA"), APP_CID);
     });
@@ -40,28 +48,32 @@ describe("Call Queue", () => {
         const callId1 = caller1.invite(APP_CID);
         const callId2 = caller2.invite(APP_CID);
 
+        // Accepting a call re-renders the queue and can replace the queued
+        // slot's DOM node, so a held element handle would go stale; query
+        // the second slot fresh at each use.
+        const answerKey2 = () => callQueueSlot(clientA, caller2.cid);
+
         // Both calls appear as answer keys.
         const answerKey1 = callQueueSlot(clientA, caller1.cid);
-        const answerKey2 = callQueueSlot(clientA, caller2.cid);
         await answerKey1.waitForDisplayed();
-        await answerKey2.waitForDisplayed();
+        await answerKey2().waitForDisplayed();
 
         // Accepting the first call leaves the second queued.
         await click(clientA, answerKey1);
         await caller1.waitForMessage(msg => msg.type === "callAccept" && msg.callId === callId1);
-        await answerKey2.waitForDisplayed();
+        await answerKey2().waitForDisplayed();
 
         // While busy, clicking the queued call must not accept it.
-        await click(clientA, answerKey2);
+        await click(clientA, await answerKey2());
         await clientA.pause(500);
-        await answerKey2.waitForDisplayed();
+        await answerKey2().waitForDisplayed();
 
         // After ending the first call, the second can be accepted.
         const endButton = await clientA.$("button=END");
         await click(clientA, endButton);
         await caller1.waitForMessage(msg => msg.type === "callEnd" && msg.callId === callId1);
 
-        await click(clientA, answerKey2);
+        await click(clientA, await answerKey2());
         await caller2.waitForMessage(msg => msg.type === "callAccept" && msg.callId === callId2);
         await click(clientA, endButton);
         await caller2.waitForMessage(msg => msg.type === "callEnd" && msg.callId === callId2);

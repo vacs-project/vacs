@@ -1,3 +1,4 @@
+import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {callQueueSlot, click, clientKey, getClient, waitForCallColor} from "../helpers/browser.ts";
 
@@ -30,7 +31,7 @@ async function startCallTo(browser: WebdriverIO.Browser, targetCid: string): Pro
 describe("Call Flow", () => {
     beforeEach(async () => {
         await resetMockState();
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
 
         const clientA = getClient("clientA");
         const clientB = getClient("clientB");

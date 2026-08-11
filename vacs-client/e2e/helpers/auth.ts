@@ -49,10 +49,20 @@ export async function authenticate(browser: WebdriverIO.Browser, cid: string): P
 export async function loginAndConnect(browser: WebdriverIO.Browser, cid: string): Promise<void> {
     await authenticate(browser, cid);
 
-    const connectButton = await browser.$("button=Connect");
-    await connectButton.waitForDisplayed();
-    await browser.execute((el: HTMLElement) => el.click(), connectButton);
-    await connectButton.waitForDisplayed({reverse: true});
+    await browser.$("button=Connect").waitForDisplayed();
+    // The previous app generation is killed abruptly, so the server can
+    // still hold its session for a moment and reject the first login for
+    // the same CID; retry until the connect page is left.
+    for (let attempt = 1; ; attempt++) {
+        const connectButton = await browser.$("button=Connect");
+        await browser.execute((el: HTMLElement) => el.click(), connectButton);
+        try {
+            await connectButton.waitForDisplayed({reverse: true, timeout: 5000});
+            return;
+        } catch (err) {
+            if (attempt >= 3) throw err;
+        }
+    }
 }
 
 /**
@@ -69,19 +79,30 @@ export async function loginAndConnectAs(
     const connectButton = await browser.$("button=Connect");
     await connectButton.waitForDisplayed();
 
-    const result = await browser.execute(async (position: string) => {
-        try {
-            await window.__TAURI_INTERNALS__.invoke("signaling_connect", {positionId: position});
-            return {ok: true as const};
-        } catch (e) {
-            return {ok: false as const, error: String(e)};
+    // Same residual-session race as in loginAndConnect: the previous
+    // generation's abrupt death can leave the CID registered for a moment.
+    for (let attempt = 1; ; attempt++) {
+        const result = await browser.execute(async (position: string) => {
+            try {
+                await window.__TAURI_INTERNALS__.invoke("signaling_connect", {
+                    positionId: position,
+                });
+                return {ok: true as const};
+            } catch (e) {
+                return {ok: false as const, error: String(e)};
+            }
+        }, positionId);
+        if (!result.ok) {
+            throw new Error(`signaling_connect failed for position ${positionId}: ${result.error}`);
         }
-    }, positionId);
-    if (!result.ok) {
-        throw new Error(`signaling_connect failed for position ${positionId}: ${result.error}`);
-    }
 
-    await connectButton.waitForDisplayed({reverse: true});
+        try {
+            await connectButton.waitForDisplayed({reverse: true, timeout: 5000});
+            return;
+        } catch (err) {
+            if (attempt >= 3) throw err;
+        }
+    }
 }
 
 /**

@@ -20,7 +20,7 @@ rc = []
 # Use mock audio backends instead of CPAL implementations, allowing for integration/E2E tests without real audio devices
 mock-audio = ["vacs-audio/mock-audio"]
 # Enable for end-to-end tests, includes mock-audio and E2E-specific config and utilities
-e2e = ["mock-audio"]
+e2e = ["mock-audio", "dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 
 [package.metadata.cargo-machete]
 # sdl3-sys is not imported directly; the dependency exists to enable its
@@ -59,6 +59,8 @@ tauri-plugin-log = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 tauri-plugin-updater = { workspace = true }
+tauri-plugin-wdio = { workspace = true, optional = true }
+tauri-plugin-wdio-webdriver = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

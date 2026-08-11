@@ -1,10 +1,11 @@
+import {restartApps} from "../helpers/app-control.ts";
 import {authenticate, resetMockState} from "../helpers/auth.ts";
 import {click, getClient} from "../helpers/browser.ts";
 
 describe("Login Flow", () => {
     beforeEach(async () => {
         await resetMockState();
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
     });
 
     it("should show login page on startup", async () => {
