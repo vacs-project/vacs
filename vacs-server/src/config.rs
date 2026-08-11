@@ -179,6 +179,9 @@ pub struct VatsimConfig {
     pub slurper_base_url: String,
     pub data_feed_url: String,
     pub data_feed_timeout: Duration,
+    /// How long fetched datafeed responses are served from cache before a new
+    /// request is made. Should not exceed `controller_update_interval`.
+    pub data_feed_cache_ttl: Duration,
     /// After connecting, a client's position is frozen for this duration to allow the
     /// VATSIM datafeed to catch up with the slurper-derived position assignment.
     pub data_feed_position_grace_period: Duration,
@@ -201,6 +204,7 @@ impl Default for VatsimConfig {
             slurper_base_url: "https://slurper.vatsim.net".to_string(),
             data_feed_url: "https://data.vatsim.net/v3/vatsim-data.json".to_string(),
             data_feed_timeout: Duration::from_secs(2),
+            data_feed_cache_ttl: Duration::from_secs(15),
             data_feed_position_grace_period: Duration::from_secs(90),
             controller_update_interval: Duration::from_secs(30),
             coverage_dir: "/var/lib/vacs-server/data/coverage".to_string(),

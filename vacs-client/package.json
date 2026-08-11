@@ -6,8 +6,14 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "frontend"
+    "frontend",
+    "e2e"
   ],
+  "allowScripts": {
+    "edgedriver": false,
+    "geckodriver": false,
+    "esbuild": false
+  },
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",

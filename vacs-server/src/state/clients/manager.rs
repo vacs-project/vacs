@@ -831,6 +831,41 @@ impl ClientManager {
                     &from_online,
                     &to_online,
                 ));
+
+                // A position can move between vacs and VATSIM-only coverage
+                // without any station changing its covering position (e.g.
+                // the only client on a position switches to another position
+                // while a matching VATSIM controller remains online). No
+                // coverage diff is produced then, but callability changes
+                // for all stations covered by such positions.
+                let changed_station_ids: HashSet<&StationId> = all_changes
+                    .iter()
+                    .map(|change| match change {
+                        StationChange::Online { station_id, .. }
+                        | StationChange::Handoff { station_id, .. }
+                        | StationChange::Offline { station_id } => station_id,
+                    })
+                    .collect();
+                let online_stations = self.online_stations.read().await;
+                for (station_id, position_id) in online_stations.iter() {
+                    if changed_station_ids.contains(station_id) {
+                        continue;
+                    }
+                    let was_vacs = start_online_keys.contains(position_id);
+                    let is_vacs = online_positions.contains_key(position_id);
+                    match (was_vacs, is_vacs) {
+                        // vacs -> VATSIM-only: station leaves vacs coverage
+                        (true, false) => coverage_changes.push(StationChange::Offline {
+                            station_id: station_id.clone(),
+                        }),
+                        // VATSIM-only -> vacs: station enters vacs coverage
+                        (false, true) => coverage_changes.push(StationChange::Online {
+                            station_id: station_id.clone(),
+                            position_id: position_id.clone(),
+                        }),
+                        _ => {}
+                    }
+                }
             }
 
             let mut all_handoff_clients = std::mem::take(&mut sync.self_handoff_clients);
@@ -1095,19 +1130,16 @@ impl ClientManager {
                                 )
                             };
 
-                            // When a client changes position (and thus profile), they need the full
-                            // list of online stations relevant to their position, otherwise some
-                            // frontend state (own stations) might be inconsistent and only change
-                            // after positions go on/offline.
-                            if let SessionProfile::Changed(ActiveProfile::Specific(profile)) =
-                                &session_profile
-                            {
-                                result.station_list_updates.push((
-                                    session.clone(),
-                                    ActiveProfile::Specific(profile.id.clone()),
-                                    new_position_id.clone(),
-                                ));
-                            }
+                            // When a client changes position, they need the full list of online
+                            // stations relevant to their position, otherwise some frontend state
+                            // (own stations) might be inconsistent and only change after positions
+                            // go on/offline. This applies even when the profile stays the same,
+                            // since the own flags depend on the position.
+                            result.station_list_updates.push((
+                                session.clone(),
+                                session.active_profile().clone(),
+                                new_position_id.clone(),
+                            ));
 
                             result.session_info_updates.push((
                                 session.clone(),
@@ -4459,6 +4491,10 @@ controlled_by = ["LOWW_DEL"]
             /// (containing FIR sub-directories with positions/stations/profiles).
             #[serde(default)]
             pub dataset: Option<String>,
+            /// Whether datafeed syncs require clients to have an active VATSIM
+            /// connection (production default). Defaults to false.
+            #[serde(default)]
+            pub require_active_connection: bool,
             pub steps: Vec<Step>,
         }
 
@@ -4843,16 +4879,34 @@ controlled_by = ["LOWW_DEL"]
                     }
                     Step::Datafeed(s) => {
                         let controllers = controllers_from_vec(&s.controllers);
-                        ctx.manager
-                            .sync_vatsim_state(&controllers, &mut ctx.pending_disconnect, false)
+                        let disconnected = ctx
+                            .manager
+                            .sync_vatsim_state(
+                                &controllers,
+                                &mut ctx.pending_disconnect,
+                                scenario.require_active_connection,
+                            )
                             .await;
+                        // Mirrors update_vatsim_controllers, which unregisters
+                        // clients returned by the sync.
+                        for (cid, reason) in disconnected {
+                            ctx.manager.remove_client(cid, Some(reason)).await;
+                        }
                     }
                     Step::DatafeedFile(relative_path) => {
                         let feed = load_datafeed_file(scenario_dir, relative_path);
                         let controllers = controllers_from_vec(&feed);
-                        ctx.manager
-                            .sync_vatsim_state(&controllers, &mut ctx.pending_disconnect, false)
+                        let disconnected = ctx
+                            .manager
+                            .sync_vatsim_state(
+                                &controllers,
+                                &mut ctx.pending_disconnect,
+                                scenario.require_active_connection,
+                            )
                             .await;
+                        for (cid, reason) in disconnected {
+                            ctx.manager.remove_client(cid, Some(reason)).await;
+                        }
                     }
                     Step::DrainMessages(s) => {
                         let rx = ctx.receivers.get_mut(&s.client_id).unwrap_or_else(|| {

@@ -109,6 +109,7 @@ impl TestSetup {
                 controller_update_interval: Default::default(),
                 data_feed_url: Default::default(),
                 data_feed_timeout: Default::default(),
+                data_feed_cache_ttl: Default::default(),
                 coverage_dir: coverage_dir.path().to_str().unwrap().to_string(),
                 data_feed_position_grace_period: Duration::from_secs(90),
             },

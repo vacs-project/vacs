@@ -215,6 +215,27 @@ describe("useStationKeyInteraction", () => {
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
 
+            it("auto-selects default source when stations arrive after position defaults", async () => {
+                await act(() => {
+                    useStationsStore
+                        .getState()
+                        .setPositionDefaultSources([OWN_STATION, OTHER_OWN_STATION]);
+                });
+
+                expect(useStationsStore.getState().defaultSource).toBeUndefined();
+
+                await act(() => {
+                    setOwnStations(OWN_STATION, OTHER_OWN_STATION);
+                });
+
+                expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
+                expect(useStationsStore.getState().temporarySource).toBeUndefined();
+                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                expectInteraction(result, {color: "honey", disabled: false, own: true});
+                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                expectInteraction(result, {color: "gray", disabled: false, own: true});
+            });
+
             it("does not auto-select when useDefaultCallSources is disabled", async () => {
                 useSettingsStore.setState({
                     callConfig: {
