@@ -736,7 +736,9 @@ mod tests {
                     station_id: None,
                 },
                 target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
-                invited_targets: HashSet::new(),
+                invited_targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
+                    ClientId::from("client2"),
+                )]),
                 joined_participants: HashMap::new(),
                 prio: false,
             })
