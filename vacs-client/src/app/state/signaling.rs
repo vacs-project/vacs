@@ -1008,9 +1008,6 @@ impl AppStateInner {
                         app.emit("signaling:call-end", &call_id).ok();
                     }
                     CallCancelReason::Disconnected => {
-                        let state = app.state::<AppState>();
-                        let mut state = state.lock().await;
-
                         let Some(current_call) = state.current_call_mut(call_id) else {
                             log::debug!(
                                 "Received call cancelled for unknown call {call_id}, ignoring"
@@ -1043,9 +1040,6 @@ impl AppStateInner {
                             targets: HashSet<CallTarget>,
                         }
 
-                        let state = app.state::<AppState>();
-                        let mut state = state.lock().await;
-
                         let Some(current_call) = state.current_call_mut(call_id) else {
                             log::debug!(
                                 "Received call cancelled for unknown call {call_id}, ignoring"
@@ -1064,9 +1058,6 @@ impl AppStateInner {
                             .ok();
                     }
                     CallCancelReason::Errored(reason) => {
-                        let state = app.state::<AppState>();
-                        let mut state = state.lock().await;
-
                         let Some(current_call) = state.current_call_mut(call_id) else {
                             log::debug!(
                                 "Received call cancelled for unknown call {call_id}, ignoring"
