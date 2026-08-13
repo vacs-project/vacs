@@ -236,6 +236,7 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
     );
     async fn cleanup_call_peer(&mut self, call_id: CallId, peer_id: &ClientId) -> bool;
     async fn cleanup_current_call(&mut self, call_id: CallId) -> bool;
+    async fn end_call_if_no_peers(&mut self, call_id: CallId) -> bool;
     fn emit_call_error(
         &self,
         app: &AppHandle,
@@ -449,6 +450,19 @@ impl AppStateWebrtcExt for AppStateInner {
         self.keybind_engine.read().await.set_call_active(false);
 
         webrtc_call.shutdown().await;
+
+        true
+    }
+
+    async fn end_call_if_no_peers(&mut self, call_id: CallId) -> bool {
+        if !self.webrtc_call(call_id).is_some_and(WebrtcCall::is_empty) {
+            return false;
+        }
+
+        log::debug!("No peer connections remain in call {call_id}, ending call");
+
+        self.cancel_all_unanswered_call_timers(call_id);
+        self.cleanup_current_call(call_id).await;
 
         true
     }
@@ -744,16 +758,9 @@ fn spawn_peer_events_task(
                                 state.cleanup_call_peer(call_id, &peer_id).await;
 
                                 let reason = err.into_call_error_reason(own_client_id.clone());
-                                if let Err(err) = state
-                                    .send_signaling_message(shared::CallError {
-                                        call_id,
-                                        reason: reason.clone(),
-                                        message: None,
-                                    })
-                                    .await
-                                {
-                                    log::warn!("Failed to send call message: {err:?}");
-                                }
+                                state
+                                    .try_send_call_error(call_id, reason.clone(), None)
+                                    .await;
                                 state.emit_call_error(
                                     &app,
                                     call_id,
@@ -761,6 +768,10 @@ fn spawn_peer_events_task(
                                     peer_id.clone().into(),
                                     reason,
                                 );
+
+                                if state.end_call_if_no_peers(call_id).await {
+                                    app.emit("signaling:force-call-end", &call_id).ok();
+                                }
                             }
                         }
                         PeerConnectionState::Disconnected => {
@@ -813,13 +824,21 @@ fn spawn_peer_events_task(
                             let mut state = app_state.lock().await;
                             state.cleanup_call_peer(call_id, &peer_id).await;
 
+                            let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
+                            state
+                                .try_send_call_error(call_id, reason.clone(), None)
+                                .await;
                             state.emit_call_error(
                                 &app,
                                 call_id,
                                 true,
                                 peer_id.clone().into(),
-                                CallErrorReason::WebrtcFailure(own_client_id.clone()),
+                                reason,
                             );
+
+                            if state.end_call_if_no_peers(call_id).await {
+                                app.emit("signaling:force-call-end", &call_id).ok();
+                            }
                         }
                         PeerConnectionState::Closed => {
                             // Graceful close
@@ -829,7 +848,10 @@ fn spawn_peer_events_task(
                             let mut state = app_state.lock().await;
 
                             state.cleanup_call_peer(call_id, &peer_id).await;
-                            app.emit("signaling:call-end", &call_id).ok();
+
+                            if state.end_call_if_no_peers(call_id).await {
+                                app.emit("signaling:call-end", &call_id).ok();
+                            }
                         }
                         state => {
                             log::trace!(
@@ -882,16 +904,9 @@ fn spawn_peer_events_task(
 
                                 let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
                                 state.cleanup_call_peer(call_id, &peer_id).await;
-                                if let Err(err) = state
-                                    .send_signaling_message(shared::CallError {
-                                        call_id,
-                                        reason: reason.clone(),
-                                        message: None,
-                                    })
-                                    .await
-                                {
-                                    log::warn!("Failed to send call message: {err:?}");
-                                }
+                                state
+                                    .try_send_call_error(call_id, reason.clone(), None)
+                                    .await;
                                 state.emit_call_error(
                                     &app,
                                     call_id,
@@ -899,6 +914,10 @@ fn spawn_peer_events_task(
                                     peer_id.clone().into(),
                                     reason,
                                 );
+
+                                if state.end_call_if_no_peers(call_id).await {
+                                    app.emit("signaling:force-call-end", &call_id).ok();
+                                }
                             }
                         }
                     }
