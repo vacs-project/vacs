@@ -1,5 +1,6 @@
+use crate::app::state::calls::Call;
 use crate::app::state::http::HttpState;
-use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard};
+use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard, WebrtcCall, WebrtcPeer};
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
@@ -104,6 +105,8 @@ pub trait AppStateSignalingExt: sealed::Sealed {
     ) -> Result<bool, Error>;
     async fn end_call(&mut self, app: &AppHandle, call_id: &CallId) -> Result<bool, Error>;
     fn clear_session_cache(&mut self);
+    fn call(&self, call_id: CallId) -> Option<&Call>;
+    fn call_mut(&mut self, call_id: CallId) -> Option<&mut Call>;
 }
 
 impl AppStateSignalingExt for AppStateInner {
@@ -480,6 +483,17 @@ impl AppStateSignalingExt for AppStateInner {
         self.stations.clear();
         self.clients.clear();
     }
+
+    fn call(&self, call_id: CallId) -> Option<&Call> {
+        self.current_call_asdasfasd
+            .as_ref()
+            .filter(|call| call.call_id() == call_id)
+    }
+    fn call_mut(&mut self, call_id: CallId) -> Option<&mut Call> {
+        self.current_call_asdasfasd
+            .as_mut()
+            .filter(|call| call.call_id() == call_id)
+    }
 }
 
 impl AppStateInner {
@@ -612,7 +626,9 @@ impl AppStateInner {
                     return;
                 }
 
-                state.incoming_calls.insert(*call_id, msg.into());
+                state
+                    .incoming_calls
+                    .insert(*call_id, Call::from_invitation(msg, &state.shutdown_token));
 
                 app.emit("signaling:call-invitation", msg).ok();
 
@@ -783,7 +799,6 @@ impl AppStateInner {
                 {
                     log::debug!("Call {call_id} ended locally, cleaning up");
 
-                    state.current_call_asdasfasd = None;
                     state.cancel_all_unanswered_call_timers(&call_id);
                     state.audio_manager.read().stop(SourceType::Ringback);
                     state.cleanup_call(*call_id).await;
