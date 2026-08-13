@@ -287,11 +287,49 @@ impl Error {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallErrorOrigin {
+    Client(ClientId),
+    Targets(HashSet<CallTarget>),
+    Call,
+}
+
+impl From<ClientId> for CallErrorOrigin {
+    fn from(id: ClientId) -> Self {
+        CallErrorOrigin::Client(id)
+    }
+}
+
+impl From<&ClientId> for CallErrorOrigin {
+    fn from(id: &ClientId) -> Self {
+        CallErrorOrigin::Client(id.clone())
+    }
+}
+
+impl From<CallTarget> for CallErrorOrigin {
+    fn from(target: CallTarget) -> Self {
+        CallErrorOrigin::Targets(HashSet::from([target]))
+    }
+}
+
+impl From<HashSet<CallTarget>> for CallErrorOrigin {
+    fn from(targets: HashSet<CallTarget>) -> Self {
+        CallErrorOrigin::Targets(targets)
+    }
+}
+
+impl From<&HashSet<CallTarget>> for CallErrorOrigin {
+    fn from(targets: &HashSet<CallTarget>) -> Self {
+        CallErrorOrigin::Targets(targets.clone())
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallError {
     call_id: CallId,
-    targets: HashSet<CallTarget>,
+    origin: CallErrorOrigin,
     reason: String,
 }
 
@@ -299,12 +337,12 @@ impl CallError {
     pub fn new(
         call_id: CallId,
         is_local: bool,
-        targets: HashSet<CallTarget>,
+        origin: CallErrorOrigin,
         reason: CallErrorReason,
     ) -> Self {
         Self {
             call_id,
-            targets,
+            origin,
             reason: format!(
                 "{} {}",
                 if is_local { "Local" } else { "Remote" },
