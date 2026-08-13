@@ -532,6 +532,15 @@ impl AppStateInner {
         }
     }
 
+    fn stop_ringback_if_no_invited_targets(&self, call_id: CallId) {
+        if self
+            .current_call(call_id)
+            .is_some_and(|call| call.invited_targets().is_empty())
+        {
+            self.audio_manager.read().stop(SourceType::Ringback);
+        }
+    }
+
     async fn handle_signaling_event(app: &AppHandle, event: SignalingEvent) {
         match event {
             SignalingEvent::Connected {
@@ -903,6 +912,7 @@ impl AppStateInner {
                 }
 
                 state.remove_incoming_call(call_id);
+                state.cancel_all_unanswered_call_timers(call_id);
 
                 app.emit("signaling:call-end", &call_id).ok();
             }
@@ -935,6 +945,7 @@ impl AppStateInner {
                                 targets.iter(),
                             );
                         }
+                        state.stop_ringback_if_no_invited_targets(call_id);
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
                     }
@@ -999,6 +1010,7 @@ impl AppStateInner {
                         }
 
                         state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        state.stop_ringback_if_no_invited_targets(call_id);
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
                     }
@@ -1046,6 +1058,7 @@ impl AppStateInner {
                                 &call_id,
                                 targets.iter(),
                             );
+                            state.stop_ringback_if_no_invited_targets(call_id);
 
                             app.emit("signaling:call-update", update).ok();
                         }
@@ -1072,6 +1085,8 @@ impl AppStateInner {
                         }
 
                         state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        state.stop_ringback_if_no_invited_targets(call_id);
+
                         app.emit("signaling:call-reject", RejectTargets { call_id, targets })
                             .ok();
                     }
@@ -1090,6 +1105,7 @@ impl AppStateInner {
                         }
 
                         state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        state.stop_ringback_if_no_invited_targets(call_id);
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
                     }
@@ -1290,6 +1306,7 @@ impl AppStateInner {
 
                         state.cleanup_current_call(call_id).await;
                         state.remove_incoming_call(call_id);
+                        state.cancel_all_unanswered_call_timers(call_id);
 
                         app.emit("signaling:force-call-end", call_id).ok(); // TODO: emit force-call-end if all targets gone, or call-update if only some
                     }
