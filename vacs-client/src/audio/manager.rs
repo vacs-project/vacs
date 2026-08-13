@@ -435,8 +435,9 @@ impl AudioManager {
     }
 
     pub fn detach_all_call_outputs(&mut self) {
-        for source_id in &self.call_output_source_ids {
-            self.output.remove_audio_source(*source_id);
+        for source_id in self.call_output_source_ids.drain() {
+            self.output.remove_audio_source(source_id);
+            log::info!("Detached call output with source ID {source_id}");
         }
     }
 
