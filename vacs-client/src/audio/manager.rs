@@ -184,7 +184,7 @@ impl AudioManager {
                         )
                         .await;
 
-                    app.emit("signaling:call-end", &call_id).ok();
+                    app.emit("signaling:force-call-end", &call_id).ok();
                 }
 
                 app.emit::<FrontendError>("error", Error::from(err).into())
@@ -652,7 +652,7 @@ async fn handle_playback_stream_error(
             .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
             .await;
 
-        app.emit("signaling:call-end", &call_id).ok();
+        app.emit("signaling:force-call-end", &call_id).ok();
     }
 
     let res = {
