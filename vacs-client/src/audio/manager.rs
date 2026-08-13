@@ -173,7 +173,7 @@ impl AudioManager {
                 if let Some(call_id) = state.current_call_id() {
                     log::debug!("Ending active call {call_id} due to capture stream error");
 
-                    state.cleanup_call(call_id).await;
+                    state.cleanup_current_call(call_id).await;
                     state
                         .try_send_call_error_with_client_id(
                             call_id,
@@ -182,9 +182,6 @@ impl AudioManager {
                         )
                         .await;
                     state.set_outgoing_call(None);
-                    app.state::<AudioManagerHandle>()
-                        .read()
-                        .stop(SourceType::Ringback);
 
                     app.emit("signaling:call-end", &call_id).ok();
                 }
@@ -634,14 +631,11 @@ async fn handle_playback_stream_error(
     {
         log::debug!("Ending active call {call_id} due to playback stream error");
 
-        state.cleanup_call(call_id).await;
+        state.cleanup_current_call(call_id).await;
         state
             .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
             .await;
         state.set_outgoing_call(None);
-        app.state::<AudioManagerHandle>()
-            .read()
-            .stop(SourceType::Ringback);
 
         app.emit("signaling:call-end", &call_id).ok();
     }
