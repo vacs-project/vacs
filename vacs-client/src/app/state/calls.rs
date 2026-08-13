@@ -68,8 +68,6 @@ impl Call {
         joined_participants: CallParticipants,
     ) -> (CallParticipants, HashSet<ClientId>) {
         self.invited_targets = invited_targets;
-        // TODO emit invited_targets to frontend
-        // TODO stop ringback if invited_targets is empty
 
         let (added, removed) = if joined_participants.contains_key(own_client_id) {
             if self.is_active(own_client_id) {
@@ -100,7 +98,6 @@ impl Call {
         };
 
         self.joined_participants = joined_participants;
-        // TODO emit joined_participants to frontend
 
         (added, removed)
     }
