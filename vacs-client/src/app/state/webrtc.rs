@@ -234,7 +234,7 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
         candidate: String,
     );
     async fn cleanup_call_peer(&mut self, call_id: CallId, peer_id: &ClientId) -> bool;
-    async fn cleanup_call(&mut self, call_id: CallId) -> bool;
+    async fn cleanup_current_call(&mut self, call_id: CallId) -> bool;
     fn emit_call_error(
         &self,
         app: &AppHandle,
@@ -414,7 +414,7 @@ impl AppStateWebrtcExt for AppStateInner {
         true
     }
 
-    async fn cleanup_call(&mut self, call_id: CallId) -> bool {
+    async fn cleanup_current_call(&mut self, call_id: CallId) -> bool {
         let Some(call) = self
             .current_call_asdasfasd
             .take_if(|call| call.call_id() == call_id)
@@ -435,6 +435,8 @@ impl AppStateWebrtcExt for AppStateInner {
 
         {
             let mut audio_manager = self.audio_manager.write();
+
+            audio_manager.stop(SourceType::Ringback);
 
             if self.config.client.call.enable_call_end_sound && webrtc_call.was_connected() {
                 audio_manager.restart(SourceType::CallEnd);
