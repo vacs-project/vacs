@@ -1,5 +1,5 @@
 use crate::app::state::AppState;
-use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::signaling::AppStateSignalingExt;
 use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::{RingSoundError, SourceType, load_ring_clip};
 use crate::audio::{
@@ -51,7 +51,7 @@ pub async fn audio_set_host(
 ) -> Result<(), Error> {
     let mut state = app_state.lock().await;
 
-    if state.active_call_id().is_some() {
+    if state.current_call_id().is_some() {
         return Err(AudioError::Other(anyhow::anyhow!(
             "Cannot set audio host while call is active"
         ))
@@ -124,7 +124,7 @@ pub async fn audio_set_device(
     let mut state = app_state.lock().await;
     let mut audio_manager = audio_manager.write();
 
-    if state.active_call_id().is_some() {
+    if state.current_call_id().is_some() {
         return Err(AudioError::Other(anyhow::anyhow!(
             "Cannot set audio device while call is active"
         ))
@@ -269,6 +269,7 @@ pub async fn audio_set_volume(
             state.config.audio.input_device_volume = volume;
         }
         VolumeType::Output => {
+            // TODO set output volume for call outputs
             audio_manager.set_output_volume(SourceType::Opus, volume);
             audio_manager.set_output_volume(SourceType::Ringback, volume);
             audio_manager.set_output_volume(SourceType::RingbackOneshot, volume);

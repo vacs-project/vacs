@@ -1,6 +1,5 @@
 use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::AppStateWebrtcExt;
 use crate::audio::manager::AudioManagerHandle;
 use crate::error::Error;
 use crate::keybinds::joystick::JoystickServiceHandle;
@@ -415,7 +414,7 @@ impl KeybindEngine {
             let state = app.state::<AppState>();
             let mut state = state.lock().await;
 
-            if let Some(call_id) = state.active_call_id().or(state.outgoing_call_id()).cloned() {
+            if let Some(call_id) = state.current_call_id().or(state.outgoing_call_id()) {
                 match state.end_call(app, &call_id).await {
                     Ok(found) if !found => log::trace!("No active call to end via keybind"),
                     Err(err) => log::warn!("Failed to end active call via keybind: {err}"),
@@ -445,7 +444,7 @@ impl KeybindEngine {
             let state = app.state::<AppState>();
             let mut state = state.lock().await;
 
-            if let Some(call_id) = state.active_call_id().or(state.outgoing_call_id()).cloned() {
+            if let Some(call_id) = state.current_call_id().or(state.outgoing_call_id()) {
                 match state.end_call(app, &call_id.clone()).await {
                     Ok(found) if !found => log::trace!("No active call to end via keybind"),
                     Err(err) => log::warn!("Failed to end active call via keybind: {err}"),
