@@ -394,20 +394,27 @@ impl AppStateWebrtcExt for AppStateInner {
 
         log::debug!("Cleaning up peer {peer_id} in call {call_id}");
 
-        if last {
-            if let Some(audio_source_id) = peer.audio_source_id {
-                let mut audio_manager = self.audio_manager.write();
+        {
+            let mut audio_manager = self.audio_manager.write();
 
+            // TODO separate ParticipateJoined/Left sound
+            if let Some(audio_source_id) = peer.audio_source_id {
+                audio_manager.detach_call_output(audio_source_id);
+            }
+
+            // The audio source may already be gone (taken by a Disconnected event), so the
+            // end-of-call teardown must not depend on it
+            if last {
                 if self.config.client.call.enable_call_end_sound && peer.connected {
                     audio_manager.restart(SourceType::CallEnd);
                 }
 
-                // TODO separate ParticipateJoined/Left sound
                 // TODO remove input stream, detach input device if last
-                audio_manager.detach_call_output(audio_source_id);
                 audio_manager.detach_input_device();
             }
+        }
 
+        if last {
             self.keybind_engine.read().await.set_call_active(false);
         }
 
@@ -795,16 +802,28 @@ fn spawn_peer_events_task(
                                 }
 
                                 if last {
-                                    let mut audio_manager = state.audio_manager.write();
+                                    let played = {
+                                        let mut audio_manager = state.audio_manager.write();
 
-                                    if state.config.client.call.enable_call_end_sound
-                                        && audio_manager.is_input_device_attached()
+                                        let played = state.config.client.call.enable_call_end_sound
+                                            && audio_manager.is_input_device_attached();
+                                        if played {
+                                            audio_manager.restart(SourceType::CallEnd);
+                                        }
+
+                                        // TODO remove input stream, detach input device if last
+                                        audio_manager.detach_input_device();
+
+                                        played
+                                    };
+
+                                    // The end sound must not play a second time when the peer
+                                    // transitions to Failed and is cleaned up
+                                    if played
+                                        && let Some(peer) = state.webrtc_peer_mut(call_id, &peer_id)
                                     {
-                                        audio_manager.restart(SourceType::CallEnd);
+                                        peer.connected = false;
                                     }
-
-                                    // TODO remove input stream, detach input device if last
-                                    audio_manager.detach_input_device();
                                 }
                             }
 
