@@ -170,10 +170,10 @@ impl AudioManager {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                if let Some(call_id) = state.active_call_id().cloned() {
+                if let Some(call_id) = state.current_call_id() {
                     log::debug!("Ending active call {call_id} due to capture stream error");
 
-                    state.cleanup_call(&call_id).await;
+                    state.cleanup_call(call_id).await;
                     state
                         .try_send_call_error_with_client_id(
                             call_id,
@@ -409,37 +409,22 @@ impl AudioManager {
         webrtc_rx: mpsc::Receiver<EncodedAudioFrame>,
         volume: f32,
         amp: f32,
-    ) -> Result<(), Error> {
-        if self.output_source_ids.contains_key(&SourceType::Opus) {
-            log::warn!("Tried to attach call but a call was already attached");
-            return Err(AudioError::Other(anyhow::anyhow!(
-                "Tried to attach call but a call was already attached"
-            ))
-            .into());
-        }
+    ) -> Result<AudioSourceId, Error> {
+        let source_id = self.output.add_audio_source(Box::new(OpusSource::new(
+            webrtc_rx,
+            self.output.resampler()?,
+            self.output.channels(),
+            volume,
+            amp,
+        )?));
+        log::info!("Attached call with source ID {source_id}");
 
-        self.output_source_ids.insert(
-            SourceType::Opus,
-            self.output.add_audio_source(Box::new(OpusSource::new(
-                webrtc_rx,
-                self.output.resampler()?,
-                self.output.channels(),
-                volume,
-                amp,
-            )?)),
-        );
-        log::info!("Attached call");
-
-        Ok(())
+        Ok(source_id)
     }
 
-    pub fn detach_call_output(&mut self) {
-        if let Some(source_id) = self.output_source_ids.remove(&SourceType::Opus) {
-            self.output.remove_audio_source(source_id);
-            log::info!("Detached call output");
-        } else {
-            log::debug!("Tried to detach call output but no call was attached");
-        }
+    pub fn detach_call_output(&mut self, source_id: AudioSourceId) {
+        self.output.remove_audio_source(source_id);
+        log::info!("Detached call output with source ID {source_id}");
     }
 
     fn create_playback_stream(
@@ -645,11 +630,11 @@ async fn handle_playback_stream_error(
     // Calls attach their audio to the output stream only, so no speaker
     // failure can affect call audio and none must end the call.
     if device_type == PlaybackDeviceType::Output
-        && let Some(call_id) = state.active_call_id().cloned()
+        && let Some(call_id) = state.current_call_id()
     {
         log::debug!("Ending active call {call_id} due to playback stream error");
 
-        state.cleanup_call(&call_id).await;
+        state.cleanup_call(call_id).await;
         state
             .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
             .await;
