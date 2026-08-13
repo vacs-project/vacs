@@ -808,20 +808,25 @@ impl AppStateInner {
             ServerMessage::WebrtcOffer(shared::WebrtcOffer {
                 call_id,
                 from_client_id,
-                to_client_id,
                 sdp,
+                ..
             }) => {
                 log::trace!("Received WebRTC offer from peer {from_client_id} for call {call_id}");
 
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
+                let Some(own_client_id) = state.client_id.clone() else {
+                    log::warn!("Cannot handle WebRTC offer without own client ID");
+                    return;
+                };
+
                 let res = state
                     .negotiate_peer(
                         app.clone(),
                         call_id,
                         from_client_id.clone(),
-                        &to_client_id,
+                        &own_client_id,
                         Some(sdp),
                     )
                     .await;
@@ -832,7 +837,7 @@ impl AppStateInner {
                             .send_signaling_message(shared::WebrtcAnswer {
                                 call_id,
                                 to_client_id: from_client_id,
-                                from_client_id: to_client_id,
+                                from_client_id: own_client_id,
                                 sdp,
                             })
                             .await
@@ -840,8 +845,7 @@ impl AppStateInner {
                     Err(err) => {
                         log::warn!("Failed to accept call offer: {err:?}");
 
-                        let reason: CallErrorReason =
-                            err.into_call_error_reason(to_client_id.clone());
+                        let reason: CallErrorReason = err.into_call_error_reason(own_client_id);
                         state.emit_call_error(
                             app,
                             call_id,
@@ -867,13 +871,18 @@ impl AppStateInner {
             ServerMessage::WebrtcAnswer(shared::WebrtcAnswer {
                 call_id,
                 from_client_id,
-                to_client_id,
                 sdp,
+                ..
             }) => {
                 log::trace!("Received WebRTC answer from peer {from_client_id} for call {call_id}");
 
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
+
+                let Some(own_client_id) = state.client_id.clone() else {
+                    log::warn!("Cannot handle WebRTC answer without own client ID");
+                    return;
+                };
 
                 if let Err(err) = state
                     .accept_call_answer(call_id, &from_client_id, sdp)
@@ -883,7 +892,7 @@ impl AppStateInner {
                     if let Err(err) = state
                         .send_signaling_message(shared::CallError {
                             call_id,
-                            reason: err.into_call_error_reason(to_client_id.clone()),
+                            reason: err.into_call_error_reason(own_client_id),
                             message: None,
                         })
                         .await
