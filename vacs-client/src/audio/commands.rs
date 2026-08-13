@@ -268,8 +268,7 @@ pub async fn audio_set_volume(
             state.config.audio.input_device_volume = volume;
         }
         VolumeType::Output => {
-            // TODO set output volume for call outputs
-            audio_manager.set_output_volume(SourceType::Opus, volume);
+            audio_manager.set_call_output_volumes(volume);
             audio_manager.set_output_volume(SourceType::Ringback, volume);
             audio_manager.set_output_volume(SourceType::RingbackOneshot, volume);
             audio_manager.set_output_volume(SourceType::CallStart, volume);

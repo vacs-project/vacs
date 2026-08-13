@@ -36,8 +36,7 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
-use vacs_signaling::protocol::ws::client::CallInvite;
-use vacs_signaling::protocol::ws::server::{CallInvitation, ClientInfo, SessionInfo, StationInfo};
+use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
 
 const BROADCAST_CHANNEL_SIZE: usize = 256;
 const DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -425,8 +424,6 @@ struct SessionStateSnapshot {
     call_config: FrontendCallConfig,
     client_page_settings: FrontendClientPageSettings,
     capabilities: Capabilities,
-    incoming_calls: Vec<CallInvitation>,
-    outgoing_call: Option<CallInvite>,
 }
 
 async fn dispatch_command(
@@ -788,18 +785,9 @@ async fn dispatch_command(
             let (target, source, prio) = args!(args, "target", "source", "prio");
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();
-            let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(
-                signaling_start_call(
-                    app.clone(),
-                    app_state,
-                    http_state,
-                    audio_manager,
-                    target,
-                    source,
-                    prio,
-                )
-                .await,
+                signaling_start_call(app.clone(), app_state, http_state, target, source, prio)
+                    .await,
             )
         }
         SignalingAcceptCall => {
@@ -875,8 +863,6 @@ async fn dispatch_command(
                 call_config: state.config.client.call.clone().into(),
                 client_page_settings: FrontendClientPageSettings::from(&state.config),
                 capabilities: *Capabilities::get(),
-                incoming_calls: state.incoming_calls.values().cloned().collect(),
-                outgoing_call: state.outgoing_call.clone(),
             };
 
             DispatchResult::Ok(serde_json::to_value(snapshot).unwrap_or_default())
