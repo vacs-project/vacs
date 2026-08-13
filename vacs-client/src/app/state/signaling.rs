@@ -2,7 +2,6 @@ use crate::app::state::calls::Call;
 use crate::app::state::http::HttpState;
 use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard, WebrtcCall};
 use crate::app::state::{AppState, AppStateInner, sealed};
-use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
 use crate::config::BackendEndpoint;
 use crate::error::{CallErrorOrigin, Error, FrontendError};
@@ -10,8 +9,8 @@ use crate::signaling::ClientSessionInfo;
 use crate::signaling::auth::TauriTokenProvider;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -22,14 +21,14 @@ use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId, StationChange};
 use vacs_signaling::protocol::ws::client::{CallInvite, CallRejectReason, ClientMessage};
 use vacs_signaling::protocol::ws::server::{
-    CallCancelReason, CallInvitation, DisconnectReason, LoginFailureReason, ServerMessage,
-    SessionProfile,
+    CallCancelReason, DisconnectReason, LoginFailureReason, ServerMessage, SessionProfile,
 };
 use vacs_signaling::protocol::ws::shared::{
     CallErrorReason, CallId, CallSource, CallTarget, ErrorReason,
 };
 use vacs_signaling::protocol::ws::{client, server, shared};
 use vacs_signaling::transport::tokio::TokioTransport;
+use vacs_webrtc::error::WebrtcError;
 
 const INCOMING_CALLS_LIMIT: usize = 5;
 const WS_LOGIN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -68,10 +67,6 @@ pub trait AppStateSignalingExt: sealed::Sealed {
     ) where
         F: FnOnce(ClientId) -> CallErrorReason;
     fn set_client_id(&mut self, client_id: Option<ClientId>);
-    fn remove_active_call(&mut self, call_id: &CallId) -> Option<CallInvitation>;
-    fn outgoing_call_id(&self) -> Option<CallId>;
-    fn set_outgoing_call(&mut self, invite: Option<CallInvite>);
-    fn remove_outgoing_call(&mut self, call_id: &CallId) -> Option<CallInvite>;
     fn current_call_id(&self) -> Option<CallId>;
     fn incoming_calls_len(&self) -> usize;
     fn remove_incoming_call(&mut self, call_id: CallId) -> bool;
@@ -98,13 +93,20 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         call_id: &CallId,
         targets: impl Iterator<Item = &'a CallTarget>,
     );
-    fn cancel_all_unanswered_call_timers(&mut self, call_id: &CallId);
+    fn cancel_all_unanswered_call_timers(&mut self, call_id: CallId);
     async fn accept_call(
         &mut self,
         app: &AppHandle,
         call_id: Option<CallId>,
     ) -> Result<bool, Error>;
-    async fn end_call(&mut self, app: &AppHandle, call_id: &CallId) -> Result<bool, Error>;
+    async fn start_call(
+        &mut self,
+        app: &AppHandle,
+        source: CallSource,
+        targets: HashSet<CallTarget>,
+        prio: bool,
+    ) -> Result<CallId, Error>;
+    async fn end_call(&mut self, app: &AppHandle, call_id: CallId) -> Result<bool, Error>;
     fn clear_session_cache(&mut self);
     fn current_call(&self, call_id: CallId) -> Option<&Call>;
     fn current_call_mut(&mut self, call_id: CallId) -> Option<&mut Call>;
@@ -215,26 +217,6 @@ impl AppStateSignalingExt for AppStateInner {
         self.client_id = client_id;
     }
 
-    fn remove_active_call(&mut self, call_id: &CallId) -> Option<CallInvitation> {
-        self.active_call.take_if(|c| &c.call_id == call_id)
-    }
-
-    fn outgoing_call_id(&self) -> Option<CallId> {
-        self.outgoing_call.as_ref().map(|c| c.call_id)
-    }
-
-    fn set_outgoing_call(&mut self, invite: Option<CallInvite>) {
-        self.outgoing_call = invite;
-    }
-
-    fn remove_outgoing_call(&mut self, call_id: &CallId) -> Option<CallInvite> {
-        self.outgoing_call
-            .take_if(|c| &c.call_id == call_id)
-            .inspect(|_| {
-                self.audio_manager.read().stop(SourceType::Ringback);
-            })
-    }
-
     fn current_call_id(&self) -> Option<CallId> {
         self.current_call_asdasfasd.as_ref().map(|c| c.call_id())
     }
@@ -342,7 +324,6 @@ impl AppStateSignalingExt for AppStateInner {
                             } // TODO: This should be a CallDropTarget message
 
                             state.cleanup_current_call(call_id).await;
-                            state.set_outgoing_call(None);
 
                             state.unanswered_call_guards.remove(&target);
 
@@ -378,9 +359,9 @@ impl AppStateSignalingExt for AppStateInner {
         }
     }
 
-    fn cancel_all_unanswered_call_timers<'a>(&mut self, call_id: &CallId) {
+    fn cancel_all_unanswered_call_timers<'a>(&mut self, call_id: CallId) {
         self.unanswered_call_guards.retain(|_, guard| {
-            if &guard.call_id == call_id {
+            if guard.call_id == call_id {
                 guard.cancel.cancel();
                 guard.handle.abort();
 
@@ -437,40 +418,58 @@ impl AppStateSignalingExt for AppStateInner {
         Ok(true)
     }
 
-    async fn end_call(&mut self, app: &AppHandle, call_id: &CallId) -> Result<bool, Error> {
+    async fn start_call(
+        &mut self,
+        app: &AppHandle,
+        source: CallSource,
+        targets: HashSet<CallTarget>,
+        prio: bool,
+    ) -> Result<CallId, Error> {
+        if self.current_call_asdasfasd.is_some() {
+            log::warn!("Tried to start call, but another call is already active");
+            return Err(WebrtcError::CallActive.into());
+        }
+
+        let call_id = CallId::new();
+        log::debug!("Starting call {call_id} as source {source:?} with targets {targets:?}");
+
+        let invite = CallInvite {
+            call_id,
+            targets: targets.clone(),
+            source,
+            prio,
+        };
+        self.send_signaling_message(invite.clone()).await?;
+
+        self.current_call_asdasfasd = Some(Call::from_invite(&invite, &self.shutdown_token));
+        self.start_unanswered_call_timer_for_targets(app, &invite.call_id, invite.targets.clone());
+
+        self.audio_manager.read().restart(SourceType::Ringback);
+
+        Ok(call_id)
+    }
+
+    async fn end_call(&mut self, app: &AppHandle, call_id: CallId) -> Result<bool, Error> {
         let Some(own_client_id) = self.client_id.clone() else {
             log::warn!("Cannot end call without own client ID");
             return Err(Error::Unauthorized);
         };
 
-        let Some(call) = self
-            .active_call
-            .take_if(|c| &c.call_id == call_id)
-            .map(|c| CallInvite {
-                call_id: c.call_id,
-                targets: c.invited_targets,
-                source: c.source,
-                prio: c.prio,
-            })
-            .or(self.outgoing_call.take_if(|c| &c.call_id == call_id))
-        else {
-            return Ok(false);
-        };
         log::debug!("Ending call {call_id}");
 
-        self.cancel_unanswered_call_timers_for_targets(call_id, call.targets.iter());
+        self.cancel_all_unanswered_call_timers(call_id);
 
         self.send_signaling_message(shared::CallEnd {
-            call_id: call.call_id,
+            call_id,
             ending_client_id: own_client_id,
         })
         .await?;
 
-        self.cleanup_current_call(*call_id).await;
+        let found = self.cleanup_current_call(call_id).await;
 
         app.emit("signaling:force-call-end", call_id).ok();
 
-        Ok(true)
+        Ok(found)
     }
 
     fn clear_session_cache(&mut self) {
@@ -627,9 +626,8 @@ impl AppStateInner {
                     return;
                 }
 
-                state
-                    .incoming_calls
-                    .insert(*call_id, Call::from_invitation(msg, &state.shutdown_token));
+                let call = Call::from_invitation(msg, &state.shutdown_token);
+                state.incoming_calls.insert(*call_id, call);
 
                 app.emit("signaling:call-invitation", msg).ok();
 
@@ -704,7 +702,7 @@ impl AppStateInner {
                 {
                     log::debug!("Call {call_id} ended locally, cleaning up");
 
-                    state.cancel_all_unanswered_call_timers(&call_id);
+                    state.cancel_all_unanswered_call_timers(*call_id);
                     state.cleanup_current_call(*call_id).await;
 
                     app.emit("signaling:call-end", call_id).ok();
@@ -712,11 +710,10 @@ impl AppStateInner {
                 }
 
                 if invited_targets.is_empty() {
-                    state.cancel_all_unanswered_call_timers(&call_id);
+                    state.cancel_all_unanswered_call_timers(*call_id);
                     state.audio_manager.read().stop(SourceType::Ringback);
                 } else {
-                    state
-                        .cancel_unanswered_call_timers_for_targets(&call_id, newly_joined.values());
+                    state.cancel_unanswered_call_timers_for_targets(call_id, newly_joined.values());
                 }
 
                 for peer_id in left {
@@ -727,6 +724,7 @@ impl AppStateInner {
                     log::warn!("Call {call_id} became active through call update");
                 }
 
+                let newly_joined_count = newly_joined.len();
                 for (peer_id, target) in newly_joined {
                     match state
                         .negotiate_peer(
@@ -774,7 +772,7 @@ impl AppStateInner {
                     }
                 }
 
-                if newly_joined.len() > 0
+                if newly_joined_count > 0
                     && state
                         .webrtc_call(*call_id)
                         .is_some_and(WebrtcCall::is_empty)
@@ -915,9 +913,9 @@ impl AppStateInner {
                             return;
                         };
 
-                        current_call.remove_invited_targets(&targets);
+                        current_call.remove_invited_targets(targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         } else {
                             state.cancel_unanswered_call_timers_for_targets(
@@ -944,7 +942,7 @@ impl AppStateInner {
 
                         state.remove_incoming_call(call_id);
 
-                        state.cancel_all_unanswered_call_timers(&call_id);
+                        state.cancel_all_unanswered_call_timers(call_id);
 
                         state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
                     }
@@ -952,7 +950,7 @@ impl AppStateInner {
                     | CallErrorReason::AudioFailure(erroring_client_id)
                     | CallErrorReason::SignalingFailure(erroring_client_id) => {
                         let state = app.state::<AppState>();
-                        let mut state = state.lock().await;
+                        let state = state.lock().await;
 
                         if state.current_call(call_id).is_none() {
                             log::debug!(
@@ -981,10 +979,10 @@ impl AppStateInner {
                             return;
                         };
 
-                        let targets = HashSet::from([*target]);
+                        let targets = HashSet::from([target.clone()]);
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         }
 
@@ -1011,7 +1009,7 @@ impl AppStateInner {
 
                         state.remove_incoming_call(call_id);
 
-                        state.cancel_all_unanswered_call_timers(&call_id);
+                        state.cancel_all_unanswered_call_timers(call_id);
 
                         app.emit("signaling:call-end", &call_id).ok();
                     }
@@ -1028,20 +1026,20 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
+
+                            app.emit("signaling:force-call-end", call_id).ok();
                         } else {
+                            let update = server::CallUpdate::from(&*current_call);
+
                             state.cancel_unanswered_call_timers_for_targets(
                                 &call_id,
                                 targets.iter(),
                             );
-                        }
 
-                        app.emit(
-                            "signaling:call-update",
-                            server::CallUpdate::from(*current_call),
-                        )
-                        .ok();
+                            app.emit("signaling:call-update", update).ok();
+                        }
                     }
                     CallCancelReason::Rejected(_) => {
                         #[derive(Clone, Serialize)]
@@ -1063,7 +1061,7 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         }
 
@@ -1084,7 +1082,7 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         }
 
@@ -1329,7 +1327,9 @@ impl AppStateInner {
 
     async fn cleanup_signaling(&mut self, app: &AppHandle) {
         self.incoming_calls.clear();
-        self.outgoing_call = None;
+        if let Some(call) = self.current_call_asdasfasd.take() {
+            call.into_webrtc().shutdown().await;
+        }
         self.clear_session_cache();
 
         {
@@ -1337,7 +1337,7 @@ impl AppStateInner {
             audio_manager.stop(SourceType::Ring);
             audio_manager.stop(SourceType::PriorityRing);
 
-            audio_manager.detach_call_output();
+            audio_manager.detach_all_call_outputs();
             audio_manager.detach_input_device();
         }
 

@@ -6,7 +6,7 @@ use crate::audio::{AudioConfig, PlaybackDeviceType, RingSoundType};
 use crate::error::{Error, FrontendError};
 use parking_lot::RwLock;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -34,6 +34,7 @@ pub struct AudioManager {
     input: Option<CaptureStream>,
     output_source_ids: SourceMap,
     speaker_source_ids: SourceMap,
+    call_output_source_ids: HashSet<AudioSourceId>,
     // Decoded once, so stream rebuilds (device switches, recovery) never touch the disk.
     ring_clips: RingClipMap,
 }
@@ -99,6 +100,7 @@ impl AudioManager {
             speaker,
             output_source_ids,
             speaker_source_ids,
+            call_output_source_ids: HashSet::new(),
             ring_clips,
         })
     }
@@ -207,7 +209,6 @@ impl AudioManager {
                             None,
                         )
                         .await;
-                    state.set_outgoing_call(None);
 
                     app.emit("signaling:call-end", &call_id).ok();
                 }
@@ -415,6 +416,12 @@ impl AudioManager {
         }
     }
 
+    pub fn set_call_output_volumes(&self, volume: f32) {
+        for source_id in &self.call_output_source_ids {
+            self.output.set_volume(*source_id, volume);
+        }
+    }
+
     pub fn set_input_volume(&self, volume: f32) {
         if let Some(input) = &self.input {
             input.set_volume(volume);
@@ -441,6 +448,8 @@ impl AudioManager {
             amp,
         )?));
         log::info!("Attached call with source ID {source_id}");
+
+        self.call_output_source_ids.insert(source_id);
 
         Ok(source_id)
     }
@@ -498,7 +507,14 @@ impl AudioManager {
 
     pub fn detach_call_output(&mut self, source_id: AudioSourceId) {
         self.output.remove_audio_source(source_id);
+        self.call_output_source_ids.remove(&source_id);
         log::info!("Detached call output with source ID {source_id}");
+    }
+
+    pub fn detach_all_call_outputs(&mut self) {
+        for source_id in &self.call_output_source_ids {
+            self.output.remove_audio_source(*source_id);
+        }
     }
 
     fn create_playback_stream(
@@ -727,7 +743,6 @@ async fn handle_playback_stream_error(
         state
             .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
             .await;
-        state.set_outgoing_call(None);
 
         app.emit("signaling:call-end", &call_id).ok();
     }
