@@ -149,7 +149,7 @@ impl AppStateSignalingExt for AppStateInner {
     async fn disconnect_signaling(&mut self, app: &AppHandle) {
         log::info!("Disconnecting from signaling server");
 
-        self.cleanup_signaling(app).await;
+        self.cleanup_signaling().await;
         app.emit("signaling:disconnected", Value::Null).ok();
         self.signaling_client.disconnect().await;
 
@@ -159,7 +159,7 @@ impl AppStateSignalingExt for AppStateInner {
     async fn handle_signaling_connection_closed(&mut self, app: &AppHandle) {
         log::info!("Handling signaling server connection closed");
 
-        self.cleanup_signaling(app).await;
+        self.cleanup_signaling().await;
 
         app.emit("signaling:disconnected", Value::Null).ok();
         log::debug!("Successfully handled closed signaling server connection");
@@ -1317,32 +1317,25 @@ impl AppStateInner {
         }
     }
 
-    async fn cleanup_signaling(&mut self, app: &AppHandle) {
+    async fn cleanup_signaling(&mut self) {
         self.incoming_calls.clear();
-        if let Some(call) = self.current_call.take() {
-            call.into_webrtc().shutdown().await;
-        }
         self.clear_session_cache();
+
+        if let Some(call_id) = self.current_call_id() {
+            self.cleanup_current_call(call_id).await;
+        }
 
         {
             let mut audio_manager = self.audio_manager.write();
             audio_manager.stop(SourceType::Ring);
             audio_manager.stop(SourceType::PriorityRing);
+            audio_manager.stop(SourceType::Ringback);
 
             audio_manager.detach_all_call_outputs();
             audio_manager.detach_input_device();
         }
 
         self.keybind_engine.read().await.set_call_active(false);
-
-        if let Some(call_id) = self.current_call_id() {
-            self.cleanup_current_call(call_id).await;
-        };
-        let call_ids = self.held_calls.keys().cloned().collect::<Vec<_>>();
-        for call_id in call_ids {
-            self.cleanup_current_call(call_id).await;
-            app.emit("signaling:call-end", &call_id).ok();
-        }
 
         for (target, guard) in self.unanswered_call_guards.drain() {
             log::trace!(
