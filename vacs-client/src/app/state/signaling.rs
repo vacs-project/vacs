@@ -722,7 +722,7 @@ impl AppStateInner {
                     state.cancel_all_unanswered_call_timers(*call_id);
                     state.cleanup_current_call(*call_id).await;
 
-                    app.emit("signaling:call-end", call_id).ok();
+                    app.emit("signaling:force-call-end", call_id).ok();
                     return;
                 }
 
