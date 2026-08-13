@@ -52,6 +52,13 @@ impl Call {
     pub fn invited_targets(&self) -> &HashSet<CallTarget> {
         &self.invited_targets
     }
+    /// Removes invited targets that are no longer invited (rejected, errored, disconnected).
+    /// Returns whether the call is empty after the update.
+    pub fn remove_invited_targets(&mut self, targets: &HashSet<CallTarget>) -> bool {
+        self.invited_targets
+            .retain(|target| !targets.contains(target));
+        self.is_empty()
+    }
 
     pub fn joined_participants(&self) -> &CallParticipants {
         &self.joined_participants
@@ -59,6 +66,10 @@ impl Call {
 
     pub fn is_active(&self, own_client_id: &ClientId) -> bool {
         self.joined_participants.contains_key(own_client_id)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.joined_participants.is_empty() && self.invited_targets.is_empty()
     }
 
     pub fn update(
