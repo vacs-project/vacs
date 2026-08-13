@@ -1,11 +1,11 @@
 use crate::app::state::calls::Call;
 use crate::app::state::http::HttpState;
-use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard, WebrtcCall, WebrtcPeer};
+use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard, WebrtcCall};
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
 use crate::config::BackendEndpoint;
-use crate::error::{Error, FrontendError};
+use crate::error::{CallErrorOrigin, Error, FrontendError};
 use crate::signaling::auth::TauriTokenProvider;
 use serde::Serialize;
 use serde_json::Value;
@@ -105,8 +105,8 @@ pub trait AppStateSignalingExt: sealed::Sealed {
     ) -> Result<bool, Error>;
     async fn end_call(&mut self, app: &AppHandle, call_id: &CallId) -> Result<bool, Error>;
     fn clear_session_cache(&mut self);
-    fn call(&self, call_id: CallId) -> Option<&Call>;
-    fn call_mut(&mut self, call_id: CallId) -> Option<&mut Call>;
+    fn current_call(&self, call_id: CallId) -> Option<&Call>;
+    fn current_call_mut(&mut self, call_id: CallId) -> Option<&mut Call>;
 }
 
 impl AppStateSignalingExt for AppStateInner {
@@ -348,7 +348,7 @@ impl AppStateSignalingExt for AppStateInner {
 
                             state.unanswered_call_guards.remove(&target);
 
-                            state.emit_call_error(&app, call_id, false, HashSet::from([target]), CallErrorReason::AutoHangup);
+                            state.emit_call_error(&app, call_id, false, target.into(), CallErrorReason::AutoHangup);
                         }
                     }
                 }
@@ -484,12 +484,12 @@ impl AppStateSignalingExt for AppStateInner {
         self.clients.clear();
     }
 
-    fn call(&self, call_id: CallId) -> Option<&Call> {
+    fn current_call(&self, call_id: CallId) -> Option<&Call> {
         self.current_call_asdasfasd
             .as_ref()
             .filter(|call| call.call_id() == call_id)
     }
-    fn call_mut(&mut self, call_id: CallId) -> Option<&mut Call> {
+    fn current_call_mut(&mut self, call_id: CallId) -> Option<&mut Call> {
         self.current_call_asdasfasd
             .as_mut()
             .filter(|call| call.call_id() == call_id)
@@ -638,98 +638,6 @@ impl AppStateInner {
                     state.audio_manager.read().restart(SourceType::Ring);
                 }
             }
-            ServerMessage::CallAcceptance(
-                ref msg @ server::CallAcceptance {
-                    ref call_id,
-                    ref target,
-                    ref accepting_client_id,
-                },
-            ) => {
-                // TODO: update for n:m calls
-                log::trace!("Call accept received for call {call_id} from {accepting_client_id}");
-
-                let state = app.state::<AppState>();
-                let mut state = state.lock().await;
-
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle call accept without own client ID");
-                    return;
-                };
-
-                state.cancel_unanswered_call_timers_for_targets(call_id, [target].into_iter());
-
-                let Some(current_call) = state.current_call_asdasfasd.as_mut() else {
-                    log::warn!("Received call acceptance message for unknown call {call_id}");
-                    state
-                        .try_send_call_error(
-                            *call_id,
-                            CallErrorReason::SignalingFailure(own_client_id),
-                            None,
-                        )
-                        .await;
-                    return;
-                };
-
-                let res = if state.remove_outgoing_call(call_id).is_some() {
-                    // TODO: we also need to have a look into our active call (participant joins a conf)
-                    app.emit("signaling:outgoing-call-accepted", msg).ok();
-
-                    match state
-                        .negotiate_peer(
-                            app.clone(),
-                            *call_id,
-                            accepting_client_id.clone(),
-                            &own_client_id,
-                            None,
-                        )
-                        .await
-                    {
-                        Ok(sdp) => {
-                            state
-                                .send_signaling_message(shared::WebrtcOffer {
-                                    call_id: *call_id,
-                                    from_client_id: own_client_id.clone(),
-                                    to_client_id: accepting_client_id.clone(),
-                                    sdp,
-                                })
-                                .await
-                        }
-                        Err(err) => {
-                            log::warn!("Failed to start call: {err:?}");
-
-                            let reason: CallErrorReason =
-                                err.into_call_error_reason(own_client_id.clone());
-                            state.emit_call_error(
-                                app,
-                                *call_id,
-                                true,
-                                HashSet::from([target.clone()]),
-                                reason.clone(),
-                            ); // TODO: validate if that makes sense in the FE
-                            state
-                                .send_signaling_message(shared::CallError {
-                                    call_id: *call_id,
-                                    reason,
-                                    message: None,
-                                })
-                                .await
-                        }
-                    }
-                } else {
-                    log::warn!("Received call accept message for peer that is not set as outgoing");
-                    state
-                        .send_signaling_message(shared::CallError {
-                            call_id: *call_id,
-                            reason: CallErrorReason::SignalingFailure(own_client_id.clone()),
-                            message: None,
-                        })
-                        .await
-                };
-
-                if let Err(err) = res {
-                    log::warn!("Failed to send call message: {err:?}");
-                }
-            }
             ServerMessage::CallUpdate(
                 ref msg @ server::CallUpdate {
                     ref call_id,
@@ -775,11 +683,7 @@ impl AppStateInner {
                     return;
                 }
 
-                let Some(current_call) = state
-                    .current_call_asdasfasd
-                    .as_mut()
-                    .filter(|call| call.call_id() == *call_id)
-                else {
+                let Some(current_call) = state.current_call_mut(*call_id) else {
                     log::debug!(
                         "Received call update for call {call_id} that is not current, ignoring"
                     );
@@ -787,7 +691,7 @@ impl AppStateInner {
                 };
 
                 let was_active = current_call.is_active(&own_client_id);
-                let (joined, left) = current_call.update(
+                let (newly_joined, left) = current_call.update(
                     &own_client_id,
                     invited_targets.clone(),
                     joined_participants.clone(),
@@ -803,7 +707,7 @@ impl AppStateInner {
                     state.audio_manager.read().stop(SourceType::Ringback);
                     state.cleanup_call(*call_id).await;
 
-                    app.emit("signaling:force-call-end", call_id).ok();
+                    app.emit("signaling:call-end", call_id).ok();
                     return;
                 }
 
@@ -811,7 +715,8 @@ impl AppStateInner {
                     state.cancel_all_unanswered_call_timers(&call_id);
                     state.audio_manager.read().stop(SourceType::Ringback);
                 } else {
-                    state.cancel_unanswered_call_timers_for_targets(&call_id, joined.values());
+                    state
+                        .cancel_unanswered_call_timers_for_targets(&call_id, newly_joined.values());
                 }
 
                 for peer_id in left {
@@ -819,50 +724,70 @@ impl AppStateInner {
                 }
 
                 if is_active && !was_active {
-                    for (peer_id, target) in joined {
-                        match state
-                            .negotiate_peer(
-                                app.clone(),
-                                *call_id,
-                                peer_id.clone(),
-                                &own_client_id,
-                                None,
-                            )
-                            .await
-                        {
-                            Ok(sdp) => {
-                                if let Err(err) = state
-                                    .send_signaling_message(shared::WebrtcOffer {
-                                        call_id: *call_id,
-                                        from_client_id: own_client_id.clone(),
-                                        to_client_id: peer_id.clone(),
-                                        sdp,
-                                    })
-                                    .await
-                                {
-                                    log::warn!(
-                                        "Failed to send WebRTC offer to peer {peer_id} in call {call_id}: {err:?}"
-                                    );
-                                    state.cleanup_call_peer(*call_id, &peer_id).await;
-                                }
-                            }
-                            Err(err) => {
-                                log::warn!(
-                                    "Failed to negotiate connection to peer {peer_id} for call {call_id}: {err:?}"
-                                );
+                    log::warn!("Call {call_id} became active through call update");
+                }
 
-                                let reason = err.into_call_error_reason(own_client_id.clone());
-                                state.emit_call_error(
-                                    app,
-                                    *call_id,
-                                    true,
-                                    HashSet::from([target]),
-                                    reason.clone(),
+                for (peer_id, target) in newly_joined {
+                    match state
+                        .negotiate_peer(
+                            app.clone(),
+                            *call_id,
+                            peer_id.clone(),
+                            &own_client_id,
+                            None,
+                        )
+                        .await
+                    {
+                        Ok(sdp) => {
+                            if let Err(err) = state
+                                .send_signaling_message(shared::WebrtcOffer {
+                                    call_id: *call_id,
+                                    from_client_id: own_client_id.clone(),
+                                    to_client_id: peer_id.clone(),
+                                    sdp,
+                                })
+                                .await
+                            {
+                                log::warn!(
+                                    "Failed to send WebRTC offer to peer {peer_id} in call {call_id}: {err:?}"
                                 );
-                                state.try_send_call_error(*call_id, reason, None).await;
+                                // TODO decide on what happens when a single peer errors
+                                state.cleanup_call_peer(*call_id, &peer_id).await;
                             }
                         }
+                        Err(err) => {
+                            log::warn!(
+                                "Failed to negotiate connection to peer {peer_id} for call {call_id}: {err:?}"
+                            );
+
+                            let reason = err.into_call_error_reason(own_client_id.clone());
+                            state.emit_call_error(
+                                app,
+                                *call_id,
+                                true,
+                                target.into(),
+                                reason.clone(),
+                            );
+                            // TODO decide on what happens when a single peer errors
+                            state.try_send_call_error(*call_id, reason, None).await;
+                        }
                     }
+                }
+
+                if newly_joined.len() > 0
+                    && state
+                        .webrtc_call(*call_id)
+                        .is_some_and(WebrtcCall::is_empty)
+                {
+                    log::warn!(
+                        "Failed to connect to any participant of call {call_id}, ending call"
+                    );
+
+                    // TODO decide on what happens here - CallError?
+                    state.cleanup_call(*call_id).await;
+
+                    app.emit("signaling:force-call-end", call_id).ok();
+                    return;
                 }
 
                 app.emit("signaling:call-update", msg).ok();
@@ -873,22 +798,17 @@ impl AppStateInner {
                 to_client_id,
                 sdp,
             }) => {
-                log::trace!("WebRTC offer for call {call_id} received from {from_client_id}");
+                log::trace!("Received WebRTC offer from peer {from_client_id} for call {call_id}");
 
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
-
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle WebRTC offer without own client ID");
-                    return;
-                };
 
                 let res = state
                     .negotiate_peer(
                         app.clone(),
                         call_id,
                         from_client_id.clone(),
-                        &own_client_id,
+                        &to_client_id,
                         Some(sdp),
                     )
                     .await;
@@ -906,9 +826,17 @@ impl AppStateInner {
                     }
                     Err(err) => {
                         log::warn!("Failed to accept call offer: {err:?}");
+
                         let reason: CallErrorReason =
-                            err.into_call_error_reason(own_client_id.clone());
-                        state.emit_call_error(app, call_id, true, HashSet::new(), reason.clone()); // TODO targets
+                            err.into_call_error_reason(to_client_id.clone());
+                        state.emit_call_error(
+                            app,
+                            call_id,
+                            true,
+                            from_client_id.into(),
+                            reason.clone(),
+                        );
+
                         state
                             .send_signaling_message(shared::CallError {
                                 call_id,
@@ -999,7 +927,7 @@ impl AppStateInner {
                                 state.outgoing_call.take();
                             }
 
-                            state.emit_call_error(app, call_id, false, targets.clone(), reason);
+                            state.emit_call_error(app, call_id, false, targets.into(), reason);
                         } else if let Some(active_call) = state.active_call.as_mut()
                             && active_call.call_id == call_id
                         {
@@ -1007,7 +935,7 @@ impl AppStateInner {
                                 .invited_targets
                                 .retain(|target| !targets.contains(target));
 
-                            state.emit_call_error(app, call_id, false, targets.clone(), reason);
+                            state.emit_call_error(app, call_id, false, targets.into(), reason);
                         }
                     }
                     CallErrorReason::CallActive
@@ -1028,7 +956,7 @@ impl AppStateInner {
 
                         state.cancel_all_unanswered_call_timers(&call_id);
 
-                        state.emit_call_error(app, call_id, false, HashSet::new(), reason);
+                        state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
                     }
                     CallErrorReason::WebrtcFailure(erroring_client_id)
                     | CallErrorReason::AudioFailure(erroring_client_id)
@@ -1058,7 +986,7 @@ impl AppStateInner {
                                 app,
                                 call_id,
                                 false,
-                                HashSet::from([CallTarget::Client(erroring_client_id.clone())]),
+                                erroring_client_id.into(),
                                 reason,
                             );
                         }
@@ -1283,7 +1211,7 @@ impl AppStateInner {
                                 state.outgoing_call.take();
                             }
 
-                            state.emit_call_error(app, call_id, false, targets, reason);
+                            state.emit_call_error(app, call_id, false, targets.into(), reason);
                         } else if let Some(active_call) = state.active_call.as_mut()
                             && active_call.call_id == call_id
                         {
@@ -1291,7 +1219,7 @@ impl AppStateInner {
                                 .invited_targets
                                 .retain(|target| !targets.contains(target));
 
-                            state.emit_call_error(app, call_id, false, targets, reason);
+                            state.emit_call_error(app, call_id, false, targets.into(), reason);
                         }
                     }
                 }
