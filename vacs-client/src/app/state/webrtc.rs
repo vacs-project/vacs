@@ -271,7 +271,7 @@ impl AppStateWebrtcExt for AppStateInner {
         own_client_id: &ClientId,
         offer_sdp: Option<String>,
     ) -> Result<String, Error> {
-        let call = match self.current_call_asdasfasd.as_mut() {
+        let call = match self.current_call.as_mut() {
             Some(call) if call.call_id() == call_id => call.webrtc_mut(),
             Some(_) => return Err(WebrtcError::CallActive.into()),
             None => return Err(WebrtcError::NoCallActive.into()),
@@ -416,10 +416,7 @@ impl AppStateWebrtcExt for AppStateInner {
     }
 
     async fn cleanup_current_call(&mut self, call_id: CallId) -> bool {
-        let Some(call) = self
-            .current_call_asdasfasd
-            .take_if(|call| call.call_id() == call_id)
-        else {
+        let Some(call) = self.current_call.take_if(|call| call.call_id() == call_id) else {
             log::debug!("No current call {call_id} to cleanup");
             return false;
         };

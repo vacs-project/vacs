@@ -217,7 +217,7 @@ impl AppStateSignalingExt for AppStateInner {
     }
 
     fn current_call_id(&self) -> Option<CallId> {
-        self.current_call_asdasfasd.as_ref().map(|c| c.call_id())
+        self.current_call.as_ref().map(|c| c.call_id())
     }
 
     fn incoming_calls_len(&self) -> usize {
@@ -424,7 +424,7 @@ impl AppStateSignalingExt for AppStateInner {
         targets: HashSet<CallTarget>,
         prio: bool,
     ) -> Result<CallId, Error> {
-        if self.current_call_asdasfasd.is_some() {
+        if self.current_call.is_some() {
             log::warn!("Tried to start call, but another call is already active");
             return Err(WebrtcError::CallActive.into());
         }
@@ -440,7 +440,7 @@ impl AppStateSignalingExt for AppStateInner {
         };
         self.send_signaling_message(invite.clone()).await?;
 
-        self.current_call_asdasfasd = Some(Call::from_invite(&invite, &self.shutdown_token));
+        self.current_call = Some(Call::from_invite(&invite, &self.shutdown_token));
         self.start_unanswered_call_timer_for_targets(app, &invite.call_id, invite.targets.clone());
 
         self.audio_manager.read().restart(SourceType::Ringback);
@@ -479,12 +479,12 @@ impl AppStateSignalingExt for AppStateInner {
     }
 
     fn current_call(&self, call_id: CallId) -> Option<&Call> {
-        self.current_call_asdasfasd
+        self.current_call
             .as_ref()
             .filter(|call| call.call_id() == call_id)
     }
     fn current_call_mut(&mut self, call_id: CallId) -> Option<&mut Call> {
-        self.current_call_asdasfasd
+        self.current_call
             .as_mut()
             .filter(|call| call.call_id() == call_id)
     }
@@ -1316,7 +1316,7 @@ impl AppStateInner {
 
     async fn cleanup_signaling(&mut self, app: &AppHandle) {
         self.incoming_calls.clear();
-        if let Some(call) = self.current_call_asdasfasd.take() {
+        if let Some(call) = self.current_call.take() {
             call.into_webrtc().shutdown().await;
         }
         self.clear_session_cache();
