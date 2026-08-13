@@ -1,8 +1,10 @@
+use crate::app::state::calls::Call;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::source_type::SourceType;
 use crate::error::{CallError, Error};
 use anyhow::Context;
+use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -61,6 +63,13 @@ pub struct UnansweredCallGuard {
     pub call_id: CallId,
     pub cancel: CancellationToken,
     pub handle: JoinHandle<()>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebrtcUpdateEvent {
+    call_id: CallId,
+    peer_id: ClientId,
 }
 
 pub struct WebrtcPeer {
@@ -200,6 +209,10 @@ impl WebrtcCall {
 }
 
 pub trait AppStateWebrtcExt: sealed::Sealed {
+    fn webrtc_call(&self, call_id: CallId) -> Option<&WebrtcCall>;
+    fn webrtc_call_mut(&mut self, call_id: CallId) -> Option<&mut WebrtcCall>;
+    fn webrtc_peer(&self, call_id: CallId, peer_id: &ClientId) -> Option<&WebrtcPeer>;
+    fn webrtc_peer_mut(&mut self, call_id: CallId, peer_id: &ClientId) -> Option<&mut WebrtcPeer>;
     async fn negotiate_peer(
         &mut self,
         app: AppHandle,
@@ -235,6 +248,20 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
 }
 
 impl AppStateWebrtcExt for AppStateInner {
+    fn webrtc_call(&self, call_id: CallId) -> Option<&WebrtcCall> {
+        self.call(call_id).map(Call::webrtc)
+    }
+    fn webrtc_call_mut(&mut self, call_id: CallId) -> Option<&mut WebrtcCall> {
+        self.call_mut(call_id).map(Call::webrtc_mut)
+    }
+
+    fn webrtc_peer(&self, call_id: CallId, peer_id: &ClientId) -> Option<&WebrtcPeer> {
+        self.webrtc_call(call_id)?.peer(peer_id)
+    }
+    fn webrtc_peer_mut(&mut self, call_id: CallId, peer_id: &ClientId) -> Option<&mut WebrtcPeer> {
+        self.webrtc_call_mut(call_id)?.peer_mut(peer_id)
+    }
+
     async fn negotiate_peer(
         &mut self,
         app: AppHandle,
@@ -243,7 +270,12 @@ impl AppStateWebrtcExt for AppStateInner {
         own_client_id: &ClientId,
         offer_sdp: Option<String>,
     ) -> Result<String, Error> {
-        let call = self.ensure_webrtc_call(call_id)?;
+        let call = match self.current_call_asdasfasd.as_mut() {
+            Some(call) if call.call_id() == call_id => call.webrtc_mut(),
+            Some(_) => return Err(WebrtcError::CallActive.into()),
+            None => return Err(WebrtcError::NoCallActive.into()),
+        };
+
         let replacing = call.has_peer(&peer_id);
         let call_cancel = call.cancel.clone();
 
@@ -251,8 +283,14 @@ impl AppStateWebrtcExt for AppStateInner {
 
         if replacing {
             log::info!("Replacing peer connection with peer {peer_id} in call {call_id}");
-            // TODO needs peer_id
-            app.emit("webrtc:call-reconnecting", &call_id).ok();
+            app.emit(
+                "webrtc:call-reconnecting",
+                WebrtcUpdateEvent {
+                    call_id,
+                    peer_id: peer_id.clone(),
+                },
+            )
+            .ok();
         } else {
             log::debug!("Negotiating peer connection with peer {peer_id} in call {call_id}");
         }
@@ -272,7 +310,6 @@ impl AppStateWebrtcExt for AppStateInner {
         {
             Ok(res) => res,
             Err(err) => {
-                self.drop_empty_webrtc_call();
                 return Err(err);
             }
         };
@@ -304,8 +341,6 @@ impl AppStateWebrtcExt for AppStateInner {
             // unreachable, defensive guard
             log::error!("Peer {peer_id} already exists for call {call_id}");
             peer.shutdown().await;
-
-            self.drop_empty_webrtc_call();
 
             return Err(WebrtcError::CallActive.into());
         }
@@ -380,14 +415,19 @@ impl AppStateWebrtcExt for AppStateInner {
     }
 
     async fn cleanup_call(&mut self, call_id: CallId) -> bool {
-        let Some(call) = self.take_webrtc_call(call_id) else {
-            log::debug!("No active WebRTC call {call_id} to cleanup");
+        let Some(call) = self
+            .current_call_asdasfasd
+            .take_if(|call| call.call_id() == call_id)
+        else {
+            log::debug!("No current call {call_id} to cleanup");
             return false;
         };
 
         log::debug!("Cleaning up call {call_id}");
 
-        let audio_source_ids: Vec<AudioSourceId> = call
+        let webrtc_call = call.into_webrtc();
+
+        let audio_source_ids: Vec<AudioSourceId> = webrtc_call
             .peers
             .values()
             .filter_map(|peer| peer.audio_source_id)
@@ -396,7 +436,7 @@ impl AppStateWebrtcExt for AppStateInner {
         {
             let mut audio_manager = self.audio_manager.write();
 
-            if self.config.client.call.enable_call_end_sound && call.was_connected() {
+            if self.config.client.call.enable_call_end_sound && webrtc_call.was_connected() {
                 audio_manager.restart(SourceType::CallEnd);
             }
 
@@ -408,7 +448,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         self.keybind_engine.read().await.set_call_active(false);
 
-        call.shutdown().await;
+        webrtc_call.shutdown().await;
 
         true
     }
@@ -462,55 +502,6 @@ impl AppStateWebrtcExt for AppStateInner {
 }
 
 impl AppStateInner {
-    /// Returns the active WebRTC call for `call_id`, created if none exists.
-    /// Errors with [`WebrtcError::CallActive`] if a different call is already active.
-    fn ensure_webrtc_call(&mut self, call_id: CallId) -> Result<&mut WebrtcCall, WebrtcError> {
-        if self
-            .active_webrtc_call
-            .as_ref()
-            .is_some_and(|c| c.call_id != call_id)
-        {
-            return Err(WebrtcError::CallActive);
-        }
-
-        Ok(self
-            .active_webrtc_call
-            .get_or_insert_with(|| WebrtcCall::new(call_id, &self.shutdown_token)))
-    }
-
-    fn webrtc_call(&self, call_id: CallId) -> Option<&WebrtcCall> {
-        self.active_webrtc_call
-            .as_ref()
-            .filter(|c| c.call_id == call_id)
-    }
-    fn webrtc_call_mut(&mut self, call_id: CallId) -> Option<&mut WebrtcCall> {
-        self.active_webrtc_call
-            .as_mut()
-            .filter(|c| c.call_id == call_id)
-    }
-
-    fn webrtc_peer(&self, call_id: CallId, peer_id: &ClientId) -> Option<&WebrtcPeer> {
-        self.webrtc_call(call_id)?.peer(peer_id)
-    }
-    fn webrtc_peer_mut(&mut self, call_id: CallId, peer_id: &ClientId) -> Option<&mut WebrtcPeer> {
-        self.webrtc_call_mut(call_id)?.peer_mut(peer_id)
-    }
-
-    fn take_webrtc_call(&mut self, call_id: CallId) -> Option<WebrtcCall> {
-        self.active_webrtc_call
-            .take()
-            .filter(|c| c.call_id == call_id)
-    }
-
-    fn drop_empty_webrtc_call(&mut self) {
-        let Some(call) = self.active_webrtc_call.take_if(|call| call.is_empty()) else {
-            return;
-        };
-
-        log::trace!("Dropping WebRTC call {} without peers", call.call_id);
-        call.cancel.cancel();
-    }
-
     fn take_webrtc_peer(
         &mut self,
         call_id: CallId,
@@ -519,8 +510,6 @@ impl AppStateInner {
         let call = self.webrtc_call_mut(call_id)?;
         let peer = call.remove_peer(peer_id)?;
         let last = call.is_empty();
-
-        self.drop_empty_webrtc_call();
 
         Some((peer, last))
     }
@@ -650,8 +639,14 @@ impl AppStateInner {
         }
 
         log::info!("Successfully established connection to peer {peer_id} in call {call_id}");
-        // TODO needs peer_id
-        app.emit("webrtc:call-connected", call_id).ok();
+        app.emit(
+            "webrtc:call-connected",
+            WebrtcUpdateEvent {
+                call_id,
+                peer_id: peer_id.clone(),
+            },
+        )
+        .ok();
 
         Ok(())
     }
@@ -683,8 +678,14 @@ impl AppStateInner {
                 "No inbound media although the connection to peer {peer_id} in call \
             {call_id} is already relayed, not reconnecting again"
             );
-            // TODO needs peer_id
-            app.emit("webrtc:call-degraded", call_id).ok();
+            app.emit(
+                "webrtc:call-degraded",
+                WebrtcUpdateEvent {
+                    call_id,
+                    peer_id: peer_id.clone(),
+                },
+            )
+            .ok();
             return Ok(None);
         }
 
@@ -694,8 +695,14 @@ impl AppStateInner {
                  support in-call reconnects, leaving the call as-is. Enabling force relay (call \
                  settings) may help if this happens regularly"
             );
-            // TODO needs peer_id
-            app.emit("webrtc:call-degraded", call_id).ok();
+            app.emit(
+                "webrtc:call-degraded",
+                WebrtcUpdateEvent {
+                    call_id,
+                    peer_id: peer_id.clone(),
+                },
+            )
+            .ok();
             return Ok(None);
         }
         log::warn!(
@@ -789,8 +796,14 @@ fn spawn_peer_events_task(
                                 }
                             }
 
-                            // TODO needs peer_id
-                            app.emit("webrtc:call-disconnected", &call_id).ok();
+                            app.emit(
+                                "webrtc:call-disconnected",
+                                WebrtcUpdateEvent {
+                                    call_id,
+                                    peer_id: peer_id.clone(),
+                                },
+                            )
+                            .ok();
                         }
                         PeerConnectionState::Failed => {
                             log::info!("Connection to peer {peer_id} in call {call_id} failed");

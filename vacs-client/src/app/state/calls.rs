@@ -1,25 +1,52 @@
+use crate::app::state::webrtc::WebrtcCall;
 use std::collections::HashSet;
+use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::server::CallInvitation;
 use vacs_signaling::protocol::ws::shared::{CallId, CallParticipants, CallTarget};
 
 pub struct Call {
     call_id: CallId,
+    webrtc: WebrtcCall,
     invited_targets: HashSet<CallTarget>,
     joined_participants: CallParticipants,
 }
 
 impl Call {
-    pub fn new(call_id: CallId, invited_targets: HashSet<CallTarget>) -> Self {
+    pub fn new(
+        call_id: CallId,
+        invited_targets: HashSet<CallTarget>,
+        shutdown_token: &CancellationToken,
+    ) -> Self {
         Call {
             call_id,
+            webrtc: WebrtcCall::new(call_id, shutdown_token),
             invited_targets,
             joined_participants: CallParticipants::default(),
         }
     }
 
+    pub fn from_invitation(
+        invitation: &CallInvitation,
+        shutdown_token: &CancellationToken,
+    ) -> Self {
+        Self {
+            call_id: invitation.call_id,
+            webrtc: WebrtcCall::new(invitation.call_id, shutdown_token),
+            invited_targets: invitation.invited_targets.clone(),
+            joined_participants: invitation.joined_participants.clone(),
+        }
+    }
+
     pub fn call_id(&self) -> CallId {
         self.call_id
+    }
+
+    pub fn webrtc(&self) -> &WebrtcCall {
+        &self.webrtc
+    }
+    pub fn webrtc_mut(&mut self) -> &mut WebrtcCall {
+        &mut self.webrtc
     }
 
     pub fn invited_targets(&self) -> &HashSet<CallTarget> {
@@ -77,14 +104,8 @@ impl Call {
 
         (added, removed)
     }
-}
 
-impl From<&CallInvitation> for Call {
-    fn from(invitation: &CallInvitation) -> Self {
-        Self {
-            call_id: invitation.call_id,
-            invited_targets: invitation.invited_targets.clone(),
-            joined_participants: invitation.joined_participants.clone(),
-        }
+    pub fn into_webrtc(self) -> WebrtcCall {
+        self.webrtc
     }
 }
