@@ -121,7 +121,6 @@ impl AsMetricLabel for ServerMessage {
         match self {
             ServerMessage::LoginFailure(_) => "login_failure",
             ServerMessage::CallInvitation(_) => "call_invite",
-            ServerMessage::CallAcceptance(_) => "call_acceptance",
             ServerMessage::CallEnd(_) => "call_end",
             ServerMessage::CallUpdate(_) => "call_update",
             ServerMessage::CallCancelled(_) => "call_cancelled",

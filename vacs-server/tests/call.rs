@@ -53,13 +53,15 @@ async fn call_offer() -> anyhow::Result<()> {
 
     let accept_messages = client1
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallAcceptance(_))
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(client2.id()))
         })
         .await;
     assert_eq!(
         accept_messages.len(),
         1,
-        "client1 should receive CallAccept"
+        "client1 should receive a call update with client2 joined"
     );
 
     client1
@@ -168,7 +170,9 @@ async fn call_offer_answer() -> anyhow::Result<()> {
         .await?;
     let _ = client1
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallAcceptance(_))
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(client2.id()))
         })
         .await;
 
@@ -310,7 +314,9 @@ async fn invite_after_call_end() -> anyhow::Result<()> {
         .await?;
     let _ = client1
         .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallAcceptance(_))
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(client2.id()))
         })
         .await;
 
@@ -411,11 +417,17 @@ async fn call_end_from_non_participant() -> anyhow::Result<()> {
             },
         ))
         .await?;
-    let _ = client1
-        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
-            matches!(m, ServerMessage::CallAcceptance(_))
-        })
-        .await;
+    // Both participants receive the update of the acceptance, including client2 itself
+    let client2_id = client2.id().clone();
+    for client in [&mut client1, &mut client2] {
+        let _ = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && update.joined_participants.contains_key(&client2_id))
+            })
+            .await;
+    }
 
     // client3 is not a participant and must not be able to affect the call
     client3

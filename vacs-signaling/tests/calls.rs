@@ -58,15 +58,17 @@ async fn call_offer_answer() {
         .await
         .unwrap();
 
-    // 4. Client 0 receives Call Accept
+    // 4. Client 0 receives the call update with client 1 joined
     let event = clients[0]
         .recv_with_timeout_and_filter(Duration::from_millis(100), |e| {
-            matches!(e, SignalingEvent::Message(ServerMessage::CallAcceptance(vacs_protocol::ws::server::CallAcceptance {
+            matches!(e, SignalingEvent::Message(ServerMessage::CallUpdate(vacs_protocol::ws::server::CallUpdate {
                 call_id: received_call_id,
-                target,
-                accepting_client_id,
+                joined_participants,
                 ..
-            })) if matches!(target, vacs_protocol::ws::shared::CallTarget::Client(client_id) if client_id.as_str() == "client1") && *received_call_id == call_id && accepting_client_id.as_str() == "client1")
+            })) if *received_call_id == call_id && joined_participants.iter().any(|(client_id, target)| {
+                client_id.as_str() == "client1"
+                    && matches!(target, vacs_protocol::ws::shared::CallTarget::Client(target_client_id) if target_client_id.as_str() == "client1")
+            }))
         })
         .await;
     assert!(event.is_some());

@@ -3,15 +3,12 @@ use crate::app::state::http::HttpState;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::webrtc::AppStateWebrtcExt;
 use crate::app::state::{AppState, AppStateInner};
-use crate::audio::manager::AudioManagerHandle;
-use crate::audio::source_type::SourceType;
 use crate::config::{BackendEndpoint, CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::{Error, HandleUnauthorizedExt};
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager, State};
 use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId};
-use vacs_signaling::protocol::ws::client::CallInvite;
 use vacs_signaling::protocol::ws::shared::{CallId, CallSource, CallTarget};
 
 #[tauri::command]
@@ -76,33 +73,17 @@ pub async fn signaling_start_call(
     app: AppHandle,
     app_state: State<'_, AppState>,
     http_state: State<'_, HttpState>,
-    audio_manager: State<'_, AudioManagerHandle>,
     targets: HashSet<CallTarget>,
     source: CallSource,
     prio: bool,
 ) -> Result<CallId, Error> {
-    // TODO: this might add targets to an active call
-    log::debug!("Starting call with {targets:?} as {source:?}");
-
     let mut state = app_state.lock().await;
-
-    let call_id = CallId::new();
-    let invite = CallInvite {
-        call_id,
-        targets: targets.clone(),
-        source,
-        prio,
-    };
-    state.send_signaling_message(invite.clone()).await?;
 
     if state.is_ice_config_expired() {
         refresh_ice_config(&http_state, &mut state).await;
     }
 
-    state.start_unanswered_call_timer_for_targets(&app, &call_id, targets);
-    state.set_outgoing_call(Some(invite));
-
-    audio_manager.read().restart(SourceType::Ringback);
+    let call_id = state.start_call(&app, source, targets, prio).await?;
 
     Ok(call_id)
 }
@@ -129,10 +110,8 @@ pub async fn signaling_end_call(
     app_state: State<'_, AppState>,
     call_id: CallId,
 ) -> Result<(), Error> {
-    log::debug!("Ending call {call_id:?}");
-
     let mut state = app_state.lock().await;
-    state.end_call(&app, &call_id).await?;
+    state.end_call(&app, call_id).await?;
 
     Ok(())
 }

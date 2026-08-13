@@ -11,6 +11,7 @@ import type {CallId, StationId} from "../types/generic.ts";
 import type {CallConfig, ClockMode, CplMode, RemoteStatus} from "../types/settings.ts";
 import type {RadioConfigWithLabels, TransmitConfigWithLabels} from "../types/transmit.ts";
 import {invoke, isRemote, isTauri, listen} from "./index.ts";
+import {Call} from "../types/call.ts";
 
 type StationsSync = {
     defaultSource: StationId | undefined;
@@ -20,6 +21,7 @@ type StationsSync = {
 type CallSync = {
     prio: boolean;
     callDisplay: CallDisplay | undefined | null;
+    incomingCalls: Call[];
 };
 
 type CallListSync = {
@@ -255,6 +257,8 @@ function startSync(): () => void {
     unlistenFns.push(
         subscribeFields(useCallStore, "call", s => ({
             prio: s.prio,
+            // TODO will this be an issue with double-syncing?
+            incomingCalls: s.incomingCalls,
             callDisplay:
                 s.callDisplay === undefined ||
                 s.callDisplay.type === "outgoing" ||
@@ -333,6 +337,7 @@ function broadcastAllStoreState() {
     broadcast("call", {
         prio: call.prio,
         callDisplay: call.callDisplay,
+        incomingCalls: call.incomingCalls,
     });
 
     const callList = useCallListStore.getState();

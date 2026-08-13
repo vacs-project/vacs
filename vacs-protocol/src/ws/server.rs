@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 pub enum ServerMessage {
     LoginFailure(LoginFailure),
     CallInvitation(CallInvitation),
-    CallAcceptance(CallAcceptance),
     CallEnd(CallEnd),
     CallUpdate(CallUpdate),
     CallCancelled(CallCancelled),
@@ -50,7 +49,6 @@ impl ServerMessage {
         match self {
             ServerMessage::LoginFailure(_) => "LoginFailure",
             ServerMessage::CallInvitation(_) => "CallInvite",
-            ServerMessage::CallAcceptance(_) => "CallAcceptance",
             ServerMessage::CallEnd(_) => "CallEnd",
             ServerMessage::CallUpdate(_) => "CallUpdate",
             ServerMessage::CallCancelled(_) => "CallCancelled",
