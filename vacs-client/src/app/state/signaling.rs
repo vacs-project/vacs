@@ -1,6 +1,6 @@
 use crate::app::state::calls::Call;
 use crate::app::state::http::HttpState;
-use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard, WebrtcCall};
+use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard};
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::source_type::SourceType;
 use crate::config::BackendEndpoint;
@@ -757,8 +757,14 @@ impl AppStateInner {
                                 log::warn!(
                                     "Failed to send WebRTC offer to peer {peer_id} in call {call_id}: {err:?}"
                                 );
-                                // TODO decide on what happens when a single peer errors
                                 state.cleanup_call_peer(*call_id, &peer_id).await;
+                                state
+                                    .try_send_call_error(
+                                        *call_id,
+                                        CallErrorReason::SignalingFailure(own_client_id.clone()),
+                                        None,
+                                    )
+                                    .await;
                             }
                         }
                         Err(err) => {
@@ -767,30 +773,18 @@ impl AppStateInner {
                             );
 
                             let reason = err.into_call_error_reason(own_client_id.clone());
-                            state.emit_call_error(
-                                app,
-                                *call_id,
-                                true,
-                                target.into(),
-                                reason.clone(),
-                            );
-                            // TODO decide on what happens when a single peer errors
-                            state.try_send_call_error(*call_id, reason, None).await;
+                            state
+                                .try_send_call_error(*call_id, reason.clone(), None)
+                                .await;
+                            state.emit_call_error(app, *call_id, true, target.into(), reason);
                         }
                     }
                 }
 
-                if newly_joined_count > 0
-                    && state
-                        .webrtc_call(*call_id)
-                        .is_some_and(WebrtcCall::is_empty)
-                {
+                if newly_joined_count > 0 && state.end_call_if_no_peers(*call_id).await {
                     log::warn!(
                         "Failed to connect to any participant of call {call_id}, ending call"
                     );
-
-                    // TODO decide on what happens here - CallError?
-                    state.cleanup_current_call(*call_id).await;
 
                     app.emit("signaling:force-call-end", call_id).ok();
                     return;
