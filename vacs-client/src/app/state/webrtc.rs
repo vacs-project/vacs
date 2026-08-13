@@ -2,11 +2,11 @@ use crate::app::state::calls::Call;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::source_type::SourceType;
-use crate::error::{CallError, Error};
+use crate::error::{CallError, CallErrorOrigin, Error};
 use anyhow::Context;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, UNIX_EPOCH};
 use tauri::async_runtime::JoinHandle;
@@ -20,7 +20,7 @@ use vacs_audio::sources::AudioSourceId;
 use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::shared;
-use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, CallTarget};
+use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId};
 use vacs_webrtc::error::WebrtcError;
 use vacs_webrtc::{Peer, PeerConnectionState, PeerEvent};
 
@@ -240,7 +240,7 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
         app: &AppHandle,
         call_id: CallId,
         is_local: bool,
-        targets: HashSet<CallTarget>,
+        origin: CallErrorOrigin,
         reason: CallErrorReason,
     );
     fn set_ice_config(&mut self, config: IceConfig);
@@ -249,10 +249,10 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
 
 impl AppStateWebrtcExt for AppStateInner {
     fn webrtc_call(&self, call_id: CallId) -> Option<&WebrtcCall> {
-        self.call(call_id).map(Call::webrtc)
+        self.current_call(call_id).map(Call::webrtc)
     }
     fn webrtc_call_mut(&mut self, call_id: CallId) -> Option<&mut WebrtcCall> {
-        self.call_mut(call_id).map(Call::webrtc_mut)
+        self.current_call_mut(call_id).map(Call::webrtc_mut)
     }
 
     fn webrtc_peer(&self, call_id: CallId, peer_id: &ClientId) -> Option<&WebrtcPeer> {
@@ -458,12 +458,12 @@ impl AppStateWebrtcExt for AppStateInner {
         app: &AppHandle,
         call_id: CallId,
         is_local: bool,
-        targets: HashSet<CallTarget>,
+        origin: CallErrorOrigin,
         reason: CallErrorReason,
     ) {
         app.emit(
             "webrtc:call-error",
-            CallError::new(call_id, is_local, targets, reason),
+            CallError::new(call_id, is_local, origin, reason),
         )
         .ok();
     }
@@ -759,7 +759,13 @@ fn spawn_peer_events_task(
                                 {
                                     log::warn!("Failed to send call message: {err:?}");
                                 }
-                                state.emit_call_error(&app, call_id, true, HashSet::new(), reason); // TODO targets
+                                state.emit_call_error(
+                                    &app,
+                                    call_id,
+                                    true,
+                                    peer_id.clone().into(),
+                                    reason,
+                                );
                             }
                         }
                         PeerConnectionState::Disconnected => {
@@ -816,7 +822,7 @@ fn spawn_peer_events_task(
                                 &app,
                                 call_id,
                                 true,
-                                HashSet::new(), // TODO targets
+                                peer_id.clone().into(),
                                 CallErrorReason::WebrtcFailure(own_client_id.clone()),
                             );
                         }
@@ -891,7 +897,13 @@ fn spawn_peer_events_task(
                                 {
                                     log::warn!("Failed to send call message: {err:?}");
                                 }
-                                state.emit_call_error(&app, call_id, true, HashSet::new(), reason); // TODO targets
+                                state.emit_call_error(
+                                    &app,
+                                    call_id,
+                                    true,
+                                    peer_id.clone().into(),
+                                    reason,
+                                );
                             }
                         }
                     }

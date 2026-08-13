@@ -303,6 +303,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
 
     tracing::trace!("Sending call acceptance to all joined participants");
 
+    // TODO remove CallAcceptance -> only send CallUpdate
     let acceptance = CallAcceptance {
         call_id: *call_id,
         target: accepted_target.target.clone(),
