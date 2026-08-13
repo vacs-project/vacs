@@ -728,12 +728,16 @@ impl AppStateInner {
                     state.cleanup_call_peer(*call_id, &peer_id).await;
                 }
 
-                if is_active && !was_active {
-                    log::warn!("Call {call_id} became active through call update");
-                }
-
-                let newly_joined_count = newly_joined.len();
+                // For every pair of participants, the one with the lower client ID creates
+                // the WebRTC offer and the other one answers, independent of the order in
+                // which the call updates arrive.
+                let mut attempted_peers = 0;
                 for (peer_id, target) in newly_joined {
+                    if own_client_id >= peer_id {
+                        continue;
+                    }
+                    attempted_peers += 1;
+
                     match state
                         .negotiate_peer(
                             app.clone(),
@@ -781,7 +785,7 @@ impl AppStateInner {
                     }
                 }
 
-                if newly_joined_count > 0 && state.end_call_if_no_peers(*call_id).await {
+                if attempted_peers > 0 && state.end_call_if_no_peers(*call_id).await {
                     log::warn!(
                         "Failed to connect to any participant of call {call_id}, ending call"
                     );
