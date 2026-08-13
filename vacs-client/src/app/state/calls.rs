@@ -2,7 +2,7 @@ use crate::app::state::webrtc::WebrtcCall;
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::ClientId;
-use vacs_signaling::protocol::ws::server::CallInvitation;
+use vacs_signaling::protocol::ws::server::{CallInvitation, CallUpdate};
 use vacs_signaling::protocol::ws::shared::{CallId, CallParticipants, CallTarget};
 
 pub struct Call {
@@ -52,12 +52,9 @@ impl Call {
     pub fn invited_targets(&self) -> &HashSet<CallTarget> {
         &self.invited_targets
     }
-    /// Removes invited targets that are no longer invited (rejected, errored, disconnected).
-    /// Returns whether the call is empty after the update.
-    pub fn remove_invited_targets(&mut self, targets: &HashSet<CallTarget>) -> bool {
+    pub fn remove_invited_targets(&mut self, targets: &HashSet<CallTarget>) {
         self.invited_targets
             .retain(|target| !targets.contains(target));
-        self.is_empty()
     }
 
     pub fn joined_participants(&self) -> &CallParticipants {
@@ -115,5 +112,15 @@ impl Call {
 
     pub fn into_webrtc(self) -> WebrtcCall {
         self.webrtc
+    }
+}
+
+impl From<Call> for CallUpdate {
+    fn from(call: Call) -> Self {
+        CallUpdate {
+            call_id: call.call_id,
+            invited_targets: call.invited_targets,
+            joined_participants: call.joined_participants,
+        }
     }
 }

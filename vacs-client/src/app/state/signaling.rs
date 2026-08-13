@@ -909,7 +909,8 @@ impl AppStateInner {
                             return;
                         };
 
-                        if current_call.remove_invited_targets(targets) {
+                        current_call.remove_invited_targets(&targets);
+                        if current_call.is_empty() {
                             state.cancel_all_unanswered_call_timers(&call_id);
                             state.cleanup_current_call(call_id).await;
                         } else {
@@ -975,7 +976,8 @@ impl AppStateInner {
                         };
 
                         let targets = HashSet::from([*target]);
-                        if current_call.remove_invited_targets(&targets) {
+                        current_call.remove_invited_targets(&targets);
+                        if current_call.is_empty() {
                             state.cancel_all_unanswered_call_timers(&call_id);
                             state.cleanup_current_call(call_id).await;
                         }
@@ -992,19 +994,15 @@ impl AppStateInner {
                 targets,
                 reason,
             }) => {
-                log::trace!("Call {call_id} cancelled. Reason: {reason:?}");
+                log::trace!("Call {call_id} cancelled for targets {targets:?}: {reason:?}");
 
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
                 match reason {
                     CallCancelReason::AnsweredElsewhere(_) | CallCancelReason::CallerCancelled => {
-                        // Stop any active webrtc call
                         state.cleanup_current_call(call_id).await;
 
-                        // Remove from outgoing and incoming states
-                        state.remove_active_call(&call_id);
-                        state.remove_outgoing_call(&call_id);
                         state.remove_incoming_call(call_id);
 
                         state.cancel_all_unanswered_call_timers(&call_id);
@@ -1012,45 +1010,32 @@ impl AppStateInner {
                         app.emit("signaling:call-end", &call_id).ok();
                     }
                     CallCancelReason::Disconnected => {
-                        if let Some(outgoing_call) = state.outgoing_call.as_mut()
-                            && outgoing_call.call_id == call_id
-                        {
-                            outgoing_call
-                                .targets
-                                .retain(|target| !targets.contains(target));
+                        let state = app.state::<AppState>();
+                        let mut state = state.lock().await;
 
-                            if outgoing_call.targets.is_empty() {
-                                state.outgoing_call.take();
+                        let Some(current_call) = state.current_call_mut(call_id) else {
+                            log::debug!(
+                                "Received call cancelled for unknown call {call_id}, ignoring"
+                            );
+                            return;
+                        };
 
-                                app.emit("signaling:force-call-end", &call_id).ok();
-                            } else {
-                                app.emit(
-                                    "signaling:call-update",
-                                    server::CallUpdate {
-                                        call_id,
-                                        invited_targets: outgoing_call.targets.clone(),
-                                        joined_participants: HashMap::new(),
-                                    },
-                                )
-                                .ok();
-                            }
-                        } else if let Some(active_call) = state.active_call.as_mut()
-                            && active_call.call_id == call_id
-                        {
-                            active_call
-                                .invited_targets
-                                .retain(|target| !targets.contains(target));
-
-                            app.emit(
-                                "signaling:call-update",
-                                server::CallUpdate {
-                                    call_id,
-                                    invited_targets: active_call.invited_targets.clone(),
-                                    joined_participants: active_call.joined_participants.clone(),
-                                },
-                            )
-                            .ok();
+                        current_call.remove_invited_targets(&targets);
+                        if current_call.is_empty() {
+                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cleanup_current_call(call_id).await;
+                        } else {
+                            state.cancel_unanswered_call_timers_for_targets(
+                                &call_id,
+                                targets.iter(),
+                            );
                         }
+
+                        app.emit(
+                            "signaling:call-update",
+                            server::CallUpdate::from(*current_call),
+                        )
+                        .ok();
                     }
                     CallCancelReason::Rejected(_) => {
                         #[derive(Clone, Serialize)]
@@ -1060,52 +1045,46 @@ impl AppStateInner {
                             targets: HashSet<CallTarget>,
                         }
 
-                        if let Some(outgoing_call) = state.outgoing_call.as_mut()
-                            && outgoing_call.call_id == call_id
-                        {
-                            outgoing_call
-                                .targets
-                                .retain(|target| !targets.contains(target));
+                        let state = app.state::<AppState>();
+                        let mut state = state.lock().await;
 
-                            if outgoing_call.targets.is_empty() {
-                                state.outgoing_call.take();
-                            }
+                        let Some(current_call) = state.current_call_mut(call_id) else {
+                            log::debug!(
+                                "Received call cancelled for unknown call {call_id}, ignoring"
+                            );
+                            return;
+                        };
 
-                            app.emit("signaling:call-reject", RejectTargets { call_id, targets })
-                                .ok();
-                        } else if let Some(active_call) = state.active_call.as_mut()
-                            && active_call.call_id == call_id
-                        {
-                            active_call
-                                .invited_targets
-                                .retain(|target| !targets.contains(target));
-
-                            app.emit("signaling:call-reject", RejectTargets { call_id, targets })
-                                .ok();
+                        current_call.remove_invited_targets(&targets);
+                        if current_call.is_empty() {
+                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cleanup_current_call(call_id).await;
                         }
+
+                        state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        app.emit("signaling:call-reject", RejectTargets { call_id, targets })
+                            .ok();
                     }
                     CallCancelReason::Errored(reason) => {
-                        if let Some(outgoing_call) = state.outgoing_call.as_mut()
-                            && outgoing_call.call_id == call_id
-                        {
-                            outgoing_call
-                                .targets
-                                .retain(|target| !targets.contains(target));
+                        let state = app.state::<AppState>();
+                        let mut state = state.lock().await;
 
-                            if outgoing_call.targets.is_empty() {
-                                state.outgoing_call.take();
-                            }
+                        let Some(current_call) = state.current_call_mut(call_id) else {
+                            log::debug!(
+                                "Received call cancelled for unknown call {call_id}, ignoring"
+                            );
+                            return;
+                        };
 
-                            state.emit_call_error(app, call_id, false, targets.into(), reason);
-                        } else if let Some(active_call) = state.active_call.as_mut()
-                            && active_call.call_id == call_id
-                        {
-                            active_call
-                                .invited_targets
-                                .retain(|target| !targets.contains(target));
-
-                            state.emit_call_error(app, call_id, false, targets.into(), reason);
+                        current_call.remove_invited_targets(&targets);
+                        if current_call.is_empty() {
+                            state.cancel_all_unanswered_call_timers(&call_id);
+                            state.cleanup_current_call(call_id).await;
                         }
+
+                        state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+
+                        state.emit_call_error(app, call_id, false, targets.into(), reason);
                     }
                 }
             }
@@ -1115,7 +1094,7 @@ impl AppStateInner {
                 candidate,
                 ..
             }) => {
-                log::trace!("ICE candidate for call {call_id} received from {from_client_id}");
+                log::trace!("Received ICE candidate from peer {from_client_id} for call {call_id}");
 
                 let state = app.state::<AppState>();
                 let state = state.lock().await;
@@ -1298,7 +1277,6 @@ impl AppStateInner {
                         let mut state = state.lock().await;
 
                         state.cleanup_current_call(call_id).await;
-                        state.remove_outgoing_call(&call_id);
                         state.remove_incoming_call(call_id);
 
                         app.emit("signaling:force-call-end", call_id).ok(); // TODO: emit force-call-end if all targets gone, or call-update if only some
