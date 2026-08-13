@@ -169,6 +169,7 @@ impl WebrtcCall {
         self.peers.get_mut(peer_id)
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn add_peer(&mut self, peer: WebrtcPeer) -> Result<(), WebrtcPeer> {
         match self.peers.entry(peer.peer_id.clone()) {
             Entry::Occupied(_) => Err(peer),
@@ -516,6 +517,7 @@ impl AppStateInner {
         Some((peer, last))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn create_peer(
         &self,
         app: AppHandle,
@@ -651,12 +653,6 @@ impl AppStateInner {
         .ok();
 
         Ok(())
-    }
-
-    fn play_call_end_sound(&self) {
-        if self.config.client.call.enable_call_end_sound {
-            self.audio_manager.read().restart(SourceType::CallEnd);
-        }
     }
 
     /// Attempts to re-establish the active call over a relayed (TURN-only) connection after the

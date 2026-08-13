@@ -1,7 +1,8 @@
 use crate::app::state::webrtc::WebrtcCall;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::ClientId;
+use vacs_signaling::protocol::ws::client::CallInvite;
 use vacs_signaling::protocol::ws::server::{CallInvitation, CallUpdate};
 use vacs_signaling::protocol::ws::shared::{CallId, CallParticipants, CallTarget};
 
@@ -18,11 +19,20 @@ impl Call {
         invited_targets: HashSet<CallTarget>,
         shutdown_token: &CancellationToken,
     ) -> Self {
-        Call {
+        Self {
             call_id,
             webrtc: WebrtcCall::new(call_id, shutdown_token),
             invited_targets,
             joined_participants: CallParticipants::default(),
+        }
+    }
+
+    pub fn from_invite(invite: &CallInvite, shutdown_token: &CancellationToken) -> Self {
+        Self {
+            call_id: invite.call_id,
+            webrtc: WebrtcCall::new(invite.call_id, shutdown_token),
+            invited_targets: invite.targets.clone(),
+            joined_participants: HashMap::new(),
         }
     }
 
@@ -115,12 +125,12 @@ impl Call {
     }
 }
 
-impl From<Call> for CallUpdate {
-    fn from(call: Call) -> Self {
+impl From<&Call> for CallUpdate {
+    fn from(call: &Call) -> Self {
         CallUpdate {
             call_id: call.call_id,
-            invited_targets: call.invited_targets,
-            joined_participants: call.joined_participants,
+            invited_targets: call.invited_targets.clone(),
+            joined_participants: call.joined_participants.clone(),
         }
     }
 }

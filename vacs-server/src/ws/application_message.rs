@@ -7,7 +7,7 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::{CallAccept, CallInvite, CallReject, ClientMessage};
-use vacs_protocol::ws::server::{CallAcceptance, CallCancelReason, CallInvitation, ServerMessage};
+use vacs_protocol::ws::server::{CallCancelReason, CallInvitation, ServerMessage};
 use vacs_protocol::ws::shared::{
     CallEnd, CallError, CallErrorReason, CallId, CallTarget, ErrorReason, WebrtcAnswer,
     WebrtcIceCandidate, WebrtcOffer,
@@ -303,20 +303,9 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
 
     tracing::trace!("Sending call acceptance to all joined participants");
 
-    // TODO remove CallAcceptance -> only send CallUpdate
-    let acceptance = CallAcceptance {
-        call_id: *call_id,
-        target: accepted_target.target.clone(),
-        accepting_client_id: answerer_id.clone(),
-    };
-
     for participant_id in update.joined_participants.keys() {
-        if participant_id == answerer_id {
-            continue;
-        }
-
         if let Err(err) = state
-            .send_message(participant_id, ServerMessage::from(acceptance.clone()))
+            .send_message(participant_id, ServerMessage::CallUpdate((&update).into()))
             .await
         {
             tracing::warn!(

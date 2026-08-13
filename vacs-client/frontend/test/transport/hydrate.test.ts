@@ -52,8 +52,6 @@ function baseSnapshot(overrides: Partial<SessionStateSnapshot> = {}): SessionSta
             playback: true,
             platform: "Windows",
         },
-        incomingCalls: [],
-        outgoingCall: null,
         ...overrides,
     };
 }
