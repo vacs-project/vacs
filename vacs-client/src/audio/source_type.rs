@@ -3,7 +3,6 @@ use vacs_audio::sources::waveform::{Waveform, WaveformSource, WaveformTone};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SourceType {
-    Opus,
     Ring,
     PriorityRing,
     Ringback,
@@ -21,9 +20,6 @@ impl SourceType {
         volume: f32,
     ) -> WaveformSource {
         match self {
-            SourceType::Opus => {
-                unimplemented!("Cannot create waveform source for Opus SourceType")
-            }
             SourceType::Ring => WaveformSource::single(
                 WaveformTone::new(497.0, Waveform::Triangle, 0.2),
                 Duration::from_secs_f32(1.69),

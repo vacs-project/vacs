@@ -1,4 +1,5 @@
 pub(crate) mod audio;
+pub(crate) mod calls;
 pub(crate) mod http;
 pub(crate) mod keybinds;
 pub(crate) mod playback;
@@ -7,6 +8,7 @@ mod sealed;
 pub(crate) mod signaling;
 pub(crate) mod webrtc;
 
+use crate::app::state::calls::Call;
 use crate::app::state::signaling::{AppStateSignalingExt, ConnectionState};
 use crate::app::state::webrtc::{UnansweredCallGuard, WebrtcCall};
 use crate::audio::manager::{AudioManager, AudioManagerHandle};
@@ -26,8 +28,7 @@ use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock};
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::SignalingClient;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
-use vacs_signaling::protocol::ws::client::CallInvite;
-use vacs_signaling::protocol::ws::server::{self, CallInvitation};
+use vacs_signaling::protocol::ws::server;
 use vacs_signaling::protocol::ws::shared::{CallId, CallTarget};
 use vacs_signaling::transport::tokio::TokioTransport;
 
@@ -42,9 +43,8 @@ pub struct AppStateInner {
     active_webrtc_call: Option<WebrtcCall>,
     unanswered_call_guards: HashMap<CallTarget, UnansweredCallGuard>,
     held_calls: HashMap<CallId, WebrtcCall>,
-    pub(crate) outgoing_call: Option<CallInvite>,
-    pub(crate) active_call: Option<CallInvitation>,
-    pub(crate) incoming_calls: HashMap<CallId, CallInvitation>,
+    current_call_asdasfasd: Option<Call>,
+    incoming_calls: HashMap<CallId, Call>,
     pub test_profile_watcher: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
     pub(crate) client_id: Option<ClientId>,
     pub(crate) connection_state: ConnectionState,
@@ -91,8 +91,7 @@ impl AppStateInner {
             active_webrtc_call: None,
             unanswered_call_guards: HashMap::new(),
             held_calls: HashMap::new(),
-            outgoing_call: None,
-            active_call: None,
+            current_call_asdasfasd: None,
             incoming_calls: HashMap::new(),
             test_profile_watcher: None,
             client_id: None,

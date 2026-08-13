@@ -67,11 +67,11 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         F: FnOnce(ClientId) -> CallErrorReason;
     fn set_client_id(&mut self, client_id: Option<ClientId>);
     fn remove_active_call(&mut self, call_id: &CallId) -> Option<CallInvitation>;
-    fn outgoing_call_id(&self) -> Option<&CallId>;
+    fn outgoing_call_id(&self) -> Option<CallId>;
     fn set_outgoing_call(&mut self, invite: Option<CallInvite>);
     fn remove_outgoing_call(&mut self, call_id: &CallId) -> Option<CallInvite>;
+    fn current_call_id(&self) -> Option<CallId>;
     fn incoming_calls_len(&self) -> usize;
-    fn add_incoming_call(&mut self, invite: server::CallInvitation);
     fn remove_incoming_call(&mut self, call_id: &CallId) -> bool;
     fn add_incoming_call_to_call_list(
         &mut self,
@@ -215,8 +215,8 @@ impl AppStateSignalingExt for AppStateInner {
         self.active_call.take_if(|c| &c.call_id == call_id)
     }
 
-    fn outgoing_call_id(&self) -> Option<&CallId> {
-        self.outgoing_call.as_ref().map(|c| &c.call_id)
+    fn outgoing_call_id(&self) -> Option<CallId> {
+        self.outgoing_call.as_ref().map(|c| c.call_id)
     }
 
     fn set_outgoing_call(&mut self, invite: Option<CallInvite>) {
@@ -231,20 +231,17 @@ impl AppStateSignalingExt for AppStateInner {
             })
     }
 
+    fn current_call_id(&self) -> Option<CallId> {
+        self.current_call_asdasfasd.as_ref().map(|c| c.call_id())
+    }
+
     fn incoming_calls_len(&self) -> usize {
         self.incoming_calls.len()
     }
 
-    fn add_incoming_call(&mut self, invitation: CallInvitation) {
-        self.incoming_calls.insert(invitation.call_id, invitation);
-    }
-
     fn remove_incoming_call(&mut self, call_id: &CallId) -> bool {
         let found = self.incoming_calls.remove(call_id).is_some();
-        if self.incoming_calls.is_empty() {
-            self.audio_manager.read().stop(SourceType::Ring);
-            self.audio_manager.read().stop(SourceType::PriorityRing);
-        }
+        self.stop_ringing_if_no_incoming_calls();
         found
     }
 
@@ -340,7 +337,7 @@ impl AppStateSignalingExt for AppStateInner {
                                 log::warn!("Failed to send call end message after call timer expired: {err:?}");
                             } // TODO: This should be a CallDropTarget message
 
-                            state.cleanup_call(&call_id).await;
+                            state.cleanup_call(call_id).await;
                             state.set_outgoing_call(None);
 
                             let audio_manager = app.state::<AudioManagerHandle>();
@@ -468,7 +465,7 @@ impl AppStateSignalingExt for AppStateInner {
         })
         .await?;
 
-        self.cleanup_call(call_id).await;
+        self.cleanup_call(*call_id).await;
 
         self.audio_manager.read().stop(SourceType::Ringback);
 
@@ -502,6 +499,14 @@ impl AppStateInner {
                 }
             })
         })
+    }
+
+    fn stop_ringing_if_no_incoming_calls(&self) {
+        if self.incoming_calls.is_empty() {
+            let audio_manager = self.audio_manager.read();
+            audio_manager.stop(SourceType::Ring);
+            audio_manager.stop(SourceType::PriorityRing);
+        }
     }
 
     async fn handle_signaling_event(app: &AppHandle, event: SignalingEvent) {
@@ -581,17 +586,17 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle call invite without own client ID");
-                    return;
-                };
-
                 if state.config.client.ignored.contains(caller_id) {
                     log::trace!("Ignoring call invite from {caller_id}");
                     return;
                 }
 
-                state.add_incoming_call_to_call_list(app, call_id, source);
+                let Some(own_client_id) = state.client_id.clone() else {
+                    log::warn!("Cannot handle call invite without own client ID");
+                    return;
+                };
+
+                state.add_incoming_call_to_call_list(app, call_id, source); // TODO redefine call list
 
                 if state.incoming_calls_len() >= INCOMING_CALLS_LIMIT {
                     if let Err(err) = state
@@ -607,7 +612,8 @@ impl AppStateInner {
                     return;
                 }
 
-                state.add_incoming_call(msg.clone());
+                state.incoming_calls.insert(*call_id, msg.into());
+
                 app.emit("signaling:call-invitation", msg).ok();
 
                 if *prio && state.config.client.call.enable_priority_calls {
@@ -635,12 +641,25 @@ impl AppStateInner {
                 };
 
                 state.cancel_unanswered_call_timers_for_targets(call_id, [target].into_iter());
+
+                let Some(current_call) = state.current_call_asdasfasd.as_mut() else {
+                    log::warn!("Received call acceptance message for unknown call {call_id}");
+                    state
+                        .try_send_call_error(
+                            *call_id,
+                            CallErrorReason::SignalingFailure(own_client_id),
+                            None,
+                        )
+                        .await;
+                    return;
+                };
+
                 let res = if state.remove_outgoing_call(call_id).is_some() {
                     // TODO: we also need to have a look into our active call (participant joins a conf)
                     app.emit("signaling:outgoing-call-accepted", msg).ok();
 
                     match state
-                        .init_call(
+                        .negotiate_peer(
                             app.clone(),
                             *call_id,
                             accepting_client_id.clone(),
@@ -695,11 +714,13 @@ impl AppStateInner {
                     log::warn!("Failed to send call message: {err:?}");
                 }
             }
-            ServerMessage::CallUpdate(server::CallUpdate {
-                call_id,
-                invited_targets,
-                joined_participants,
-            }) => {
+            ServerMessage::CallUpdate(
+                ref msg @ server::CallUpdate {
+                    ref call_id,
+                    ref invited_targets,
+                    ref joined_participants,
+                },
+            ) => {
                 log::trace!(
                     "Call update received for call {call_id} (invited targets: {invited_targets:?}, joined participants: {joined_participants:?})"
                 );
@@ -707,71 +728,129 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                if let Entry::Occupied(mut entry) = state.incoming_calls.entry(call_id) {
+                let Some(own_client_id) = state.client_id.clone() else {
+                    log::warn!("Cannot handle call update without own client ID");
+                    return;
+                };
+
+                if let Entry::Occupied(mut entry) = state.incoming_calls.entry(*call_id) {
                     if invited_targets.is_empty() && joined_participants.is_empty() {
-                        log::warn!(
-                            "Received call update with invited targets and joined participants empty, removing incoming call"
+                        log::debug!(
+                            "Call {call_id} has no participants left, removing incoming call"
                         );
+
                         entry.remove();
+                        state.stop_ringing_if_no_incoming_calls();
 
-                        if state.incoming_calls.is_empty() {
-                            state.audio_manager.read().stop(SourceType::Ring);
-                            state.audio_manager.read().stop(SourceType::PriorityRing);
-                        }
-
-                        app.emit("signaling:force-call-end", &call_id).ok();
+                        app.emit("signaling:force-call-end", call_id).ok();
                     } else {
+                        log::trace!("Updating incoming call");
+
                         let incoming_call = entry.get_mut();
-
-                        incoming_call.invited_targets = invited_targets;
-                        incoming_call.joined_participants = joined_participants;
-
-                        app.emit(
-                            "signaling:call-update",
-                            server::CallUpdate {
-                                call_id,
-                                invited_targets: incoming_call.invited_targets.clone(),
-                                joined_participants: incoming_call.joined_participants.clone(),
-                            },
-                        )
-                        .ok();
-                    }
-                } else if let Some(active_call) = state.active_call.as_mut()
-                    && active_call.call_id == call_id
-                {
-                    if invited_targets.is_empty() && joined_participants.is_empty() {
-                        log::warn!(
-                            "Received call update with invited targets and joined participants empty, removing active call"
+                        incoming_call.update(
+                            &own_client_id,
+                            invited_targets.clone(),
+                            joined_participants.clone(),
                         );
-                        state.active_call.take();
 
-                        if !state.cleanup_call(&call_id).await {
-                            log::debug!(
-                                "Received call update, which removed the call, for call that is not WebRTC active"
-                            );
-                        }
+                        app.emit("signaling:call-update", msg).ok();
+                    }
 
-                        app.emit("signaling:force-call-end", &call_id).ok();
-                    } else {
-                        active_call.invited_targets = invited_targets;
+                    return;
+                }
 
-                        app.emit(
-                            "signaling:call-update",
-                            server::CallUpdate {
-                                call_id,
-                                invited_targets: active_call.invited_targets.clone(),
-                                joined_participants: active_call.joined_participants.clone(),
-                            },
-                        )
-                        .ok();
+                let Some(current_call) = state
+                    .current_call_asdasfasd
+                    .as_mut()
+                    .filter(|call| call.call_id() == *call_id)
+                else {
+                    log::debug!(
+                        "Received call update for call {call_id} that is not current, ignoring"
+                    );
+                    return;
+                };
 
-                        if active_call.joined_participants != joined_participants {
-                            log::warn!(
-                                "Received call update with joined participants different from the one in the active call, ignoring update"
-                            );
+                let was_active = current_call.is_active(&own_client_id);
+                let (joined, left) = current_call.update(
+                    &own_client_id,
+                    invited_targets.clone(),
+                    joined_participants.clone(),
+                );
+                let is_active = current_call.is_active(&own_client_id);
+
+                if (invited_targets.is_empty() && joined_participants.is_empty())
+                    || (was_active && !is_active)
+                {
+                    log::debug!("Call {call_id} ended locally, cleaning up");
+
+                    state.current_call_asdasfasd = None;
+                    state.cancel_all_unanswered_call_timers(&call_id);
+                    state.audio_manager.read().stop(SourceType::Ringback);
+                    state.cleanup_call(*call_id).await;
+
+                    app.emit("signaling:force-call-end", call_id).ok();
+                    return;
+                }
+
+                if invited_targets.is_empty() {
+                    state.cancel_all_unanswered_call_timers(&call_id);
+                    state.audio_manager.read().stop(SourceType::Ringback);
+                } else {
+                    state.cancel_unanswered_call_timers_for_targets(&call_id, joined.values());
+                }
+
+                for peer_id in left {
+                    state.cleanup_call_peer(*call_id, &peer_id).await;
+                }
+
+                if is_active && !was_active {
+                    for (peer_id, target) in joined {
+                        match state
+                            .negotiate_peer(
+                                app.clone(),
+                                *call_id,
+                                peer_id.clone(),
+                                &own_client_id,
+                                None,
+                            )
+                            .await
+                        {
+                            Ok(sdp) => {
+                                if let Err(err) = state
+                                    .send_signaling_message(shared::WebrtcOffer {
+                                        call_id: *call_id,
+                                        from_client_id: own_client_id.clone(),
+                                        to_client_id: peer_id.clone(),
+                                        sdp,
+                                    })
+                                    .await
+                                {
+                                    log::warn!(
+                                        "Failed to send WebRTC offer to peer {peer_id} in call {call_id}: {err:?}"
+                                    );
+                                    state.cleanup_call_peer(*call_id, &peer_id).await;
+                                }
+                            }
+                            Err(err) => {
+                                log::warn!(
+                                    "Failed to negotiate connection to peer {peer_id} for call {call_id}: {err:?}"
+                                );
+
+                                let reason = err.into_call_error_reason(own_client_id.clone());
+                                state.emit_call_error(
+                                    app,
+                                    *call_id,
+                                    true,
+                                    HashSet::from([target]),
+                                    reason.clone(),
+                                );
+                                state.try_send_call_error(*call_id, reason, None).await;
+                            }
                         }
                     }
                 }
+
+                app.emit("signaling:call-update", msg).ok();
             }
             ServerMessage::WebrtcOffer(shared::WebrtcOffer {
                 call_id,
@@ -789,29 +868,15 @@ impl AppStateInner {
                     return;
                 };
 
-                // A new offer for the already active call means the peer detected a broken
-                // media path and reconnects with a fresh peer connection (usually relayed).
-                let res = if state.is_active_call_peer(&call_id, &from_client_id) {
-                    state
-                        .reaccept_call_offer(
-                            app.clone(),
-                            call_id,
-                            from_client_id.clone(),
-                            &own_client_id,
-                            sdp,
-                        )
-                        .await
-                } else {
-                    state
-                        .init_call(
-                            app.clone(),
-                            call_id,
-                            from_client_id.clone(),
-                            &own_client_id,
-                            Some(sdp),
-                        )
-                        .await
-                };
+                let res = state
+                    .negotiate_peer(
+                        app.clone(),
+                        call_id,
+                        from_client_id.clone(),
+                        &own_client_id,
+                        Some(sdp),
+                    )
+                    .await;
 
                 let res = match res {
                     Ok(sdp) => {
@@ -859,7 +924,10 @@ impl AppStateInner {
                     return;
                 };
 
-                if let Err(err) = state.accept_call_answer(&from_client_id, sdp).await {
+                if let Err(err) = state
+                    .accept_call_answer(call_id, &from_client_id, sdp)
+                    .await
+                {
                     log::warn!("Failed to accept answer: {err:?}");
                     if let Err(err) = state
                         .send_signaling_message(shared::CallError {
@@ -882,7 +950,7 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                if !state.cleanup_call(&call_id).await {
+                if !state.cleanup_call(call_id).await {
                     log::debug!("Received call end message for call that is not active");
                 }
 
@@ -935,7 +1003,7 @@ impl AppStateInner {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
-                        if !state.cleanup_call(&call_id).await {
+                        if !state.cleanup_call(call_id).await {
                             log::debug!("Received call error message for call that is not active");
                         }
 
@@ -1104,7 +1172,7 @@ impl AppStateInner {
                 match reason {
                     CallCancelReason::AnsweredElsewhere(_) | CallCancelReason::CallerCancelled => {
                         // Stop any active webrtc call
-                        state.cleanup_call(&call_id).await;
+                        state.cleanup_call(call_id).await;
 
                         // Remove from outgoing and incoming states
                         state.remove_active_call(&call_id);
@@ -1224,7 +1292,9 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let state = state.lock().await;
 
-                state.set_remote_ice_candidate(&call_id, candidate).await;
+                state
+                    .set_remote_ice_candidate(call_id, &from_client_id, candidate)
+                    .await;
             }
             ServerMessage::ClientConnected(server::ClientConnected { client }) => {
                 log::trace!("Client connected: {client:?}");
@@ -1399,7 +1469,7 @@ impl AppStateInner {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
-                        state.cleanup_call(&call_id).await;
+                        state.cleanup_call(call_id).await;
                         state.remove_outgoing_call(&call_id);
                         state.remove_incoming_call(&call_id);
 
@@ -1457,12 +1527,12 @@ impl AppStateInner {
 
         self.keybind_engine.read().await.set_call_active(false);
 
-        if let Some(call_id) = self.active_call_id().cloned() {
-            self.cleanup_call(&call_id).await;
+        if let Some(call_id) = self.current_call_id() {
+            self.cleanup_call(call_id).await;
         };
         let call_ids = self.held_calls.keys().cloned().collect::<Vec<_>>();
         for call_id in call_ids {
-            self.cleanup_call(&call_id).await;
+            self.cleanup_call(call_id).await;
             app.emit("signaling:call-end", &call_id).ok();
         }
 
