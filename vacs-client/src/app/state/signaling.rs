@@ -376,7 +376,7 @@ impl AppStateSignalingExt for AppStateInner {
         app: &AppHandle,
         call_id: Option<CallId>,
     ) -> Result<bool, Error> {
-        let Some(own_client_id) = &self.client_id else {
+        let Some(own_client_id) = self.client_id.clone() else {
             log::warn!("Cannot accept call without own client ID");
             return Err(Error::Unauthorized);
         };
@@ -385,6 +385,17 @@ impl AppStateSignalingExt for AppStateInner {
             Some(id) => id,
             None => return Ok(false),
         };
+
+        if !self.incoming_calls.contains_key(&call_id) {
+            log::warn!("Tried to accept call {call_id} that is not incoming");
+            return Ok(false);
+        }
+
+        if self.current_call.is_some() {
+            log::warn!("Tried to accept call {call_id}, but another call is already active");
+            return Err(WebrtcError::CallActive.into());
+        }
+
         log::debug!("Accepting call {call_id:?}");
 
         if !self.config.ice.is_default() && self.is_ice_config_expired() {
@@ -404,10 +415,13 @@ impl AppStateSignalingExt for AppStateInner {
 
         self.send_signaling_message(client::CallAccept {
             call_id,
-            accepting_client_id: own_client_id.clone(),
+            accepting_client_id: own_client_id,
         })
         .await?;
-        self.remove_incoming_call(call_id);
+
+        if let Some(call) = self.incoming_calls.remove(&call_id) {
+            self.current_call = Some(call);
+        }
 
         self.audio_manager.read().stop(SourceType::Ring);
         self.audio_manager.read().stop(SourceType::PriorityRing);
