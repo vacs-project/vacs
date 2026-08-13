@@ -14,19 +14,6 @@ pub struct Call {
 }
 
 impl Call {
-    pub fn new(
-        call_id: CallId,
-        invited_targets: HashSet<CallTarget>,
-        shutdown_token: &CancellationToken,
-    ) -> Self {
-        Self {
-            call_id,
-            webrtc: WebrtcCall::new(call_id, shutdown_token),
-            invited_targets,
-            joined_participants: CallParticipants::default(),
-        }
-    }
-
     pub fn from_invite(invite: &CallInvite, shutdown_token: &CancellationToken) -> Self {
         Self {
             call_id: invite.call_id,
