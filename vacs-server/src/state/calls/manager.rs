@@ -488,14 +488,17 @@ impl CallManager {
                         }
                     }
 
-                    Some(
-                        participants_without_self
-                            .into_keys()
-                            .map(|participant_id| {
-                                UpdateCallAction::DropParticipant(*call_id, participant_id)
-                            })
-                            .collect(),
-                    )
+                    let mut actions: Vec<UpdateCallAction> = participants_without_self
+                        .into_keys()
+                        .map(|participant_id| {
+                            UpdateCallAction::DropParticipant(*call_id, participant_id)
+                        })
+                        .collect();
+                    actions.extend(
+                        self.cancel_pending_invitations(call_id, CallAttemptOutcome::Cancelled),
+                    );
+
+                    Some(actions)
                 } else {
                     if active_call.participants.remove(ending_client_id).is_none() {
                         tracing::error!(
@@ -642,6 +645,10 @@ impl CallManager {
                                             participant_id,
                                         )
                                     },
+                                ));
+                                actions.extend(self.cancel_pending_invitations(
+                                    &active_or_ringing_call_id,
+                                    CallAttemptOutcome::Aborted,
                                 ));
                             } else {
                                 if active_call.participants.remove(client_id).is_none() {
@@ -809,21 +816,33 @@ impl CallManager {
                         }
                     } else {
                         tracing::trace!(
-                            "All notified clients either rejected or errored, call failed, sending call error to source client"
+                            "Ringing target failed or was torn down with the call, sending call cancelled to source and notified clients"
                         );
-                        // TODO send CallCancelled to all notified, just in case?
+                        let cancelled = server::CallCancelled::new(
+                            ringing_target.call_id,
+                            HashSet::from([ringing_target.target.clone()]),
+                            CallCancelReason::Disconnected,
+                        );
                         if let Err(err) = state
-                            .send_message(
-                                &ringing_target.caller_id,
-                                server::CallCancelled::new(
-                                    ringing_target.call_id,
-                                    HashSet::from([ringing_target.target]),
-                                    CallCancelReason::Disconnected,
-                                ),
-                            )
+                            .send_message(&ringing_target.caller_id, cancelled.clone())
                             .await
                         {
-                            tracing::warn!(?err, "Failed to send call error to source client");
+                            tracing::warn!(?err, "Failed to send call cancelled to source client");
+                        }
+                        for callee_id in ringing_target.notified_clients {
+                            tracing::trace!(
+                                ?callee_id,
+                                "Sending call cancelled to notified client"
+                            );
+                            if let Err(err) =
+                                state.send_message(&callee_id, cancelled.clone()).await
+                            {
+                                tracing::warn!(
+                                    ?err,
+                                    ?callee_id,
+                                    "Failed to send call cancelled to notified client"
+                                );
+                            }
                         }
                     }
                 }
@@ -863,6 +882,26 @@ impl CallManager {
                 }
             }
         }
+    }
+
+    /// Removes the call's ringing entry regardless of who created it and returns
+    /// cancellation actions for all still pending targets, so that pending
+    /// invitations cannot outlive a fully torn down call.
+    fn cancel_pending_invitations(
+        &self,
+        call_id: &CallId,
+        outcome: CallAttemptOutcome,
+    ) -> Vec<UpdateCallAction> {
+        let Some(ringing) = self.ringing_calls.write().remove(call_id) else {
+            return Vec::new();
+        };
+
+        self.cleanup_client_incoming_calls(&ringing);
+        ringing
+            .complete_all_targets(outcome)
+            .into_iter()
+            .map(UpdateCallAction::CancelRingingTarget)
+            .collect()
     }
 
     fn remove_client_incoming_call(&self, call_id: &CallId, client_id: &ClientId) {
