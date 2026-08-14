@@ -106,6 +106,8 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
     let mut not_found_targets = HashSet::new();
 
+    CallMetrics::call_invite_targets(invite.targets.len());
+
     for target in &invite.targets {
         let target_clients: HashSet<ClientId> = match target {
             CallTarget::Client(client_id) => {
@@ -145,6 +147,8 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
                         .into_iter()
                         .map(|target_client| (target_client, target.clone())),
                 );
+
+                CallMetrics::call_invite(&invite.source, target, invite.prio);
             }
             Err(StartCallError::CallerBusy) => {
                 tracing::debug!("Client already has an outgoing call, rejecting call invite");
@@ -180,8 +184,6 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             }
         }
     }
-
-    // TODO CallMetrics::call_invite(&invite.source, &invite.target, invite.prio);
 
     if !not_found_targets.is_empty() {
         tracing::trace!("No clients found for call invite, returning target not found error");
