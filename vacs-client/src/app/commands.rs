@@ -83,25 +83,26 @@ pub async fn app_frontend_ready(
     Ok(())
 }
 
+// Async keeps the body off the webview's event loop, and the blocking pool keeps the directory
+// creation and the fork off the shared tokio workers. open_app_folder itself stays sync for the
+// fatal-error dialog, whose startup call sites have no runtime to hand off to; the app is about
+// to exit there anyway.
 #[tauri::command]
 #[vacs_macros::log_err]
-pub fn app_open_folder(app: AppHandle, folder: AppFolder) -> Result<(), Error> {
-    open_app_folder(&app, folder).context("Failed to open folder")?;
+pub async fn app_open_folder(app: AppHandle, folder: AppFolder) -> Result<(), Error> {
+    tokio::task::spawn_blocking(move || open_app_folder(&app, folder))
+        .await
+        .context("Folder opener task panicked")??;
     Ok(())
 }
 
-// Async keeps the body off the webview's event loop, and spawn_blocking keeps the PATH walk and
-// fork off the shared tokio workers that also drive signaling. The scheme allowlist lives in
-// external::open_url, so every caller gets it.
+// The scheme allowlist lives in external::open_url, so every caller gets it.
 #[tauri::command]
 #[vacs_macros::log_err]
 pub async fn app_open_url(url: String) -> Result<(), Error> {
-    tokio::task::spawn_blocking(move || {
-        crate::external::open_url(&url).context("Failed to open URL")
-    })
-    .await
-    .context("URL opener task failed")??;
-
+    crate::external::open_url_detached(url)
+        .await
+        .context("Failed to open URL")?;
     Ok(())
 }
 

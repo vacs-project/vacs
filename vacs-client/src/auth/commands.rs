@@ -18,7 +18,8 @@ pub async fn auth_open_oauth_url(http_state: State<'_, HttpState>) -> Result<(),
 
     log::info!("Opening auth URL: {auth_url}");
 
-    crate::external::open_url(&auth_url)
+    crate::external::open_url_detached(auth_url)
+        .await
         .context("Failed to open auth URL with the default browser")?;
 
     Ok(())

@@ -210,6 +210,21 @@ pub fn open_path(path: &Path) -> Result<()> {
     tauri_plugin_opener::open_path(path, None::<&str>).context("Failed to open path")
 }
 
+/// Runs [`open_url`] on the blocking pool, keeping the fork and the opener's filesystem probing
+/// off the shared tokio workers that also drive signaling.
+pub async fn open_url_detached(url: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || open_url(&url))
+        .await
+        .context("URL opener task panicked")?
+}
+
+/// Runs [`open_path`] on the blocking pool; see [`open_url_detached`].
+pub async fn open_path_detached(path: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || open_path(&path))
+        .await
+        .context("Path opener task panicked")?
+}
+
 /// Hands `target` to the host `xdg-open`. Takes an `OsStr` so non-UTF8 paths, which are legal on
 /// Linux filesystems, pass through byte for byte instead of being mangled by a lossy conversion.
 #[cfg(target_os = "linux")]

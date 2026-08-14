@@ -300,10 +300,15 @@ pub async fn playback_export(
         ))));
     };
 
-    if let Err(err) = crate::external::open_path(&path) {
-        return Err(
-            PlaybackError::Other(anyhow::anyhow!("Cannot open export directory: {err}")).into(),
-        );
+    // The export itself succeeded at this point, so the error must say so and carry the
+    // destination: the frontend discards the returned path and this overlay is the only surface
+    // that can still tell the user where the clip went.
+    if let Err(err) = crate::external::open_path_detached(path.clone()).await {
+        return Err(PlaybackError::Other(anyhow::anyhow!(
+            "Exported the clip to {} but could not open the folder: {err:#}",
+            path.display()
+        ))
+        .into());
     }
 
     Ok(path)
