@@ -205,8 +205,7 @@ impl AppStateSignalingExt for AppStateInner {
     ) where
         F: FnOnce(ClientId) -> CallErrorReason,
     {
-        let Some(own_client_id) = self.client_id.clone() else {
-            log::error!("Cannot send call error for {call_id}: own client ID unknown");
+        let Ok(own_client_id) = self.require_client_id() else {
             return;
         };
         self.try_send_call_error(call_id, make_reason(own_client_id), message)
@@ -285,8 +284,7 @@ impl AppStateSignalingExt for AppStateInner {
     ) {
         self.cancel_unanswered_call_timers_for_targets(call_id, targets.iter());
 
-        let Some(own_client_id) = &self.client_id else {
-            log::warn!("Cannot start unanswered call timer without own client ID");
+        let Ok(own_client_id) = self.require_client_id() else {
             return;
         };
 
@@ -377,10 +375,7 @@ impl AppStateSignalingExt for AppStateInner {
         app: &AppHandle,
         call_id: Option<CallId>,
     ) -> Result<bool, Error> {
-        let Some(own_client_id) = self.client_id.clone() else {
-            log::warn!("Cannot accept call without own client ID");
-            return Err(Error::Unauthorized);
-        };
+        let own_client_id = self.require_client_id()?;
 
         let call_id = match call_id.or_else(|| self.incoming_calls.keys().next().copied()) {
             Some(id) => id,
@@ -468,10 +463,7 @@ impl AppStateSignalingExt for AppStateInner {
     }
 
     async fn end_call(&mut self, app: &AppHandle, call_id: CallId) -> Result<bool, Error> {
-        let Some(own_client_id) = self.client_id.clone() else {
-            log::warn!("Cannot end call without own client ID");
-            return Err(Error::Unauthorized);
-        };
+        let own_client_id = self.require_client_id()?;
 
         log::debug!("Ending call {call_id}");
 
@@ -510,6 +502,14 @@ impl AppStateSignalingExt for AppStateInner {
 }
 
 impl AppStateInner {
+    /// Returns the own client ID, logging when it is unknown.
+    fn require_client_id(&self) -> Result<ClientId, Error> {
+        self.client_id.clone().ok_or_else(|| {
+            log::warn!("Own client ID unknown, ignoring call action");
+            Error::Unauthorized
+        })
+    }
+
     /// Returns a callback that terminates the current WebSocket session via the HTTP API.
     /// Called by the signaling client before each reconnect attempt when the original
     /// disconnect was caused by a connection loss (heartbeat timeout, transport error).
@@ -632,8 +632,7 @@ impl AppStateInner {
                     return;
                 }
 
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle call invite without own client ID");
+                let Ok(own_client_id) = state.require_client_id() else {
                     return;
                 };
 
@@ -678,8 +677,7 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle call update without own client ID");
+                let Ok(own_client_id) = state.require_client_id() else {
                     return;
                 };
 
@@ -826,8 +824,7 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle WebRTC offer without own client ID");
+                let Ok(own_client_id) = state.require_client_id() else {
                     return;
                 };
 
@@ -889,8 +886,7 @@ impl AppStateInner {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                let Some(own_client_id) = state.client_id.clone() else {
-                    log::warn!("Cannot handle WebRTC answer without own client ID");
+                let Ok(own_client_id) = state.require_client_id() else {
                     return;
                 };
 
