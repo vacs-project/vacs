@@ -435,6 +435,11 @@ impl KeybindEngine {
 
             match state.accept_call(app, None).await {
                 Ok(found) if !found => log::trace!("No incoming call to accept via keybind"),
+                Err(Error::Webrtc(err))
+                    if matches!(err.as_ref(), vacs_webrtc::error::WebrtcError::CallActive) =>
+                {
+                    log::debug!("Ignoring accept keybind while another call is active");
+                }
                 Err(err) => log::warn!("Failed to accept incoming call via keybind: {err}"),
                 _ => {}
             }
