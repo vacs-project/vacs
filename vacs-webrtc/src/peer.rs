@@ -51,6 +51,7 @@ pub struct Peer {
     receiver: Option<crate::Receiver>,
     events_tx: broadcast::Sender<PeerEvent>,
     received_rtp: Arc<AtomicU64>,
+    forwarded_rtp: Arc<AtomicU64>,
     received_rtcp: Arc<AtomicU64>,
     sent_frames: Arc<AtomicU64>,
     rtcp_reader: JoinHandle<()>,
@@ -103,6 +104,7 @@ impl Peer {
             .context("Failed to add track to peer connection")?;
 
         let received_rtp = Arc::new(AtomicU64::new(0));
+        let forwarded_rtp = Arc::new(AtomicU64::new(0));
         let received_rtcp = Arc::new(AtomicU64::new(0));
         let sent_frames = Arc::new(AtomicU64::new(0));
 
@@ -199,6 +201,7 @@ impl Peer {
                 receiver: None,
                 events_tx,
                 received_rtp,
+                forwarded_rtp,
                 received_rtcp,
                 sent_frames,
                 rtcp_reader,
@@ -229,6 +232,7 @@ impl Peer {
                 &self.peer_connection,
                 output_tx,
                 Arc::clone(&self.received_rtp),
+                Arc::clone(&self.forwarded_rtp),
             ));
         }
 
@@ -248,6 +252,7 @@ impl Peer {
     /// inbound counters stall for [`NO_INBOUND_MEDIA_TIMEOUT`] while the peer is started.
     fn spawn_media_watchdog(&self) -> JoinHandle<()> {
         let received_rtp = Arc::clone(&self.received_rtp);
+        let forwarded_rtp = Arc::clone(&self.forwarded_rtp);
         let received_rtcp = Arc::clone(&self.received_rtcp);
         let sent_frames = Arc::clone(&self.sent_frames);
         let events_tx = self.events_tx.clone();
@@ -291,6 +296,7 @@ impl Peer {
                 if ticks.is_multiple_of(MEDIA_STATS_LOG_INTERVAL_TICKS) {
                     tracing::debug!(
                         inbound_rtp = inbound.0,
+                        forwarded_rtp = forwarded_rtp.load(Ordering::Relaxed),
                         inbound_rtcp = inbound.1,
                         outbound_frames = sent_frames.load(Ordering::Relaxed),
                         "Call media stats"
