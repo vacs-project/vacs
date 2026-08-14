@@ -1,6 +1,6 @@
-use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::{AppState, AppStateInner};
 use crate::audio::source_type::SourceType;
 use crate::audio::{AudioConfig, PlaybackDeviceType};
 use crate::error::{Error, FrontendError};
@@ -172,20 +172,7 @@ impl AudioManager {
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
 
-                if let Some(call_id) = state.current_call_id() {
-                    log::debug!("Ending active call {call_id} due to capture stream error");
-
-                    state.cleanup_current_call(call_id).await;
-                    state
-                        .try_send_call_error_with_client_id(
-                            call_id,
-                            CallErrorReason::AudioFailure,
-                            None,
-                        )
-                        .await;
-
-                    app.emit("signaling:force-call-end", &call_id).ok();
-                }
+                end_call_on_stream_failure(&app, &mut state, "capture").await;
 
                 app.emit::<FrontendError>("error", Error::from(err).into())
                     .ok();
@@ -593,6 +580,19 @@ impl AudioManager {
     }
 }
 
+async fn end_call_on_stream_failure(app: &AppHandle, state: &mut AppStateInner, cause: &str) {
+    if let Some(call_id) = state.current_call_id() {
+        log::debug!("Ending active call {call_id} due to {cause} stream error");
+
+        state.cleanup_current_call(call_id).await;
+        state
+            .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
+            .await;
+
+        app.emit("signaling:force-call-end", &call_id).ok();
+    }
+}
+
 async fn handle_playback_stream_error(
     err: AudioError,
     restarted_at: Option<Instant>,
@@ -643,17 +643,8 @@ async fn handle_playback_stream_error(
 
     // Calls attach their audio to the output stream only, so no speaker
     // failure can affect call audio and none must end the call.
-    if device_type == PlaybackDeviceType::Output
-        && let Some(call_id) = state.current_call_id()
-    {
-        log::debug!("Ending active call {call_id} due to playback stream error");
-
-        state.cleanup_current_call(call_id).await;
-        state
-            .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
-            .await;
-
-        app.emit("signaling:force-call-end", &call_id).ok();
+    if device_type == PlaybackDeviceType::Output {
+        end_call_on_stream_failure(&app, &mut state, "playback").await;
     }
 
     let res = {
