@@ -386,15 +386,15 @@ impl AppStateSignalingExt for AppStateInner {
             None => return Ok(false),
         };
 
-        if !self.incoming_calls.contains_key(&call_id) {
-            log::warn!("Tried to accept call {call_id} that is not incoming");
-            return Ok(false);
-        }
-
         if self.current_call.is_some() {
             log::debug!("Tried to accept call {call_id}, but another call is already active");
             return Err(WebrtcError::CallActive.into());
         }
+
+        let Some(call) = self.incoming_calls.remove(&call_id) else {
+            log::warn!("Tried to accept call {call_id} that is not incoming");
+            return Ok(false);
+        };
 
         log::debug!("Accepting call {call_id:?}");
 
@@ -413,15 +413,19 @@ impl AppStateSignalingExt for AppStateInner {
             };
         }
 
-        self.send_signaling_message(client::CallAccept {
-            call_id,
-            accepting_client_id: own_client_id,
-        })
-        .await?;
-
-        if let Some(call) = self.incoming_calls.remove(&call_id) {
-            self.current_call = Some(call);
+        if let Err(err) = self
+            .send_signaling_message(client::CallAccept {
+                call_id,
+                accepting_client_id: own_client_id,
+            })
+            .await
+        {
+            // The call was not accepted, so it must keep ringing
+            self.incoming_calls.insert(call_id, call);
+            return Err(err);
         }
+
+        self.current_call = Some(call);
 
         self.audio_manager.read().stop(SourceType::Ring);
         self.audio_manager.read().stop(SourceType::PriorityRing);
