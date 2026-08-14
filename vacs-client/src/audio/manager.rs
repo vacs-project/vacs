@@ -152,8 +152,15 @@ impl AudioManager {
         muted: bool,
     ) -> Result<broadcast::Receiver<EncodedAudioFrame>, Error> {
         if let Some(input_device) = self.input.as_ref() {
-            log::debug!("Input device already attached, subscribing to capture stream");
-            return Ok(input_device.subscribe());
+            if !input_device.is_level_meter() {
+                log::debug!("Input device already attached, subscribing to capture stream");
+                return Ok(input_device.subscribe());
+            }
+
+            // A level meter stream never feeds the broadcast channel, so subscribing to it
+            // would transmit silence; replace it with a call capture stream instead
+            log::debug!("Replacing input level meter with call capture stream");
+            self.input = None;
         };
 
         let (device, is_fallback) = DeviceSelector::open(
