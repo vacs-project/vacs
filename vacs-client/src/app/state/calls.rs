@@ -121,3 +121,111 @@ impl From<&Call> for CallUpdate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vacs_signaling::protocol::ws::shared::CallSource;
+
+    fn client(id: &str) -> ClientId {
+        ClientId::from(id)
+    }
+
+    fn target(id: &str) -> CallTarget {
+        CallTarget::Client(client(id))
+    }
+
+    fn participants(ids: &[&str]) -> CallParticipants {
+        ids.iter().map(|id| (client(id), target(id))).collect()
+    }
+
+    fn call(caller: &str, targets: &[&str]) -> Call {
+        let invite = CallInvite {
+            call_id: CallId::new(),
+            source: CallSource {
+                client_id: client(caller),
+                position_id: None,
+                station_id: None,
+            },
+            targets: targets.iter().map(|id| target(id)).collect(),
+            prio: false,
+        };
+        Call::from_invite(&invite, &CancellationToken::new())
+    }
+
+    #[test]
+    fn update_when_joining_reports_all_other_participants() {
+        let mut call = call("a", &["b", "c"]);
+        assert!(!call.is_active(&client("a")));
+
+        let (added, removed) = call.update(
+            &client("a"),
+            HashSet::from([target("c")]),
+            participants(&["a", "b"]),
+        );
+
+        assert_eq!(added, participants(&["b"]));
+        assert!(removed.is_empty());
+        assert!(call.is_active(&client("a")));
+    }
+
+    #[test]
+    fn update_while_active_reports_joined_and_left_participants() {
+        let mut call = call("a", &["b", "c"]);
+        call.update(
+            &client("a"),
+            HashSet::from([target("c")]),
+            participants(&["a", "b"]),
+        );
+
+        let (added, removed) = call.update(&client("a"), HashSet::new(), participants(&["a", "c"]));
+
+        assert_eq!(added, participants(&["c"]));
+        assert_eq!(removed, HashSet::from([client("b")]));
+        assert_eq!(call.joined_participants(), &participants(&["a", "c"]));
+    }
+
+    #[test]
+    fn update_without_self_reports_no_deltas() {
+        let mut call = call("a", &["b", "c"]);
+
+        // Not yet joined
+        let (added, removed) = call.update(
+            &client("a"),
+            HashSet::from([target("c")]),
+            participants(&["b"]),
+        );
+        assert!(added.is_empty());
+        assert!(removed.is_empty());
+        assert!(!call.is_active(&client("a")));
+
+        // Joined, then dropped from the call
+        call.update(&client("a"), HashSet::new(), participants(&["a", "b"]));
+        let (added, removed) = call.update(&client("a"), HashSet::new(), participants(&["b"]));
+        assert!(added.is_empty());
+        assert!(removed.is_empty());
+        assert!(!call.is_active(&client("a")));
+    }
+
+    #[test]
+    fn update_replaces_invited_targets_and_participants() {
+        let mut call = call("a", &["b", "c"]);
+        assert_eq!(
+            call.invited_targets(),
+            &HashSet::from([target("b"), target("c")])
+        );
+
+        call.update(
+            &client("a"),
+            HashSet::from([target("c")]),
+            participants(&["b"]),
+        );
+
+        assert_eq!(call.invited_targets(), &HashSet::from([target("c")]));
+        assert_eq!(call.joined_participants(), &participants(&["b"]));
+        assert!(!call.is_empty());
+
+        call.update(&client("a"), HashSet::new(), CallParticipants::new());
+        assert!(call.is_empty());
+    }
+}
