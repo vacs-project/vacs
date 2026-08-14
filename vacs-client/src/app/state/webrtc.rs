@@ -72,6 +72,17 @@ pub struct WebrtcUpdateEvent {
     peer_id: ClientId,
 }
 
+fn emit_webrtc_update(app: &AppHandle, event: &str, call_id: CallId, peer_id: &ClientId) {
+    app.emit(
+        event,
+        WebrtcUpdateEvent {
+            call_id,
+            peer_id: peer_id.clone(),
+        },
+    )
+    .ok();
+}
+
 pub struct WebrtcPeer {
     peer_id: ClientId,
     peer: Peer,
@@ -285,14 +296,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         if replacing {
             log::info!("Replacing peer connection with peer {peer_id} in call {call_id}");
-            app.emit(
-                "webrtc:call-reconnecting",
-                WebrtcUpdateEvent {
-                    call_id,
-                    peer_id: peer_id.clone(),
-                },
-            )
-            .ok();
+            emit_webrtc_update(&app, "webrtc:call-reconnecting", call_id, &peer_id);
         } else {
             log::debug!("Negotiating peer connection with peer {peer_id} in call {call_id}");
         }
@@ -679,14 +683,7 @@ impl AppStateInner {
         }
 
         log::info!("Successfully established connection to peer {peer_id} in call {call_id}");
-        app.emit(
-            "webrtc:call-connected",
-            WebrtcUpdateEvent {
-                call_id,
-                peer_id: peer_id.clone(),
-            },
-        )
-        .ok();
+        emit_webrtc_update(app, "webrtc:call-connected", call_id, peer_id);
 
         Ok(())
     }
@@ -712,14 +709,7 @@ impl AppStateInner {
                 "No inbound media although the connection to peer {peer_id} in call \
             {call_id} is already relayed, not reconnecting again"
             );
-            app.emit(
-                "webrtc:call-degraded",
-                WebrtcUpdateEvent {
-                    call_id,
-                    peer_id: peer_id.clone(),
-                },
-            )
-            .ok();
+            emit_webrtc_update(app, "webrtc:call-degraded", call_id, &peer_id);
             return Ok(None);
         }
 
@@ -729,14 +719,7 @@ impl AppStateInner {
                  support in-call reconnects, leaving the call as-is. Enabling force relay (call \
                  settings) may help if this happens regularly"
             );
-            app.emit(
-                "webrtc:call-degraded",
-                WebrtcUpdateEvent {
-                    call_id,
-                    peer_id: peer_id.clone(),
-                },
-            )
-            .ok();
+            emit_webrtc_update(app, "webrtc:call-degraded", call_id, &peer_id);
             return Ok(None);
         }
         log::warn!(
@@ -830,14 +813,7 @@ fn spawn_peer_events_task(
                                 }
                             }
 
-                            app.emit(
-                                "webrtc:call-disconnected",
-                                WebrtcUpdateEvent {
-                                    call_id,
-                                    peer_id: peer_id.clone(),
-                                },
-                            )
-                            .ok();
+                            emit_webrtc_update(&app, "webrtc:call-disconnected", call_id, &peer_id);
                         }
                         PeerConnectionState::Failed => {
                             log::info!("Connection to peer {peer_id} in call {call_id} failed");
