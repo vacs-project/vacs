@@ -873,6 +873,118 @@ async fn target_not_found() -> anyhow::Result<()> {
 }
 
 #[test(tokio::test)]
+async fn webrtc_messages_to_non_participants_are_dropped() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    // Establish a call between client1 and client2
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let _ = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let _ = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(client2.id()))
+        })
+        .await;
+
+    // client1 addresses WebRTC messages to client3, who is not a participant
+    client1
+        .send(ClientMessage::WebrtcOffer(
+            vacs_protocol::ws::shared::WebrtcOffer {
+                call_id,
+                from_client_id: client1.id().clone(),
+                to_client_id: client3.id().clone(),
+                sdp: "sdp1".to_string(),
+            },
+        ))
+        .await?;
+    client1
+        .send(ClientMessage::WebrtcIceCandidate(
+            vacs_protocol::ws::shared::WebrtcIceCandidate {
+                call_id,
+                from_client_id: client1.id().clone(),
+                to_client_id: client3.id().clone(),
+                candidate: "candidate1".to_string(),
+            },
+        ))
+        .await?;
+    client2
+        .send(ClientMessage::WebrtcAnswer(
+            vacs_protocol::ws::shared::WebrtcAnswer {
+                call_id,
+                from_client_id: client2.id().clone(),
+                to_client_id: client3.id().clone(),
+                sdp: "sdp2".to_string(),
+            },
+        ))
+        .await?;
+
+    let relayed_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(200), |m| {
+            matches!(
+                m,
+                ServerMessage::WebrtcOffer(_)
+                    | ServerMessage::WebrtcAnswer(_)
+                    | ServerMessage::WebrtcIceCandidate(_)
+            )
+        })
+        .await;
+    assert!(
+        relayed_messages.is_empty(),
+        "client3 is not a participant and must not receive relayed WebRTC messages, but received: {:?}",
+        relayed_messages
+    );
+
+    // The drop is silent: the senders get no error for the benign left-the-call race
+    for (name, client) in [("client1", &mut client1), ("client2", &mut client2)] {
+        let error_messages = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallError(_))
+            })
+            .await;
+        assert!(
+            error_messages.is_empty(),
+            "{} should receive no error for a dropped relay, but received: {:?}",
+            name,
+            error_messages
+        );
+    }
+
+    Ok(())
+}
+
+#[test(tokio::test)]
 async fn partial_targets_not_found_still_rings_online_target() -> anyhow::Result<()> {
     let test_app = TestApp::new().await;
     let mut clients = setup_n_test_clients(test_app.addr(), 2).await;

@@ -837,6 +837,11 @@ async fn handle_webrtc_offer(state: &AppState, client: &ClientSession, offer: We
         return;
     }
 
+    if !state.calls.has_active_call(call_id, &offer.to_client_id) {
+        tracing::debug!("Recipient is not a call participant, dropping WebRTC offer");
+        return;
+    }
+
     if let Err(err) = state.send_message(&offer.to_client_id, offer.clone()).await {
         tracing::warn!(?err, "Failed to send WebRTC offer to peer");
         send_call_error(
@@ -870,6 +875,11 @@ async fn handle_webrtc_answer(state: &AppState, client: &ClientSession, answer: 
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC answer, returning call error");
         send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
+        return;
+    }
+
+    if !state.calls.has_active_call(call_id, &answer.to_client_id) {
+        tracing::debug!("Recipient is not a call participant, dropping WebRTC answer");
         return;
     }
 
@@ -913,6 +923,14 @@ async fn handle_webrtc_ice_candidate(
     if !state.calls.has_active_call(call_id, client_id) {
         tracing::debug!("No active call found for WebRTC ice candidate, returning call error");
         send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
+        return;
+    }
+
+    if !state
+        .calls
+        .has_active_call(call_id, &ice_candidate.to_client_id)
+    {
+        tracing::debug!("Recipient is not a call participant, dropping WebRTC ice candidate");
         return;
     }
 
