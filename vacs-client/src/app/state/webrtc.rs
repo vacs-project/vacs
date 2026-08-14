@@ -523,6 +523,24 @@ impl AppStateWebrtcExt for AppStateInner {
 }
 
 impl AppStateInner {
+    async fn fail_peer(
+        &mut self,
+        app: &AppHandle,
+        call_id: CallId,
+        peer_id: &ClientId,
+        reason: CallErrorReason,
+    ) {
+        self.cleanup_call_peer(call_id, peer_id).await;
+
+        self.try_send_call_error(call_id, reason.clone(), None)
+            .await;
+        self.emit_call_error(app, call_id, true, peer_id.clone().into(), reason);
+
+        if self.end_call_if_no_peers(call_id).await {
+            app.emit("signaling:force-call-end", &call_id).ok();
+        }
+    }
+
     fn take_webrtc_peer(
         &mut self,
         call_id: CallId,
@@ -762,23 +780,8 @@ fn spawn_peer_events_task(
                             let mut state = app_state.lock().await;
                             if let Err(err) = state.on_peer_connected(&app, call_id, &peer_id).await
                             {
-                                state.cleanup_call_peer(call_id, &peer_id).await;
-
                                 let reason = err.into_call_error_reason(own_client_id.clone());
-                                state
-                                    .try_send_call_error(call_id, reason.clone(), None)
-                                    .await;
-                                state.emit_call_error(
-                                    &app,
-                                    call_id,
-                                    true,
-                                    peer_id.clone().into(),
-                                    reason,
-                                );
-
-                                if state.end_call_if_no_peers(call_id).await {
-                                    app.emit("signaling:force-call-end", &call_id).ok();
-                                }
+                                state.fail_peer(&app, call_id, &peer_id, reason).await;
                             }
                         }
                         PeerConnectionState::Disconnected => {
@@ -841,23 +844,9 @@ fn spawn_peer_events_task(
 
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
-                            state.cleanup_call_peer(call_id, &peer_id).await;
 
                             let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
-                            state
-                                .try_send_call_error(call_id, reason.clone(), None)
-                                .await;
-                            state.emit_call_error(
-                                &app,
-                                call_id,
-                                true,
-                                peer_id.clone().into(),
-                                reason,
-                            );
-
-                            if state.end_call_if_no_peers(call_id).await {
-                                app.emit("signaling:force-call-end", &call_id).ok();
-                            }
+                            state.fail_peer(&app, call_id, &peer_id, reason).await;
                         }
                         PeerConnectionState::Closed => {
                             // Graceful close
@@ -922,21 +911,7 @@ fn spawn_peer_events_task(
                                 );
 
                                 let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
-                                state.cleanup_call_peer(call_id, &peer_id).await;
-                                state
-                                    .try_send_call_error(call_id, reason.clone(), None)
-                                    .await;
-                                state.emit_call_error(
-                                    &app,
-                                    call_id,
-                                    true,
-                                    peer_id.clone().into(),
-                                    reason,
-                                );
-
-                                if state.end_call_if_no_peers(call_id).await {
-                                    app.emit("signaling:force-call-end", &call_id).ok();
-                                }
+                                state.fail_peer(&app, call_id, &peer_id, reason).await;
                             }
                         }
                     }
