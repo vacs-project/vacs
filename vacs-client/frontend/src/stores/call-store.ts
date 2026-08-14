@@ -219,13 +219,21 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            if (error.targets.length === 0) {
+            let targets: CallTarget[] = [];
+            if (error.origin.type === "targets") {
+                targets = error.origin.value;
+            } else if (error.origin.type === "client") {
+                targets = [{client: error.origin.value}];
+                delete callDisplay.call.joinedParticipants[error.origin.value];
+            }
+
+            if (targets.length === 0) {
                 callDisplay.call.invitedTargets = [];
                 callDisplay.call.joinedParticipants = {};
             } else {
                 callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
                     target =>
-                        !error.targets.some(
+                        !targets.some(
                             errorTarget =>
                                 errorTarget.client === target.client &&
                                 errorTarget.position === target.position &&
@@ -236,16 +244,16 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             if (
                 callDisplay.call.invitedTargets.length +
-                    participantCount(callDisplay.call.joinedParticipants) >
+                    participantCount(callDisplay.call.joinedParticipants, true) >
                 0 // TODO: rework
             ) {
                 callDisplay.erroredTargets.push(
-                    ...error.targets.map(target => ({target, reason: error.reason})),
+                    ...targets.map(target => ({target, reason: error.reason})),
                 );
             } else {
                 callDisplay.type = "error";
                 callDisplay.erroredTargets.push(
-                    ...error.targets.map(target => ({target, reason: error.reason})),
+                    ...targets.map(target => ({target, reason: error.reason})),
                 );
                 callDisplay.errorReason = error.reason;
                 callDisplay.connectionState = undefined;
