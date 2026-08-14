@@ -368,6 +368,8 @@ impl CallManager {
                         );
                     }
 
+                    // Deliberate: leadership goes to whoever invited the participant that
+                    // turned the call into a conference, not to the original caller
                     active_call.conference_leader = Some(ringing_target.caller_id.clone());
                 }
 
@@ -1039,5 +1041,115 @@ impl CallManager {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vacs_protocol::vatsim::StationId;
+
+    fn source(client_id: &ClientId) -> CallSource {
+        CallSource {
+            client_id: client_id.clone(),
+            position_id: None,
+            station_id: None,
+        }
+    }
+
+    /// A target covered by multiple clients only fails once EVERY notified client
+    /// rejected or errored; a single client's failure must yield `Continued`, not
+    /// `TargetFailed`. The invite fan-out handler relies on this distinction to
+    /// decide whether a target drops out of the CallUpdate snapshot.
+    #[test]
+    fn call_error_is_per_client_not_per_target() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee1 = ClientId::from("callee1");
+        let callee2 = ClientId::from("callee2");
+        let target = CallTarget::Station(StationId::from("EDDF_TWR"));
+
+        manager
+            .attempt_call(
+                &call_id,
+                &caller,
+                &source(&caller),
+                &target,
+                &HashSet::from([callee1.clone(), callee2.clone()]),
+            )
+            .expect("call attempt should succeed");
+
+        assert_eq!(
+            manager.call_error(&call_id, &callee1),
+            CallTerminationOutcome::Continued,
+            "the target must keep ringing while another notified client remains"
+        );
+
+        match manager.call_error(&call_id, &callee2) {
+            CallTerminationOutcome::TargetFailed(ringing_targets, update) => {
+                assert_eq!(
+                    ringing_targets
+                        .iter()
+                        .map(|ringing_target| &ringing_target.target)
+                        .collect::<Vec<_>>(),
+                    vec![&target],
+                    "the failed target must be reported"
+                );
+                assert!(
+                    update.invited_participants.is_empty(),
+                    "no invited participants must remain after the last client errored"
+                );
+            }
+            outcome => {
+                panic!("expected TargetFailed after the last client errored, got {outcome:?}")
+            }
+        }
+    }
+
+    /// A failed client only takes down its own target; other ringing targets of the
+    /// same call are unaffected.
+    #[test]
+    fn call_error_leaves_other_targets_ringing() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee1 = ClientId::from("callee1");
+        let callee2 = ClientId::from("callee2");
+        let target1 = CallTarget::Client(callee1.clone());
+        let target2 = CallTarget::Client(callee2.clone());
+
+        for (target, callee) in [(&target1, &callee1), (&target2, &callee2)] {
+            manager
+                .attempt_call(
+                    &call_id,
+                    &caller,
+                    &source(&caller),
+                    target,
+                    &HashSet::from([callee.clone()]),
+                )
+                .expect("call attempt should succeed");
+        }
+
+        match manager.call_error(&call_id, &callee1) {
+            CallTerminationOutcome::TargetFailed(ringing_targets, update) => {
+                assert_eq!(
+                    ringing_targets
+                        .iter()
+                        .map(|ringing_target| &ringing_target.target)
+                        .collect::<Vec<_>>(),
+                    vec![&target1],
+                    "only the errored client's target must fail"
+                );
+                assert_eq!(
+                    update.invited_participants,
+                    CallParticipants::from([(callee2.clone(), target2.clone())]),
+                    "the other target must keep ringing"
+                );
+            }
+            outcome => {
+                panic!("expected TargetFailed for the errored client's target, got {outcome:?}")
+            }
+        }
     }
 }

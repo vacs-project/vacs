@@ -1,6 +1,8 @@
 use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::state::AppState;
-use crate::state::calls::{CallTerminationOutcome, StartCallError, UpdateCallAction};
+use crate::state::calls::{
+    CallTerminationOutcome, RingingTarget, StartCallError, UpdateCallAction,
+};
 use crate::state::clients::session::ClientSession;
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
@@ -100,6 +102,18 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         return;
     }
 
+    if invite.targets.is_empty() {
+        tracing::debug!("Call invite has no targets, rejecting call invite");
+        send_call_error(
+            client,
+            call_id,
+            CallErrorReason::Other,
+            Some("No targets specified"),
+        )
+        .await;
+        return;
+    }
+
     let mut invited_participants = HashMap::new();
     let mut joined_participants = HashMap::new();
     let mut all_target_participants = HashMap::new();
@@ -186,7 +200,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     }
 
     if !not_found_targets.is_empty() {
-        tracing::trace!("No clients found for call invite, returning target not found error");
+        tracing::trace!("Some call targets have no clients, returning targets not found error");
         send_call_error(
             client,
             call_id,
@@ -194,7 +208,10 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             None,
         )
         .await;
-        return;
+
+        if invited_participants.is_empty() && joined_participants.is_empty() {
+            return;
+        }
     }
 
     let mut failed_targets: HashSet<&CallTarget> = HashSet::new();
@@ -215,14 +232,28 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
         if let Err(err) = state.send_message(callee_id, invitation).await {
             tracing::warn!(?err, ?callee_id, "Failed to send call invite to target");
-            if let CallTerminationOutcome::TargetFailed(_, _) =
-                state.calls.call_error(call_id, callee_id)
-            {
-                tracing::trace!(?callee_id, "All call attempts failed, returning call error");
-                send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
-                return;
+            match state.calls.call_error(call_id, callee_id) {
+                CallTerminationOutcome::Continued => {}
+                CallTerminationOutcome::TargetFailed(ringing_targets, _) => {
+                    tracing::trace!(?target, "All clients for target failed, cancelling target");
+                    failed_targets.insert(target);
+                    cancel_failed_target(
+                        state,
+                        call_id,
+                        ringing_targets,
+                        CallCancelReason::Errored(CallErrorReason::CallFailure),
+                    )
+                    .await;
+                }
+                outcome => {
+                    tracing::error!(
+                        ?outcome,
+                        ?callee_id,
+                        "Unexpected termination outcome for failed invitation send"
+                    );
+                    failed_targets.insert(target);
+                }
             }
-            failed_targets.insert(target);
         }
     }
 
@@ -242,12 +273,13 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     };
 
     // Newly invited clients already received the full state via the invitation; on a fresh
-    // call every recipient is newly invited, so no update goes out.
+    // call every recipient is newly invited, so no update goes out. When a target failed
+    // mid-fan-out the sent invitations are stale, so everyone gets the corrected snapshot.
     for (participant_id, _) in invited_participants
         .iter()
         .chain(joined_participants.iter())
     {
-        if all_target_participants.contains_key(participant_id) {
+        if failed_targets.is_empty() && all_target_participants.contains_key(participant_id) {
             continue;
         }
 
@@ -478,28 +510,13 @@ async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: Ca
                 "All notified clients either rejected or errored, call failed, sending call error to source client"
             );
 
-            let Some(caller_id) = ringing_targets.first().map(|r| r.caller_id.clone()) else {
-                tracing::error!(
-                    "Call reject resulted in a failed termination outcome, but ringing targets is empty"
-                );
-                return;
-            };
-
-            let targets = ringing_targets.into_iter().map(|r| r.target).collect();
-
-            if let Err(err) = state
-                .send_message(
-                    &caller_id,
-                    server::CallCancelled::new(
-                        *call_id,
-                        targets,
-                        CallCancelReason::Rejected(reject.reason),
-                    ),
-                )
-                .await
-            {
-                tracing::warn!(?err, "Failed to send call error to source client");
-            }
+            cancel_failed_target(
+                state,
+                call_id,
+                ringing_targets,
+                CallCancelReason::Rejected(reject.reason),
+            )
+            .await;
 
             tracing::trace!("Send call update to remaining participants during call reject");
             for (participant_id, _) in update.all_participants() {
@@ -671,21 +688,13 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
                 return;
             };
 
-            let targets = ringing_targets.into_iter().map(|r| r.target).collect();
-
-            if let Err(err) = state
-                .send_message(
-                    &caller_id,
-                    server::CallCancelled::new(
-                        *call_id,
-                        targets,
-                        CallCancelReason::Errored(reason),
-                    ),
-                )
-                .await
-            {
-                tracing::warn!(?err, "Failed to send call error to source client");
-            }
+            cancel_failed_target(
+                state,
+                call_id,
+                ringing_targets,
+                CallCancelReason::Errored(reason),
+            )
+            .await;
 
             tracing::trace!("Send call update to remaining participants during call error");
             for (participant_id, _) in update.all_participants_without_self(caller_id) {
@@ -919,6 +928,32 @@ async fn handle_webrtc_ice_candidate(
             None,
         )
         .await;
+    }
+}
+
+/// Notifies the caller that a ringing target failed as a whole (every notified client
+/// rejected, errored, or was unreachable).
+async fn cancel_failed_target(
+    state: &AppState,
+    call_id: &CallId,
+    ringing_targets: Vec<RingingTarget>,
+    reason: CallCancelReason,
+) {
+    let Some(caller_id) = ringing_targets.first().map(|r| r.caller_id.clone()) else {
+        tracing::error!("Target failed, but ringing targets is empty");
+        return;
+    };
+
+    let targets = ringing_targets.into_iter().map(|r| r.target).collect();
+
+    if let Err(err) = state
+        .send_message(
+            &caller_id,
+            server::CallCancelled::new(*call_id, targets, reason),
+        )
+        .await
+    {
+        tracing::warn!(?err, "Failed to send call cancellation to source client");
     }
 }
 
