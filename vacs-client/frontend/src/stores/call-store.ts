@@ -32,7 +32,6 @@ type CallState = {
     actions: {
         setOutgoingCall: (call: Call) => void;
         acceptIncomingCall: (callId: CallId) => void;
-        setOutgoingCallAccepted: (calLId: CallId, targetClientId: ClientId) => void;
         endCall: () => void;
         addIncomingCall: (call: Call) => void;
         updateCall: (update: CallUpdate) => void;
@@ -94,25 +93,6 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 incomingCalls,
             });
         },
-        setOutgoingCallAccepted: (callId, targetClientId) => {
-            const callDisplay = get().callDisplay;
-
-            if (callDisplay?.type !== "outgoing" || callDisplay.call.callId !== callId) return;
-
-            const nextCallDisplay: CallDisplay = {
-                ...callDisplay,
-                type: "accepted",
-                targetClientId,
-                connectionState: "connecting",
-            };
-            tryStopBlink(null, nextCallDisplay, null, null, null);
-
-            answerCallInCallList(callId, targetClientId);
-
-            set({
-                callDisplay: nextCallDisplay,
-            });
-        },
         endCall: () => {
             tryStopBlink(null, undefined, null, null, "inactive");
             set({callDisplay: undefined, conferenceState: "inactive"}); // TODO: conference state validate
@@ -135,12 +115,33 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     ),
                 });
             } else if (callDisplay?.call.callId === update.callId) {
-                set({
-                    callDisplay: {
-                        ...callDisplay,
-                        call: {...callDisplay.call, ...update},
-                    },
-                });
+                // Merge and any accepted transition must be a single state change: an
+                // intermediate still-outgoing display gets broadcast by the store sync
+                // and resurrects the outgoing state on the other frontend
+                let nextCallDisplay: CallDisplay = {
+                    ...callDisplay,
+                    call: {...callDisplay.call, ...update},
+                };
+
+                if (callDisplay.type === "outgoing") {
+                    const {cid} = useAuthStore.getState();
+                    // TODO handle multiple joined participants per update
+                    const acceptedBy = (Object.keys(update.joinedParticipants) as ClientId[]).find(
+                        id => id !== cid,
+                    );
+                    if (acceptedBy !== undefined) {
+                        nextCallDisplay = {
+                            ...nextCallDisplay,
+                            type: "accepted",
+                            targetClientId: acceptedBy,
+                            connectionState: "connecting",
+                        };
+                        tryStopBlink(null, nextCallDisplay, null, null, null);
+                        answerCallInCallList(update.callId, acceptedBy);
+                    }
+                }
+
+                set({callDisplay: nextCallDisplay});
             }
         },
         removeCall: (callId, callEnd) => {
