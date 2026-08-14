@@ -300,6 +300,10 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
         }
     });
 
+    // Whether this connection currently holds a user slot of the shared input level
+    // meter; released on disconnect so a vanished browser cannot leave the mic capturing
+    let mut level_meter_user = false;
+
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
@@ -348,6 +352,17 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
                             log::warn!("[{peer}] Remote client command {cmd:?} timed out");
                             DispatchResult::Err(ProblemDetails::timeout())
                         });
+                        if matches!(response, DispatchResult::Ok(_)) {
+                            match cmd {
+                                RemoteCommand::AudioStartInputLevelMeter => {
+                                    level_meter_user = true;
+                                }
+                                RemoteCommand::AudioStopInputLevelMeter => {
+                                    level_meter_user = false;
+                                }
+                                _ => {}
+                            }
+                        }
                         let _ = client_tx.send(response.with_id(id)).await;
                     }
                 }
@@ -361,6 +376,17 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
     }
 
     forward_task.abort();
+
+    if level_meter_user {
+        log::debug!("[{peer}] Releasing input level meter after remote disconnect");
+        let audio_manager = state.app_handle.state::<AudioManagerHandle>();
+        let _ = crate::audio::commands::audio_stop_input_level_meter(
+            audio_manager,
+            state.app_handle.clone(),
+        )
+        .await;
+    }
+
     state.client_count.fetch_sub(1, Ordering::Relaxed);
     if !state.shutdown.is_cancelled() {
         state.emit_status();
@@ -556,7 +582,7 @@ async fn dispatch_command(
         }
         AudioStopInputLevelMeter => {
             let audio_manager = app.state::<AudioManagerHandle>();
-            dispatch(audio_stop_input_level_meter(audio_manager).await)
+            dispatch(audio_stop_input_level_meter(audio_manager, app.clone()).await)
         }
         AudioSetRadioPrio => {
             let prio: bool = args!(args, "prio");
