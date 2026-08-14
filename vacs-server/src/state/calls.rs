@@ -105,7 +105,7 @@ struct ActiveCallEntry {
     call_id: CallId,
     conference_leader: Option<ClientId>,
     participants: CallParticipants,
-    _guard: CallGuard,
+    guard: CallGuard,
 }
 
 impl RingingCallEntry {
@@ -196,7 +196,7 @@ impl ActiveCallEntry {
             call_id,
             conference_leader,
             participants,
-            _guard: CallGuard::new(),
+            guard: CallGuard::new(),
         }
     }
 
