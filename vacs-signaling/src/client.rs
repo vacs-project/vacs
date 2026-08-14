@@ -660,6 +660,9 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
                     msg = receiver.recv(&send_tx) => {
                         match msg {
+                            Ok(ServerMessage::Unknown) => {
+                                tracing::warn!("Received unknown server message type, skipping");
+                            }
                             Ok(message) => {
                                 tracing::trace!(message_type = message.variant(), "Received message from transport");
                                 matcher.try_match(&message);
@@ -948,6 +951,78 @@ mod tests {
         client.disconnect().await;
 
         assert_matches!(client.state(), State::Disconnected);
+    }
+
+    #[test(tokio::test)]
+    async fn unknown_message_is_skipped_and_stream_continues() {
+        let transport = MockTransport::default();
+        let mock_tx = transport.incoming_tx.clone();
+        let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
+
+        let mut events = client.subscribe();
+
+        mock_tx
+            .send(tungstenite::Message::Text(
+                r#"{"type":"someFutureMessage","value":42}"#.into(),
+            ))
+            .unwrap();
+        let known = ServerMessage::ClientList(server::ClientList {
+            clients: Vec::new(),
+        });
+        mock_tx
+            .send(tungstenite::Message::Text(
+                known.serialize().unwrap().into(),
+            ))
+            .unwrap();
+
+        let received = events
+            .recv_with_timeout(Duration::from_millis(500), |event| {
+                matches!(
+                    event,
+                    SignalingEvent::Message(ServerMessage::ClientList(_))
+                        | SignalingEvent::Error(_)
+                )
+            })
+            .await;
+        assert_matches!(
+            received,
+            Ok(SignalingEvent::Message(ServerMessage::ClientList(_))),
+            "the message following an unknown one must still be delivered"
+        );
+        assert_matches!(client.state(), State::LoggedIn);
+    }
+
+    #[test(tokio::test)]
+    async fn malformed_known_message_disconnects() {
+        let transport = MockTransport::default();
+        let mock_tx = transport.incoming_tx.clone();
+        let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
+
+        let mut events = client.subscribe();
+
+        mock_tx
+            .send(tungstenite::Message::Text(r#"{"type":"callEnd"}"#.into()))
+            .unwrap();
+
+        let received = events
+            .recv_with_timeout(Duration::from_millis(500), |event| {
+                matches!(event, SignalingEvent::Error(_))
+            })
+            .await;
+        assert_matches!(
+            received,
+            Ok(SignalingEvent::Error(
+                SignalingRuntimeError::SerializationError(_)
+            ))
+        );
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !matches!(client.state(), State::Disconnected) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("client did not disconnect after a malformed known message");
     }
 
     #[test(tokio::test)]

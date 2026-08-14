@@ -30,6 +30,13 @@ pub enum ServerMessage {
     StationChanges(StationChanges),
     Disconnected(Disconnected),
     Error(Error),
+    /// Catch-all for message types unknown to this protocol version.
+    ///
+    /// Never sent by a server; any unrecognized `type` tag deserializes to this variant so
+    /// clients can skip additive messages from newer servers instead of failing the
+    /// connection. Malformed payloads of known message types still fail deserialization.
+    #[serde(other)]
+    Unknown,
 }
 
 impl ServerMessage {
@@ -65,6 +72,29 @@ impl ServerMessage {
             ServerMessage::StationChanges(_) => "StationChanges",
             ServerMessage::Disconnected(_) => "Disconnected",
             ServerMessage::Error(_) => "Error",
+            ServerMessage::Unknown => "Unknown",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unknown_message_type_deserializes_to_unknown() {
+        let msg = ServerMessage::deserialize(r#"{"type":"someFutureMessage","value":42}"#)
+            .expect("unknown message types must deserialize");
+        assert_eq!(msg, ServerMessage::Unknown);
+    }
+
+    #[test]
+    fn malformed_known_message_type_still_fails() {
+        assert!(ServerMessage::deserialize(r#"{"type":"callEnd"}"#).is_err());
+    }
+
+    #[test]
+    fn missing_type_tag_fails() {
+        assert!(ServerMessage::deserialize(r#"{"value":42}"#).is_err());
     }
 }

@@ -137,6 +137,7 @@ impl AsMetricLabel for ServerMessage {
             ServerMessage::StationChanges(_) => "station_changes",
             ServerMessage::Disconnected(_) => "disconnected",
             ServerMessage::Error(_) => "error",
+            ServerMessage::Unknown => "unknown",
         }
     }
 }
