@@ -81,7 +81,6 @@ tauri-plugin-prevent-default = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { workspace = true }
 futures-util = { workspace = true }
-libc = { workspace = true }
 pipewire = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true }
 x11rb = { workspace = true }

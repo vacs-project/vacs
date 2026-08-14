@@ -9040,7 +9040,6 @@ dependencies = [
  "hound",
  "keyboard-types 0.8.3",
  "keyring",
- "libc",
  "log",
  "notify-debouncer-full",
  "objc2-core-foundation",

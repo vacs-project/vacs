@@ -15,24 +15,28 @@
 //! the host opener on its own, verified with a Fedora 44 host and an ubuntu-24.04 build.
 
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
 use std::{
     ffi::OsString,
-    path::PathBuf,
     process::{Command, Stdio},
 };
 
-/// Colon-separated search paths `AppRun` prepends AppDir entries to.
+/// Colon-separated search paths `AppRun` and the linuxdeploy GTK hook prepend AppDir entries to.
+/// The set matches what our bundle's `AppRun.wrapped` and `apprun-hooks/linuxdeploy-plugin-gtk.sh`
+/// actually export, plus `GI_TYPELIB_PATH`, which upstream versions of the GTK hook set and ours
+/// may pick up on a bundler update; stripping an unset variable is a no-op.
 #[cfg(target_os = "linux")]
 const BUNDLE_SEARCH_PATHS: &[&str] = &[
     "PATH",
     "LD_LIBRARY_PATH",
     "XDG_DATA_DIRS",
+    "GI_TYPELIB_PATH",
     "GTK_PATH",
     "QT_PLUGIN_PATH",
     "GST_PLUGIN_SYSTEM_PATH",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
     "PYTHONPATH",
     "PERLLIB",
 ];
@@ -59,6 +63,14 @@ const BUNDLE_OVERRIDES: &[&str] = &[
     "SPA_PLUGIN_DIR",
 ];
 
+/// AppDir-relative directories the CI overlay bundles the PipeWire plugins into. These are the
+/// destination keys of `bundle.linux.appimage.files` in tauri.appimage.conf.json; the overlay test
+/// below keeps the two in sync.
+#[cfg(target_os = "linux")]
+const BUNDLED_SPA_PLUGIN_DIR: &str = "usr/lib/spa-0.2";
+#[cfg(target_os = "linux")]
+const BUNDLED_PIPEWIRE_MODULE_DIR: &str = "usr/lib/pipewire-0.3";
+
 /// The AppDir we are running out of, if this process was launched from an AppImage.
 #[cfg(target_os = "linux")]
 fn app_dir() -> Option<PathBuf> {
@@ -75,37 +87,34 @@ fn own_app_dir(app_dir: PathBuf, exe: &Path) -> Option<PathBuf> {
 }
 
 /// Drops every AppDir entry from a colon-separated search path, returning `None` if nothing is
-/// left, so the caller can unset the variable instead of passing an empty one.
+/// left, so the caller can unset the variable instead of passing an empty one. Entries pass
+/// through byte for byte: a non-UTF-8 path, legal on Linux, must survive the round trip.
 #[cfg(target_os = "linux")]
 fn strip_app_dir(value: &OsString, app_dir: &Path) -> Option<OsString> {
-    let value = value.to_string_lossy();
-
-    let kept = value
-        .split(':')
-        .filter(|entry| !entry.is_empty() && !Path::new(entry).starts_with(app_dir))
+    let kept = std::env::split_paths(value)
+        .filter(|entry| !entry.as_os_str().is_empty() && !entry.starts_with(app_dir))
         .collect::<Vec<_>>();
 
-    (!kept.is_empty()).then(|| OsString::from(kept.join(":")))
+    if kept.is_empty() {
+        return None;
+    }
+
+    // Cannot fail: every entry came out of split_paths, so none contains a separator.
+    std::env::join_paths(kept).ok()
 }
 
 /// Builds a [`Command`] for a host program, with the bundle removed from the environment it
-/// inherits. The program is resolved against the cleaned `PATH` by hand: `execvp` searches the
-/// parent's `PATH`, so setting it on the child is not enough to stop the bundled copy from winning.
+/// inherits. Since Rust 1.58 a spawn on Unix searches the `PATH` from the child's environment
+/// (rust-lang/rust#37519), so the stripped value set here is also the one the lookup uses and the
+/// bundled copy cannot shadow the host one.
 #[cfg(target_os = "linux")]
 #[allow(clippy::disallowed_methods)] // the escape hatch the rest of the crate is barred from
 pub fn host_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+
     let Some(app_dir) = app_dir() else {
-        return Command::new(program);
+        return command;
     };
-
-    let host_path = std::env::var_os("PATH").and_then(|path| strip_app_dir(&path, &app_dir));
-
-    let resolved = host_path
-        .as_ref()
-        .and_then(|path| resolve_in_path(path, program))
-        .unwrap_or_else(|| PathBuf::from(program));
-
-    let mut command = Command::new(resolved);
 
     for key in BUNDLE_SEARCH_PATHS {
         match std::env::var_os(key).and_then(|value| strip_app_dir(&value, &app_dir)) {
@@ -127,31 +136,6 @@ pub fn host_command(program: &str) -> std::process::Command {
     std::process::Command::new(program)
 }
 
-/// Finds the first entry of a colon-separated search path holding a `program` the current user can
-/// actually execute, mirroring `execvp`: a file we lack permission for is skipped, not selected.
-#[cfg(target_os = "linux")]
-fn resolve_in_path(path: &OsString, program: &str) -> Option<PathBuf> {
-    std::env::split_paths(path)
-        .map(|dir| dir.join(program))
-        .find(|candidate| {
-            candidate.metadata().is_ok_and(|meta| meta.is_file()) && is_executable(candidate)
-        })
-}
-
-/// Whether the current user may execute `path`, per `access(2)`. The mode bits alone cannot answer
-/// this: a root-owned `0700` file has an execute bit set but is not runnable by us.
-#[cfg(target_os = "linux")]
-fn is_executable(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
-        return false;
-    };
-
-    // SAFETY: the pointer is a valid NUL-terminated string for the duration of the call.
-    unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
-}
-
 /// Points PipeWire at the SPA plugins and modules we ship, when there are any.
 ///
 /// libpipewire resolves both directories through paths compiled in at build time, so a bundle
@@ -159,6 +143,9 @@ fn is_executable(path: &Path) -> bool {
 /// them the client cannot construct even a main loop, `check_pipewire` fails, and playback reports
 /// itself unsupported. An existing value is left alone, and so is a bundle that ships no plugins,
 /// which then falls back to the compiled-in paths exactly as before.
+///
+/// Locally built AppImages do not carry the CI overlay (its source paths are Debian specific) and
+/// fall through the is_dir check below by design.
 ///
 /// # Safety
 ///
@@ -169,13 +156,9 @@ pub unsafe fn redirect_bundled_pipewire() {
         return;
     };
 
-    // These AppDir paths are the destination keys of `bundle.linux.appimage.files` in
-    // tauri.appimage.conf.json, which CI applies on the Linux release leg; a rename there without
-    // one here skips the redirect silently. Locally built AppImages do not carry the overlay (its
-    // source paths are Debian specific) and fall through the is_dir check below by design.
     for (key, relative) in [
-        ("SPA_PLUGIN_DIR", "usr/lib/spa-0.2"),
-        ("PIPEWIRE_MODULE_DIR", "usr/lib/pipewire-0.3"),
+        ("SPA_PLUGIN_DIR", BUNDLED_SPA_PLUGIN_DIR),
+        ("PIPEWIRE_MODULE_DIR", BUNDLED_PIPEWIRE_MODULE_DIR),
     ] {
         // Empty counts as unset: a placeholder export must not suppress the redirect.
         if std::env::var_os(key).is_some_and(|value| !value.is_empty()) {
@@ -189,11 +172,13 @@ pub unsafe fn redirect_bundled_pipewire() {
     }
 }
 
-/// Opens a URL in the user's default browser.
+/// Opens a URL in the user's default browser. Blocks on the fork and the opener's filesystem
+/// probing; from async code use [`open_url_detached`].
 ///
-/// Only web and mail URLs are accepted, mirroring the opener plugin's ACL scope: this is the shared
-/// primitive every caller funnels through, so the boundary lives here rather than being re-checked
-/// per call site.
+/// Only web and mail URLs are accepted. This is deliberately narrower than the opener plugin's
+/// default ACL, which also allows `tel:`: nothing the app opens is a phone number, and this is the
+/// shared primitive every caller funnels through, so the boundary lives here rather than being
+/// re-checked per call site.
 pub fn open_url(url: &str) -> Result<()> {
     let url = url::Url::parse(url).context("Failed to parse URL")?;
 
@@ -214,7 +199,8 @@ pub fn open_url(url: &str) -> Result<()> {
     tauri_plugin_opener::open_url(url, None::<&str>).context("Failed to open URL")
 }
 
-/// Opens a file or directory in the user's default application.
+/// Opens a file or directory in the user's default application. Blocks like [`open_url`]; from
+/// async code use [`open_path_detached`].
 pub fn open_path(path: &Path) -> Result<()> {
     #[cfg(target_os = "linux")]
     if app_dir().is_some() {
@@ -303,32 +289,16 @@ mod tests {
     }
 
     #[test]
-    fn resolves_the_first_executable_on_the_path() {
-        use std::os::unix::fs::PermissionsExt;
+    fn keeps_non_utf8_entries_intact() {
+        use std::os::unix::ffi::OsStringExt;
 
-        let root = std::env::temp_dir().join("vacs-external-resolve");
-        let bundled = root.join("appdir");
-        let host = root.join("host");
-        std::fs::create_dir_all(&bundled).unwrap();
-        std::fs::create_dir_all(&host).unwrap();
-
-        // Only readable in the bundle, executable on the host: the host copy must win even though
-        // the bundle comes first on the path.
-        std::fs::write(bundled.join("xdg-open"), "").unwrap();
-        std::fs::set_permissions(bundled.join("xdg-open"), PermissionsExt::from_mode(0o644))
-            .unwrap();
-        std::fs::write(host.join("xdg-open"), "").unwrap();
-        std::fs::set_permissions(host.join("xdg-open"), PermissionsExt::from_mode(0o755)).unwrap();
-
-        let path = OsString::from(format!("{}:{}", bundled.display(), host.display()));
+        let app_dir = Path::new("/tmp/.mount_vacs");
+        let path = OsString::from_vec(b"/tmp/.mount_vacs/usr/bin:/opt/\xff/bin".to_vec());
 
         assert_eq!(
-            resolve_in_path(&path, "xdg-open"),
-            Some(host.join("xdg-open"))
+            strip_app_dir(&path, app_dir),
+            Some(OsString::from_vec(b"/opt/\xff/bin".to_vec()))
         );
-        assert_eq!(resolve_in_path(&path, "kde-open"), None);
-
-        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
@@ -340,5 +310,22 @@ mod tests {
             strip_app_dir(&path, app_dir),
             Some(OsString::from("/usr/bin:/usr/local/bin"))
         );
+    }
+
+    #[test]
+    fn bundled_pipewire_dirs_match_the_appimage_overlay() {
+        let overlay: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.appimage.conf.json")).unwrap();
+
+        let files = overlay["bundle"]["linux"]["appimage"]["files"]
+            .as_object()
+            .expect("overlay must map AppDir destinations to source paths");
+
+        for dir in [BUNDLED_SPA_PLUGIN_DIR, BUNDLED_PIPEWIRE_MODULE_DIR] {
+            assert!(
+                files.contains_key(dir),
+                "redirect_bundled_pipewire expects the overlay to bundle {dir}"
+            );
+        }
     }
 }
