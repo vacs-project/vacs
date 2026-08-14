@@ -214,7 +214,7 @@ impl Peer {
     #[instrument(level = "debug", skip_all, err)]
     pub fn start(
         &mut self,
-        input_rx: mpsc::Receiver<EncodedAudioFrame>,
+        input_rx: broadcast::Receiver<EncodedAudioFrame>,
         output_tx: mpsc::Sender<EncodedAudioFrame>,
     ) -> Result<(), WebrtcError> {
         tracing::debug!("Starting peer");
@@ -307,13 +307,15 @@ impl Peer {
     }
 
     #[instrument(level = "debug", skip_all)]
-    pub fn pause(&mut self) {
+    pub async fn pause(&mut self) {
         tracing::debug!("Pausing peer");
         if let Some(watchdog) = self.watchdog.take() {
             watchdog.abort();
         }
-        if let Some(sender) = self.sender.take() {
-            sender.shutdown();
+        if let Some(sender) = self.sender.take()
+            && let Err(err) = sender.stop().await
+        {
+            tracing::debug!(?err, "Received error while stopping sender");
         }
         if let Some(receiver) = self.receiver.as_mut() {
             receiver.pause();
@@ -497,12 +499,12 @@ mod tests {
     }
 
     fn test_channels() -> (
-        mpsc::Sender<EncodedAudioFrame>,
-        mpsc::Receiver<EncodedAudioFrame>,
+        broadcast::Sender<EncodedAudioFrame>,
+        broadcast::Receiver<EncodedAudioFrame>,
         mpsc::Sender<EncodedAudioFrame>,
         mpsc::Receiver<EncodedAudioFrame>,
     ) {
-        let (input_tx, input_rx) = mpsc::channel(1);
+        let (input_tx, input_rx) = broadcast::channel(1);
         let (output_tx, output_rx) = mpsc::channel(1);
         (input_tx, input_rx, output_tx, output_rx)
     }
@@ -532,7 +534,7 @@ mod tests {
         peer.start(input_rx, output_tx)
             .expect("failed to start peer");
 
-        peer.pause();
+        peer.pause().await;
 
         assert!(peer.sender.is_none(), "pause must stop the sender");
         assert!(peer.receiver.is_some(), "pause must keep the receiver");
@@ -545,7 +547,7 @@ mod tests {
         let (_input_tx, input_rx, output_tx, _output_rx) = test_channels();
         peer.start(input_rx, output_tx)
             .expect("failed to start peer");
-        peer.pause();
+        peer.pause().await;
 
         let (_input_tx, input_rx, output_tx, _output_rx) = test_channels();
         peer.start(input_rx, output_tx)

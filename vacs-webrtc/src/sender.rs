@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{Instrument, instrument};
@@ -18,7 +18,7 @@ impl Sender {
     #[instrument(level = "trace", skip_all)]
     pub fn new(
         track: Arc<TrackLocalStaticSample>,
-        mut input_rx: mpsc::Receiver<EncodedAudioFrame>,
+        mut input_rx: broadcast::Receiver<EncodedAudioFrame>,
         sent_frames: Arc<AtomicU64>,
     ) -> Self {
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
@@ -33,7 +33,7 @@ impl Sender {
                     }
                     frame = input_rx.recv() => {
                         match frame {
-                            Some(frame) => {
+                            Ok(frame) => {
                                 let sample = Sample {
                                     data: frame,
                                     duration: std::time::Duration::from_millis(FRAME_DURATION_MS),
@@ -46,7 +46,10 @@ impl Sender {
                                     sent_frames.fetch_add(1, Ordering::Relaxed);
                                 }
                             }
-                            None => {
+                            Err(broadcast::error::RecvError::Lagged(skipped)) =>{
+                                tracing::warn!(?skipped, "Input receiver lagged");
+                            },
+                            Err(_) => {
                                 break;
                             }
                         }
@@ -97,21 +100,25 @@ mod tests {
 
     #[test(tokio::test)]
     async fn drains_input_frames() {
-        let (input_tx, input_rx) = mpsc::channel(1);
+        let (input_tx, input_rx) = broadcast::channel(1);
         let sent_frames = Arc::new(AtomicU64::new(0));
         let sender = Sender::new(test_track(), input_rx, Arc::clone(&sent_frames));
 
-        // A capacity of one only accepts this many frames if the task keeps
-        // pulling them off the channel.
+        // Overflowing the single-slot channel makes the receiver lag; the task
+        // must keep draining through the `Lagged` arm instead of exiting.
         for _ in 0..8 {
-            tokio::time::timeout(
-                Duration::from_secs(5),
-                input_tx.send(EncodedAudioFrame::from_static(&[0x01, 0x02, 0x03])),
-            )
-            .await
-            .expect("sender task stopped draining input frames")
-            .expect("input channel closed unexpectedly");
+            input_tx
+                .send(EncodedAudioFrame::from_static(&[0x01, 0x02, 0x03]))
+                .expect("input channel closed unexpectedly");
         }
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while sent_frames.load(Ordering::Relaxed) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("sender task stopped draining input frames");
 
         sender.stop().await.expect("failed to stop sender");
 
@@ -123,7 +130,7 @@ mod tests {
 
     #[test(tokio::test)]
     async fn stop_joins_task_while_input_stays_open() {
-        let (_input_tx, input_rx) = mpsc::channel(1);
+        let (_input_tx, input_rx) = broadcast::channel(1);
         let sender = Sender::new(test_track(), input_rx, Arc::new(AtomicU64::new(0)));
 
         tokio::time::timeout(Duration::from_secs(5), sender.stop())
@@ -132,11 +139,11 @@ mod tests {
             .expect("failed to stop sender");
     }
 
-    /// Without the `None` arm the task would spin on a closed channel for the
+    /// Without the `Closed` arm the task would spin on a closed channel for the
     /// rest of the process lifetime instead of ending with the call.
     #[test(tokio::test)]
     async fn closed_input_ends_task() {
-        let (input_tx, input_rx) = mpsc::channel::<EncodedAudioFrame>(1);
+        let (input_tx, input_rx) = broadcast::channel::<EncodedAudioFrame>(1);
         let sender = Sender::new(test_track(), input_rx, Arc::new(AtomicU64::new(0)));
 
         drop(input_tx);
