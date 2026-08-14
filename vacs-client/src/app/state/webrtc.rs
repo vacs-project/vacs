@@ -331,7 +331,10 @@ impl AppStateWebrtcExt for AppStateInner {
         let added = call.add_peer(peer);
 
         if let Some(old_peer) = old_peer {
-            if let Some(audio_source_id) = old_peer.audio_source_id {
+            let audio_source_id = old_peer.audio_source_id;
+            old_peer.shutdown().await;
+
+            if let Some(audio_source_id) = audio_source_id {
                 let mut audio_manager = self.audio_manager.write();
                 audio_manager.detach_call_output(audio_source_id);
 
@@ -339,8 +342,6 @@ impl AppStateWebrtcExt for AppStateInner {
                 // TODO remove input stream, detach input device if last
                 audio_manager.detach_input_device();
             }
-
-            old_peer.shutdown().await;
         }
 
         if let Err(peer) = added {
@@ -398,31 +399,30 @@ impl AppStateWebrtcExt for AppStateInner {
 
         log::debug!("Cleaning up peer {peer_id} in call {call_id}");
 
+        if last {
+            self.keybind_engine.read().await.set_call_active(false);
+        }
+
+        let audio_source_id = peer.audio_source_id;
+        let connected = peer.connected;
+        peer.shutdown().await;
+
         {
             let mut audio_manager = self.audio_manager.write();
 
             // TODO separate ParticipateJoined/Left sound
-            if let Some(audio_source_id) = peer.audio_source_id {
+            if let Some(audio_source_id) = audio_source_id {
                 audio_manager.detach_call_output(audio_source_id);
             }
 
             // The audio source may already be gone (taken by a Disconnected event), so the
             // end-of-call teardown must not depend on it
-            if last {
-                if self.config.client.call.enable_call_end_sound && peer.connected {
-                    audio_manager.restart(SourceType::CallEnd);
-                }
-
-                // TODO remove input stream, detach input device if last
-                audio_manager.detach_input_device();
+            if last && self.config.client.call.enable_call_end_sound && connected {
+                audio_manager.restart(SourceType::CallEnd);
             }
-        }
 
-        if last {
-            self.keybind_engine.read().await.set_call_active(false);
+            audio_manager.detach_input_device();
         }
-
-        peer.shutdown().await;
 
         true
     }
@@ -443,12 +443,17 @@ impl AppStateWebrtcExt for AppStateInner {
             .filter_map(|peer| peer.audio_source_id)
             .collect();
 
+        self.keybind_engine.read().await.set_call_active(false);
+
+        let was_connected = webrtc_call.was_connected();
+        webrtc_call.shutdown().await;
+
         {
             let mut audio_manager = self.audio_manager.write();
 
             audio_manager.stop(SourceType::Ringback);
 
-            if self.config.client.call.enable_call_end_sound && webrtc_call.was_connected() {
+            if self.config.client.call.enable_call_end_sound && was_connected {
                 audio_manager.restart(SourceType::CallEnd);
             }
 
@@ -457,10 +462,6 @@ impl AppStateWebrtcExt for AppStateInner {
             }
             audio_manager.detach_input_device();
         }
-
-        self.keybind_engine.read().await.set_call_active(false);
-
-        webrtc_call.shutdown().await;
 
         true
     }
@@ -612,25 +613,17 @@ impl AppStateInner {
         call_id: CallId,
         peer_id: &ClientId,
     ) -> Result<(), Error> {
-        let Some(peer) = self.webrtc_peer_mut(call_id, peer_id) else {
+        let Some(peer) = self.webrtc_peer(call_id, peer_id) else {
             log::warn!(
                 "Peer {peer_id} connected for call {call_id}, but no WebRTC peer exists, ignoring"
             );
             return Err(WebrtcError::NoCallActive.into());
         };
+        let reconnected = peer.reconnected;
 
         log::debug!("Starting peer {peer_id} for call {call_id} in WebRTC manager");
 
         let (output_tx, output_rx) = mpsc::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
-        let (input_tx, input_rx) = mpsc::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
-
-        if let Err(err) = peer.peer.start(input_rx, output_tx) {
-            log::warn!(
-                "Failed to start peer {peer_id} for call {call_id} in WebRTC manager: {err:?}"
-            );
-            return Err(err.into());
-        }
-        let reconnected = peer.reconnected;
 
         let attach_muted = {
             let keybind_engine = self.keybind_engine.read().await;
@@ -639,7 +632,7 @@ impl AppStateInner {
         };
 
         let audio_config = self.config.audio.clone();
-        let audio_source_id = {
+        let (audio_source_id, input_rx) = {
             let mut audio_manager = self.audio_manager.write();
 
             log::debug!("Attaching call to audio manager");
@@ -655,27 +648,45 @@ impl AppStateInner {
                 }
             };
 
-            // TODO handle extra input stream for new peer
-            if !audio_manager.is_input_device_attached() {
-                log::debug!("Attaching input device to audio manager");
-                if let Err(err) = audio_manager.attach_input_device(
-                    app.clone(),
-                    &audio_config,
-                    input_tx,
-                    attach_muted,
-                ) {
-                    log::warn!("Failed to attach input device to audio manager: {err:?}");
-                    return Err(err);
-                }
-            }
+            let input_rx =
+                match audio_manager.attach_input_device(app.clone(), &audio_config, attach_muted) {
+                    Ok(input_rx) => input_rx,
+                    Err(err) => {
+                        log::warn!("Failed to attach input device to audio manager: {err:?}");
+                        audio_manager.detach_call_output(audio_source_id);
+                        return Err(err);
+                    }
+                };
 
             // An in-call reconnect resumes the existing call, so don't signal a new one
             if self.config.client.call.enable_call_start_sound && !reconnected {
                 audio_manager.restart(SourceType::CallStart);
             }
 
-            audio_source_id
+            (audio_source_id, input_rx)
         };
+
+        let Some(peer) = self.webrtc_peer_mut(call_id, peer_id) else {
+            {
+                let mut audio_manager = self.audio_manager.write();
+                audio_manager.detach_call_output(audio_source_id);
+                drop(input_rx);
+                audio_manager.detach_input_device();
+            }
+            return Err(WebrtcError::NoCallActive.into());
+        };
+
+        if let Err(err) = peer.peer.start(input_rx, output_tx) {
+            log::warn!(
+                "Failed to start peer {peer_id} for call {call_id} in WebRTC manager: {err:?}"
+            );
+            {
+                let mut audio_manager = self.audio_manager.write();
+                audio_manager.detach_call_output(audio_source_id);
+                audio_manager.detach_input_device();
+            }
+            return Err(err.into());
+        }
 
         if let Some(peer) = self.webrtc_peer_mut(call_id, peer_id) {
             peer.connected = true;
@@ -777,7 +788,7 @@ fn spawn_peer_events_task(
                                 let last = call.is_only_peer(&peer_id);
 
                                 if let Some(peer) = call.peer_mut(&peer_id) {
-                                    peer.peer.pause();
+                                    peer.peer.pause().await;
 
                                     if let Some(audio_source_id) = peer.audio_source_id.take() {
                                         let mut audio_manager = state.audio_manager.write();
@@ -797,7 +808,6 @@ fn spawn_peer_events_task(
                                             audio_manager.restart(SourceType::CallEnd);
                                         }
 
-                                        // TODO remove input stream, detach input device if last
                                         audio_manager.detach_input_device();
 
                                         played
