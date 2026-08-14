@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use vacs_audio::EncodedAudioFrame;
 use vacs_audio::device::{DeviceSelector, DeviceType, StreamDevice};
 use vacs_audio::error::AudioError;
@@ -149,9 +149,13 @@ impl AudioManager {
         &mut self,
         app: AppHandle,
         audio_config: &AudioConfig,
-        tx: mpsc::Sender<EncodedAudioFrame>,
         muted: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<broadcast::Receiver<EncodedAudioFrame>, Error> {
+        if let Some(input_device) = self.input.as_ref() {
+            log::debug!("Input device already attached, subscribing to capture stream");
+            return Ok(input_device.subscribe());
+        };
+
         let (device, is_fallback) = DeviceSelector::open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
@@ -182,7 +186,6 @@ impl AudioManager {
 
         let capture = CaptureStream::start(
             device,
-            tx,
             audio_config.input_device_volume,
             audio_config.input_device_volume_amp,
             error_tx,
@@ -193,8 +196,9 @@ impl AudioManager {
             .emit("audio:stop-input-level-meter", Value::Null)
             .ok();
 
+        let rx = capture.subscribe();
         self.input = Some(capture);
-        Ok(())
+        Ok(rx)
     }
 
     pub fn attach_input_level_meter(
@@ -310,8 +314,13 @@ impl AudioManager {
     }
 
     pub fn detach_input_device(&mut self) {
-        self.input = None;
-        log::debug!("Detached input device");
+        if self
+            .input
+            .take_if(|capture| capture.receiver_count() == 0)
+            .is_some()
+        {
+            log::debug!("Detached input device");
+        }
     }
 
     pub fn start(&self, source_type: SourceType) {
