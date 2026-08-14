@@ -17,6 +17,7 @@ impl Receiver {
         peer_connection: &RTCPeerConnection,
         output_tx: mpsc::Sender<EncodedAudioFrame>,
         received_packets: Arc<AtomicU64>,
+        forwarded_packets: Arc<AtomicU64>,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let (output_selection_tx, output_selection_rx) = watch::channel(Some(output_tx));
@@ -25,6 +26,7 @@ impl Receiver {
             let mut shutdown_rx = shutdown_rx.clone();
             let mut output_selection_rx = output_selection_rx.clone();
             let received_packets = Arc::clone(&received_packets);
+            let forwarded_packets = Arc::clone(&forwarded_packets);
 
             Box::pin(async move {
                 let mut output_tx = output_selection_rx.borrow().clone();
@@ -43,10 +45,17 @@ impl Receiver {
                             match rtp {
                                 Ok((packet, _)) => {
                                     received_packets.fetch_add(1, Ordering::Relaxed);
-                                    if let Some(output_tx) = output_tx.as_ref() &&
-                                        output_tx.send(packet.payload).await.is_err() {
-                                            tracing::warn!("Failed to send received RTP packet to output");
-                                            break;
+                                    match output_tx.as_ref() {
+                                        Some(output_tx) => {
+                                            if output_tx.send(packet.payload).await.is_err() {
+                                                tracing::warn!("Failed to send received RTP packet to output");
+                                                break;
+                                            }
+                                            forwarded_packets.fetch_add(1, Ordering::Relaxed);
+                                        }
+                                        None => {
+                                            tracing::trace!("Receiver paused, dropping inbound frame");
+                                        }
                                     }
                                 }
                                 Err(err) => {
