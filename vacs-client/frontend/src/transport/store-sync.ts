@@ -257,7 +257,6 @@ function startSync(): () => void {
     unlistenFns.push(
         subscribeFields(useCallStore, "call", s => ({
             prio: s.prio,
-            // TODO will this be an issue with double-syncing?
             incomingCalls: s.incomingCalls,
             callDisplay:
                 s.callDisplay === undefined ||
