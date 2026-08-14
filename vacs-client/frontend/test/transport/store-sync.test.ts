@@ -45,8 +45,6 @@ const snapshot: SessionStateSnapshot = {
         playback: true,
         platform: "Windows",
     },
-    incomingCalls: [],
-    outgoingCall: null,
 };
 
 // setupStoreSync enables syncing asynchronously; in the app, hydration happens
