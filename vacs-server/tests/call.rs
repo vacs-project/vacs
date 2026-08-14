@@ -482,6 +482,199 @@ async fn call_end_from_non_participant() -> anyhow::Result<()> {
 }
 
 #[test(tokio::test)]
+async fn call_end_by_callee_cancels_pending_invitations() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    // client1 invites client2 and client3
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([
+                    CallTarget::Client(client2.id().clone()),
+                    CallTarget::Client(client3.id().clone()),
+                ]),
+                prio: false,
+            },
+        ))
+        .await?;
+    for client in [&mut client2, &mut client3] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(_))
+            })
+            .await;
+        assert_eq!(invitations.len(), 1, "callee should receive CallInvitation");
+    }
+
+    // client2 accepts, client3 keeps ringing
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let client2_id = client2.id().clone();
+    for client in [&mut client1, &mut client2] {
+        let _ = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && update.joined_participants.contains_key(&client2_id))
+            })
+            .await;
+    }
+
+    // client2 (not the caller) ends the whole call
+    client2
+        .send(ClientMessage::CallEnd(vacs_protocol::ws::shared::CallEnd {
+            call_id,
+            ending_client_id: client2.id().clone(),
+        }))
+        .await?;
+
+    let end_messages = client1
+        .recv_until_timeout_with_filter(
+            Duration::from_millis(100),
+            |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id),
+        )
+        .await;
+    assert_eq!(end_messages.len(), 1, "client1 should receive CallEnd");
+
+    // The still ringing invitation must be cancelled with the call
+    let cancelled_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled) if cancelled.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        cancelled_messages.len(),
+        1,
+        "client3 should receive CallCancelled for its pending invitation"
+    );
+
+    // Accepting the ended call must fail instead of resurrecting it
+    client3
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client3.id().clone(),
+            },
+        ))
+        .await?;
+    let error_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+                if error.call_id == call_id
+                    && error.reason == vacs_protocol::ws::shared::CallErrorReason::CallFailure)
+        })
+        .await;
+    assert_eq!(
+        error_messages.len(),
+        1,
+        "client3 should receive CallError when accepting the ended call"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    // client1 invites client2 and client3
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([
+                    CallTarget::Client(client2.id().clone()),
+                    CallTarget::Client(client3.id().clone()),
+                ]),
+                prio: false,
+            },
+        ))
+        .await?;
+    for client in [&mut client2, &mut client3] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(_))
+            })
+            .await;
+        assert_eq!(invitations.len(), 1, "callee should receive CallInvitation");
+    }
+
+    // client2 accepts, client3 keeps ringing
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let client2_id = client2.id().clone();
+    for client in [&mut client1, &mut client2] {
+        let _ = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && update.joined_participants.contains_key(&client2_id))
+            })
+            .await;
+    }
+
+    // client2 (not the caller) disconnects, fully ending the 1:1 call
+    client2.close().await;
+
+    let end_messages = client1
+        .recv_until_timeout_with_filter(
+            Duration::from_millis(500),
+            |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id),
+        )
+        .await;
+    assert_eq!(end_messages.len(), 1, "client1 should receive CallEnd");
+
+    // The still ringing invitation must be cancelled with the call
+    let cancelled_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(500), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled) if cancelled.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        cancelled_messages.len(),
+        1,
+        "client3 should receive CallCancelled for its pending invitation"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
 async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
     let test_app = TestApp::new().await;
     let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
