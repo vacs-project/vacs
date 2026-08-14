@@ -135,7 +135,7 @@ impl SignalingReceiver for TokioReceiver {
                                     Err(SignalingRuntimeError::Disconnected(Some(disconnected.reason)))
                                 }
                                 Ok(msg) => Ok(msg),
-                                Err(err) => { // TODO: handle unknown messages gracefully
+                                Err(err) => {
                                     tracing::warn!(?err, "Failed to deserialize message");
                                     Err(SignalingRuntimeError::SerializationError(err.to_string()))
                                 }

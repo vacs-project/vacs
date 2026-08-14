@@ -1338,7 +1338,9 @@ impl AppStateInner {
                     app.emit("signaling:client-not-found", client_id).ok();
                 }
             },
-            ServerMessage::Disconnected(_) | ServerMessage::LoginFailure(_) => {}
+            ServerMessage::Disconnected(_)
+            | ServerMessage::LoginFailure(_)
+            | ServerMessage::Unknown => {}
         }
     }
 
