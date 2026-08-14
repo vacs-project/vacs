@@ -782,11 +782,11 @@ async fn dispatch_command(
             dispatch(signaling_terminate(app.clone(), http_state).await)
         }
         SignalingStartCall => {
-            let (target, source, prio) = args!(args, "target", "source", "prio");
+            let (targets, source, prio) = args!(args, "targets", "source", "prio");
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();
             dispatch(
-                signaling_start_call(app.clone(), app_state, http_state, target, source, prio)
+                signaling_start_call(app.clone(), app_state, http_state, targets, source, prio)
                     .await,
             )
         }
