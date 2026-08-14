@@ -7,6 +7,6 @@ export async function openUrl(url: string): Promise<void> {
         // environment first.
         await invoke("app_open_url", {url});
     } else {
-        window.open(url, "_blank");
+        window.open(url, "_blank", "noopener,noreferrer");
     }
 }
