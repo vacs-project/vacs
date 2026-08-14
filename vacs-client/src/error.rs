@@ -288,7 +288,7 @@ impl Error {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum CallErrorOrigin {
     Client(ClientId),
     Targets(HashSet<CallTarget>),
