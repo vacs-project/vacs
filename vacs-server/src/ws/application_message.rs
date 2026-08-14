@@ -1,4 +1,5 @@
 use crate::metrics::{CallMetrics, ErrorMetrics};
+use crate::ratelimit::CallInviteRejection;
 use crate::state::AppState;
 use crate::state::calls::{
     CallTerminationOutcome, RingingTarget, StartCallError, UpdateCallAction,
@@ -78,18 +79,6 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     let caller_id = client.id();
     let call_id = &invite.call_id;
 
-    if let Err(until) = state.rate_limiters().check_call_invite(caller_id) {
-        tracing::debug!(?until, "Rate limit exceeded, rejecting call invite");
-        let reason = ErrorReason::RateLimited {
-            retry_after_secs: until.as_secs(),
-        };
-        ErrorMetrics::error(&reason);
-        client
-            .send_error(shared::Error::from(reason).with_call_id(invite.call_id))
-            .await;
-        return;
-    }
-
     if invite.source.client_id != *caller_id {
         tracing::debug!("Source client ID mismatch, rejecting call invite");
         send_call_error(
@@ -112,6 +101,35 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         )
         .await;
         return;
+    }
+
+    match state
+        .rate_limiters()
+        .check_call_invite(caller_id, invite.targets.len())
+    {
+        Ok(()) => {}
+        Err(CallInviteRejection::RateLimited(until)) => {
+            tracing::debug!(?until, "Rate limit exceeded, rejecting call invite");
+            let reason = ErrorReason::RateLimited {
+                retry_after_secs: until.as_secs(),
+            };
+            ErrorMetrics::error(&reason);
+            client
+                .send_error(shared::Error::from(reason).with_call_id(invite.call_id))
+                .await;
+            return;
+        }
+        Err(CallInviteRejection::TooManyTargets) => {
+            tracing::debug!("Call invite has too many targets, rejecting call invite");
+            send_call_error(
+                client,
+                call_id,
+                CallErrorReason::Other,
+                Some("Too many targets"),
+            )
+            .await;
+            return;
+        }
     }
 
     let mut invited_participants = HashMap::new();
