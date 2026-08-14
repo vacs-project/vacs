@@ -29,7 +29,6 @@ export function setupSignalingListeners() {
         removeCall,
         rejectCall,
         acceptIncomingCall,
-        setOutgoingCallAccepted,
         reset: resetCallStore,
     } = useCallStore.getState().actions;
     const {addIncomingCall: addIncomingCallToCallList, clearCallList} =
@@ -105,12 +104,6 @@ export function setupSignalingListeners() {
             listen<CallId>("signaling:accept-incoming-call", event => {
                 acceptIncomingCall(event.payload);
             }),
-            listen<{callId: CallId; acceptingClientId: ClientId}>(
-                "signaling:outgoing-call-accepted",
-                event => {
-                    setOutgoingCallAccepted(event.payload.callId, event.payload.acceptingClientId);
-                },
-            ),
             listen<CallUpdate>("signaling:call-update", event => {
                 updateCall(event.payload);
             }),
