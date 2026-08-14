@@ -57,7 +57,9 @@ impl SignalingRuntimeError {
     pub fn needs_session_terminate(&self) -> bool {
         matches!(
             self,
-            SignalingRuntimeError::Disconnected(None) | SignalingRuntimeError::Transport(_)
+            SignalingRuntimeError::Disconnected(None)
+                | SignalingRuntimeError::Transport(_)
+                | SignalingRuntimeError::SerializationError(_)
         )
     }
 
@@ -69,6 +71,7 @@ impl SignalingRuntimeError {
                 | SignalingRuntimeError::ReconnectSuppressed(_)
                 | SignalingRuntimeError::ServerError(_)
                 | SignalingRuntimeError::Transport(_)
+                | SignalingRuntimeError::SerializationError(_)
         )
     }
 }
