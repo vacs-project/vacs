@@ -422,8 +422,7 @@ impl AppStateSignalingExt for AppStateInner {
 
         self.current_call = Some(call);
 
-        self.audio_manager.read().stop(SourceType::Ring);
-        self.audio_manager.read().stop(SourceType::PriorityRing);
+        self.stop_ringing_if_no_incoming_calls();
 
         app.emit("signaling:accept-incoming-call", call_id).ok();
 
