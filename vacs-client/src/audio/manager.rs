@@ -35,6 +35,9 @@ pub struct AudioManager {
     output_source_ids: SourceMap,
     speaker_source_ids: SourceMap,
     call_output_source_ids: HashSet<AudioSourceId>,
+    /// Number of frontends currently showing the shared input level meter; the meter is
+    /// only detached once the last one releases it.
+    level_meter_users: usize,
     // Decoded once, so stream rebuilds (device switches, recovery) never touch the disk.
     ring_clips: RingClipMap,
 }
@@ -101,6 +104,7 @@ impl AudioManager {
             output_source_ids,
             speaker_source_ids,
             call_output_source_ids: HashSet::new(),
+            level_meter_users: 0,
             ring_clips,
         })
     }
@@ -187,6 +191,7 @@ impl AudioManager {
             // would transmit silence; replace it with a call capture stream instead
             log::debug!("Replacing input level meter with call capture stream");
             self.input = None;
+            self.level_meter_users = 0;
         };
 
         let (device, is_fallback) = DeviceSelector::open(
@@ -346,12 +351,23 @@ impl AudioManager {
             .unwrap_or(false)
     }
 
+    pub fn add_level_meter_user(&mut self) {
+        self.level_meter_users += 1;
+    }
+
+    /// Releases one level meter user and returns how many remain.
+    pub fn remove_level_meter_user(&mut self) -> usize {
+        self.level_meter_users = self.level_meter_users.saturating_sub(1);
+        self.level_meter_users
+    }
+
     pub fn detach_input_device(&mut self) {
         if self
             .input
             .take_if(|capture| capture.receiver_count() == 0)
             .is_some()
         {
+            self.level_meter_users = 0;
             log::debug!("Detached input device");
         }
     }
