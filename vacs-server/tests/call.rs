@@ -871,3 +871,239 @@ async fn target_not_found() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test(tokio::test)]
+async fn partial_targets_not_found_still_rings_online_target() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+
+    let offline_target = CallTarget::Client(ClientId::from("client69"));
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([
+                    CallTarget::Client(client2.id().clone()),
+                    offline_target.clone(),
+                ]),
+                prio: false,
+            },
+        ))
+        .await?;
+
+    // The unresolvable target is reported, naming only the offline one
+    let error_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert_eq!(
+        error_messages.len(),
+        1,
+        "client1 should receive exactly one CallError message"
+    );
+    match &error_messages[0] {
+        ServerMessage::CallError(error) => {
+            assert_eq!(
+                error.reason,
+                vacs_protocol::ws::shared::CallErrorReason::TargetsNotFound(HashSet::from([
+                    offline_target
+                ])),
+                "CallErrorReason mismatch"
+            );
+        }
+        message => panic!("Unexpected message: {:?}, expected CallError", message),
+    };
+
+    // The resolvable target still rings
+    let invite_messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        invite_messages.len(),
+        1,
+        "client2 should still receive CallInvitation despite the offline co-target"
+    );
+
+    // And the call is fully usable: accepting it produces the acceptance update
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let accept_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(client2.id()))
+        })
+        .await;
+    assert_eq!(
+        accept_messages.len(),
+        1,
+        "client1 should receive a call update with client2 joined"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn all_targets_not_found_leaves_no_call_state() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+
+    let offline_targets = HashSet::from([
+        CallTarget::Client(ClientId::from("client69")),
+        CallTarget::Client(ClientId::from("client70")),
+    ]);
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id: CallId::new(),
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: offline_targets.clone(),
+                prio: false,
+            },
+        ))
+        .await?;
+
+    let error_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+            if error.reason
+                == vacs_protocol::ws::shared::CallErrorReason::TargetsNotFound(
+                    offline_targets.clone()
+                ))
+        })
+        .await;
+    assert_eq!(
+        error_messages.len(),
+        1,
+        "client1 should receive TargetsNotFound naming both offline targets"
+    );
+
+    // No call state was created: the caller is free to place a new call at once
+    let new_call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id: new_call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let error_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert!(
+        error_messages.is_empty(),
+        "client1 should not be considered busy after an all-offline invite, but received: {:?}",
+        error_messages
+    );
+    let invite_messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == new_call_id)
+        })
+        .await;
+    assert_eq!(
+        invite_messages.len(),
+        1,
+        "client2 should receive CallInvitation for the follow-up call"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn empty_targets_rejected() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id: CallId::new(),
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::new(),
+                prio: false,
+            },
+        ))
+        .await?;
+
+    let error_messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+                if error.reason == vacs_protocol::ws::shared::CallErrorReason::Other)
+        })
+        .await;
+    assert_eq!(
+        error_messages.len(),
+        1,
+        "client1 should receive CallError for an invite without targets"
+    );
+
+    // The rejected invite must not leave the caller marked busy
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let invite_messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        invite_messages.len(),
+        1,
+        "client2 should receive CallInvitation for the follow-up call"
+    );
+
+    Ok(())
+}
