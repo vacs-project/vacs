@@ -392,7 +392,7 @@ impl AppStateSignalingExt for AppStateInner {
         }
 
         if self.current_call.is_some() {
-            log::warn!("Tried to accept call {call_id}, but another call is already active");
+            log::debug!("Tried to accept call {call_id}, but another call is already active");
             return Err(WebrtcError::CallActive.into());
         }
 
