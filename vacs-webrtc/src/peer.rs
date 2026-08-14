@@ -306,20 +306,25 @@ impl Peer {
         })
     }
 
+    /// Pauses the peer: signals the sender task to stop and drops inbound frames.
+    ///
+    /// Returns the taken [`Sender`] so the caller can await the sender task's shutdown
+    /// outside of any lock; the input subscription is only released once that join
+    /// completes.
     #[instrument(level = "debug", skip_all)]
-    pub async fn pause(&mut self) {
+    pub fn pause(&mut self) -> Option<crate::Sender> {
         tracing::debug!("Pausing peer");
         if let Some(watchdog) = self.watchdog.take() {
             watchdog.abort();
         }
-        if let Some(sender) = self.sender.take()
-            && let Err(err) = sender.stop().await
-        {
-            tracing::debug!(?err, "Received error while stopping sender");
+        let sender = self.sender.take();
+        if let Some(sender) = &sender {
+            sender.shutdown();
         }
         if let Some(receiver) = self.receiver.as_mut() {
             receiver.pause();
         }
+        sender
     }
 
     #[instrument(level = "debug", skip(self), err)]
@@ -534,8 +539,13 @@ mod tests {
         peer.start(input_rx, output_tx)
             .expect("failed to start peer");
 
-        peer.pause().await;
+        let sender = peer.pause();
 
+        sender
+            .expect("pause must return the taken sender")
+            .stop()
+            .await
+            .expect("failed to stop the taken sender");
         assert!(peer.sender.is_none(), "pause must stop the sender");
         assert!(peer.receiver.is_some(), "pause must keep the receiver");
     }
@@ -547,7 +557,12 @@ mod tests {
         let (_input_tx, input_rx, output_tx, _output_rx) = test_channels();
         peer.start(input_rx, output_tx)
             .expect("failed to start peer");
-        peer.pause().await;
+        if let Some(sender) = peer.pause() {
+            sender
+                .stop()
+                .await
+                .expect("failed to stop the taken sender");
+        }
 
         let (_input_tx, input_rx, output_tx, _output_rx) = test_channels();
         peer.start(input_rx, output_tx)

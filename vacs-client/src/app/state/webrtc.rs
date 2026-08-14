@@ -1,6 +1,7 @@
 use crate::app::state::calls::Call;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::{AppState, AppStateInner, sealed};
+use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
 use crate::error::{CallError, CallErrorOrigin, Error};
 use anyhow::Context;
@@ -784,11 +785,12 @@ fn spawn_peer_events_task(
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
 
+                            let mut sender = None;
                             if let Some(call) = state.webrtc_call_mut(call_id) {
                                 let last = call.is_only_peer(&peer_id);
 
                                 if let Some(peer) = call.peer_mut(&peer_id) {
-                                    peer.peer.pause().await;
+                                    sender = peer.peer.pause();
 
                                     if let Some(audio_source_id) = peer.audio_source_id.take() {
                                         let mut audio_manager = state.audio_manager.write();
@@ -800,15 +802,13 @@ fn spawn_peer_events_task(
 
                                 if last {
                                     let played = {
-                                        let mut audio_manager = state.audio_manager.write();
+                                        let audio_manager = state.audio_manager.write();
 
                                         let played = state.config.client.call.enable_call_end_sound
                                             && audio_manager.is_input_device_attached();
                                         if played {
                                             audio_manager.restart(SourceType::CallEnd);
                                         }
-
-                                        audio_manager.detach_input_device();
 
                                         played
                                     };
@@ -822,8 +822,20 @@ fn spawn_peer_events_task(
                                     }
                                 }
                             }
+                            drop(state);
 
                             emit_webrtc_update(&app, "webrtc:call-disconnected", call_id, &peer_id);
+
+                            // The sender task holds an input subscription, so it must be
+                            // joined before the detach below can take effect
+                            if let Some(sender) = sender
+                                && let Err(err) = sender.stop().await
+                            {
+                                log::debug!("Received error while stopping sender: {err:?}");
+                            }
+                            app.state::<AudioManagerHandle>()
+                                .write()
+                                .detach_input_device();
                         }
                         PeerConnectionState::Failed => {
                             log::info!("Connection to peer {peer_id} in call {call_id} failed");
