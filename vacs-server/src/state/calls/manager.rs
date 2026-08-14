@@ -357,6 +357,10 @@ impl CallManager {
                     .participants
                     .insert(accepting_client_id.clone(), ringing_target.target.clone());
 
+                active_call
+                    .guard
+                    .record_participants(active_call.participants.len());
+
                 if active_call.conference_leader.is_none() {
                     if active_call.participants.len() > 3 {
                         tracing::warn!(
