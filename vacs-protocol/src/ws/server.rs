@@ -48,7 +48,7 @@ impl ServerMessage {
     pub const fn variant(&self) -> &'static str {
         match self {
             ServerMessage::LoginFailure(_) => "LoginFailure",
-            ServerMessage::CallInvitation(_) => "CallInvite",
+            ServerMessage::CallInvitation(_) => "CallInvitation",
             ServerMessage::CallEnd(_) => "CallEnd",
             ServerMessage::CallUpdate(_) => "CallUpdate",
             ServerMessage::CallCancelled(_) => "CallCancelled",
