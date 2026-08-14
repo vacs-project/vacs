@@ -1,7 +1,13 @@
 import {listen, UnlistenFn} from "../transport";
 import {useCallStore} from "../stores/call-store.ts";
 import {CallError} from "../error.ts";
-import {CallId} from "../types/generic.ts";
+import {CallId, ClientId} from "../types/generic.ts";
+
+// TODO update per-peer connection state
+type WebrtcUpdateEvent = {
+    callId: CallId;
+    peerId: ClientId;
+};
 
 export function setupWebrtcListeners() {
     const {errorTargets, setConnectionState} = useCallStore.getState().actions;
@@ -10,17 +16,17 @@ export function setupWebrtcListeners() {
 
     const init = () => {
         unlistenFns.push(
-            listen<CallId>("webrtc:call-connected", event => {
-                setConnectionState(event.payload, "connected");
+            listen<WebrtcUpdateEvent>("webrtc:call-connected", event => {
+                setConnectionState(event.payload.callId, "connected");
             }),
-            listen<CallId>("webrtc:call-disconnected", event => {
-                setConnectionState(event.payload, "disconnected");
+            listen<WebrtcUpdateEvent>("webrtc:call-disconnected", event => {
+                setConnectionState(event.payload.callId, "disconnected");
             }),
-            listen<CallId>("webrtc:call-degraded", event => {
-                setConnectionState(event.payload, "degraded");
+            listen<WebrtcUpdateEvent>("webrtc:call-degraded", event => {
+                setConnectionState(event.payload.callId, "degraded");
             }),
-            listen<CallId>("webrtc:call-reconnecting", event => {
-                setConnectionState(event.payload, "connecting");
+            listen<WebrtcUpdateEvent>("webrtc:call-reconnecting", event => {
+                setConnectionState(event.payload.callId, "connecting");
             }),
             listen<CallError>("webrtc:call-error", event => {
                 errorTargets(event.payload);
