@@ -23,7 +23,9 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
         call =>
             call.source.stationId !== undefined &&
             (stationIds.includes(call.source.stationId) ||
-                hasTarget(call.joinedParticipants, {station: call.source.stationId})),
+                stationIds.some(stationId =>
+                    hasTarget(call.joinedParticipants, {station: stationId}),
+                )),
     );
     const isCalling = incomingCall !== undefined;
     const beingCalled = stationIds.some(stationId =>
@@ -32,8 +34,12 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
     const involved =
         callDisplay !== undefined && callInvolvesButtonStations(callDisplay.call, stationIds, cid);
     const inCall = callDisplay?.type === "accepted" && involved;
-    const isRejected = callDisplay?.type === "rejected" && involved;
-    const isError = callDisplay?.type === "error" && involved;
+    const isRejected =
+        callDisplay !== undefined &&
+        stationIds.some(stationId => hasTarget(callDisplay.rejectedTargets, {station: stationId}));
+    const isError =
+        callDisplay !== undefined &&
+        stationIds.some(stationId => hasTarget(callDisplay.erroredTargets, {station: stationId}));
     const isTarget =
         highlightTarget &&
         (incomingCalls.some(
@@ -68,11 +74,7 @@ function callInvolvesButtonStations(
     cid: ClientId | undefined,
 ) {
     return call.source.clientId === cid
-        ? stationIds.some(
-              stationId =>
-                  call.invitedTargets.some(target => target.station === stationId) ||
-                  hasTarget(call.joinedParticipants, {station: stationId}),
-          )
+        ? stationIds.some(stationId => hasTarget(call.joinedParticipants, {station: stationId}))
         : call.source.stationId !== undefined && stationIds.includes(call.source.stationId);
 }
 

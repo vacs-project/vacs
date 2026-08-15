@@ -47,7 +47,11 @@ export function participantCount(
 }
 
 export function hasTarget(
-    participants: CallParticipants | CallParticipantsWithConnectionState,
+    participants:
+        | CallParticipants
+        | CallParticipantsWithConnectionState
+        | CallTarget[]
+        | {target: CallTarget; reason: string}[],
     target: CallTarget,
 ) {
     for (const value of Object.values(participants)) {
