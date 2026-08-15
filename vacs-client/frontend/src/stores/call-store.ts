@@ -143,14 +143,18 @@ export const useCallStore = create<CallState>()((set, get) => ({
                         : callDisplay.type;
 
                 const joinedParticipants = callDisplay.call.joinedParticipants;
-                const newlyJoinedParticipants = Object.entries(update.joinedParticipants)
-                    .filter(([clientId]) => !(clientId in joinedParticipants))
-                    .map(([clientId, target]) => ({
+                const newlyJoinedParticipants = Object.entries(update.joinedParticipants).map(
+                    ([clientId, target]) => ({
                         [clientId]: {
                             target,
-                            state: clientId !== ownClientId ? "connecting" : "connected",
+                            state:
+                                (joinedParticipants[clientId as ClientId].state ??
+                                clientId !== ownClientId)
+                                    ? "connecting"
+                                    : "connected",
                         },
-                    }));
+                    }),
+                );
 
                 const nextCallDisplay: CallDisplay = {
                     ...callDisplay,
@@ -158,14 +162,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     call: {
                         ...callDisplay.call,
                         invitedTargets: update.invitedTargets,
-                        joinedParticipants: Object.assign(
-                            joinedParticipants,
-                            ...newlyJoinedParticipants,
-                        ),
+                        joinedParticipants: Object.assign({}, ...newlyJoinedParticipants),
                     },
                 };
 
-                // TODO: update call.target if it leaves
+                // TODO: update call.target if it leaves -> not as easy as though; check if necessary
 
                 set({callDisplay: nextCallDisplay});
 
