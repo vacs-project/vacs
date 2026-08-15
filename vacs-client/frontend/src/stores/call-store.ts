@@ -95,7 +95,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     call: {
                         ...incomingCall,
                         joinedParticipants: Object.assign(
-                            Object.entries(incomingCall.joinedParticipants).map(
+                            {},
+                            ...Object.entries(incomingCall.joinedParticipants).map(
                                 ([clientId, target]) => ({
                                     [clientId]: {
                                         target,
@@ -133,6 +134,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     ),
                 });
             } else if (callDisplay?.call.callId === update.callId) {
+                const ownClientId = useAuthStore.getState().cid!;
                 const type =
                     callDisplay.type === "outgoing"
                         ? Object.keys(update.joinedParticipants).length > 0
@@ -146,7 +148,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     .map(([clientId, target]) => ({
                         [clientId]: {
                             target,
-                            state: "connecting",
+                            state: clientId !== ownClientId ? "connecting" : "connected",
                         },
                     }));
 
@@ -158,7 +160,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                         invitedTargets: update.invitedTargets,
                         joinedParticipants: Object.assign(
                             joinedParticipants,
-                            newlyJoinedParticipants,
+                            ...newlyJoinedParticipants,
                         ),
                     },
                 };
@@ -293,7 +295,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
             tryStopBlink(null, undefined, null, null, null);
         },
         setConnectionState: (callId, peerId, connectionState) => {
-            const callDisplay = get().callDisplay;
+            let callDisplay = get().callDisplay;
 
             if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 return;
@@ -301,7 +303,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             callDisplay.call.joinedParticipants[peerId].state = connectionState;
 
-            set({callDisplay: {...callDisplay}});
+            set({callDisplay});
         },
         setPrio: prio => set({prio}),
         setConferenceState: conferenceState => {
