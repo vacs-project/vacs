@@ -26,11 +26,9 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
                 hasTarget(call.joinedParticipants, {station: call.source.stationId})),
     );
     const isCalling = incomingCall !== undefined;
-    const beingCalled =
-        callDisplay?.type === "outgoing" &&
-        stationIds.some(stationId =>
-            callDisplay.call.invitedTargets.some(target => target.station === stationId),
-        );
+    const beingCalled = stationIds.some(stationId =>
+        callDisplay?.call.invitedTargets.some(target => target.station === stationId),
+    );
     const involved =
         callDisplay !== undefined && callInvolvesButtonStations(callDisplay.call, stationIds, cid);
     const inCall = callDisplay?.type === "accepted" && involved;
