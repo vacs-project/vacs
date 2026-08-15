@@ -165,6 +165,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     },
                 };
 
+                // TODO: update call.target if it leaves
+
                 set({callDisplay: nextCallDisplay});
 
                 tryStopBlink(null, nextCallDisplay, null, null, null);
@@ -406,6 +408,61 @@ export const startCall = async (...targets: CallTarget[]) => {
             invitedTargets: targets,
             joinedParticipants: {},
             prio,
+        });
+        setPrio(false);
+        // TODO: addOutgoingCallToCallList({callId, target});
+    } catch {}
+};
+
+export const startConferenceCall = async (...targets: CallTarget[]) => {
+    const {callDisplay, prio} = useCallStore.getState();
+    if (targets.length === 0 || callDisplay?.call === undefined) return;
+
+    const {cid} = useAuthStore.getState();
+    const openErrorOverlay = useErrorOverlayStore.getState().open;
+
+    if (cid === undefined) {
+        openErrorOverlay(
+            "Unauthenticated",
+            "You are unauthenticated and cannot start a call",
+            false,
+            5000,
+        );
+        return;
+    } else if (targets.some(target => target.client === cid)) {
+        openErrorOverlay("Call error", "You cannot call yourself", false, 5000);
+        return;
+    }
+
+    const {info} = useConnectionStore.getState();
+    // const {addOutgoingCall: addOutgoingCallToCallList} = useCallListStore.getState().actions;
+    const {setPrio} = useCallStore.getState().actions;
+    const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
+
+    let stationId: StationId | undefined;
+    if (temporarySource !== undefined) {
+        stationId = temporarySource;
+        setTemporarySource(undefined);
+    } else if (defaultSource !== undefined) {
+        stationId = defaultSource;
+    }
+
+    const source: CallSource = {
+        clientId: cid,
+        positionId: info.positionId,
+        stationId,
+    };
+
+    try {
+        await invokeStrict<CallId>("signaling_start_call", {source, targets, prio});
+        useCallStore.setState({
+            callDisplay: {
+                ...callDisplay,
+                call: {
+                    ...callDisplay.call,
+                    invitedTargets: callDisplay.call.invitedTargets.concat(targets),
+                },
+            },
         });
         setPrio(false);
         // TODO: addOutgoingCallToCallList({callId, target});
