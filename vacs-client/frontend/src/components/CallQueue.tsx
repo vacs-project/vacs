@@ -1,9 +1,9 @@
 import Button from "./ui/Button.tsx";
-import {useCallStore} from "../stores/call-store.ts";
+import {someConnectionState, useCallStore} from "../stores/call-store.ts";
 import {invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
-import {Call, participantCount} from "../types/call.ts";
+import {Call, CallWithConnectionStates, participantCount} from "../types/call.ts";
 import {useProfileStationKeys} from "../stores/profile-store.ts";
 import {DirectAccessKey} from "../types/profile.ts";
 import {ComponentChild} from "preact";
@@ -17,8 +17,6 @@ import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
 
-// TODO: CONF label + indication handling
-
 function CallQueue() {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
@@ -31,7 +29,7 @@ function CallQueue() {
     const clients = useClientsStore(state => state.clients);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
-    const handleCallDisplayClick = async (call: Call) => {
+    const handleCallDisplayClick = async (call: CallWithConnectionStates) => {
         if (callDisplay?.type === "accepted" || callDisplay?.type === "outgoing") {
             try {
                 await invokeStrict("signaling_end_call", {callId: call.callId});
@@ -73,14 +71,14 @@ function CallQueue() {
             {/*Call Display*/}
             {callDisplay !== undefined ? (
                 <div className="relative">
-                    {callDisplay.connectionState === "disconnected" && (
+                    {someConnectionState(callDisplay, "disconnected") && (
                         <img
                             className="absolute top-1 left-1 h-5 w-5"
                             src={unplug}
                             alt="Disconnected"
                         />
                     )}
-                    {callDisplay.connectionState === "degraded" && (
+                    {someConnectionState(callDisplay, "degraded") && (
                         <img
                             className="absolute top-1 left-1 h-5 w-5"
                             src={volumeMute}
@@ -94,7 +92,7 @@ function CallQueue() {
                         onClick={() => handleCallDisplayClick(callDisplay.call)}
                         className={clsx(
                             "h-16 text-sm [&_p]:leading-3.5",
-                            cdColor === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]", // TODO: this should probably always be +1px, to not truncate
+                            cdColor === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
                         )}
                     >
                         {callDisplayLabel(callDisplay.call, cid, stationKeys, clients)}
@@ -128,13 +126,15 @@ function CallQueue() {
                         )}
                         onClick={() => handleAnswerKeyClick(call)}
                     >
-                        {callLabel(
-                            call.source.stationId,
-                            call.source.positionId,
-                            call.source.clientId,
-                            stationKeys,
-                            clients,
-                        )}
+                        {participantCount(call.joinedParticipants) > 2
+                            ? "CONF"
+                            : callLabel(
+                                  call.source.stationId,
+                                  call.source.positionId,
+                                  call.source.clientId,
+                                  stationKeys,
+                                  clients,
+                              )}
                     </Button>
                 );
             })}
@@ -146,16 +146,15 @@ function CallQueue() {
 }
 
 function callDisplayLabel(
-    call: Call,
+    call: CallWithConnectionStates,
     cid: ClientId | undefined,
     stationKeys: DirectAccessKey[],
     clients: ClientInfo[],
 ): ComponentChild {
     if (call.source.clientId === cid) {
-        const total_size =
-            call.invitedTargets.length + participantCount(call.joinedParticipants, true);
+        const total_size = call.invitedTargets.length + participantCount(call.joinedParticipants);
 
-        if (total_size > 1) {
+        if (total_size > 2) {
             return "CONF";
         }
 

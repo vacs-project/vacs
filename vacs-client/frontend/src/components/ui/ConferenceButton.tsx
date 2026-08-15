@@ -1,5 +1,5 @@
 import {useBlinkStore} from "../../stores/blink-store";
-import {useCallStore} from "../../stores/call-store";
+import {someConnectionState, useCallStore} from "../../stores/call-store";
 import Button from "./Button";
 
 function ConferenceButton() {
@@ -8,7 +8,7 @@ function ConferenceButton() {
         state =>
             state.callDisplay !== undefined &&
             state.callDisplay.type === "accepted" &&
-            state.callDisplay.connectionState === "connected",
+            someConnectionState(state.callDisplay, "connected"),
     );
     const conferenceState = useCallStore(state => state.conferenceState);
     const setConferenceState = useCallStore(state => state.actions.setConferenceState);
