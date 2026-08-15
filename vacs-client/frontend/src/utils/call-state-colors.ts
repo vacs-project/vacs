@@ -67,9 +67,7 @@ export function getCallStateColors({
 
     if (isCalling && incomingPrio) {
         highlight = blink ? "green" : backgroundColor;
-    } else if (isTarget) {
-        highlight = undefined;
-    } else if (beingCalled || isRejected || (inCall && outgoingPrio)) {
+    } else if ((beingCalled && !isTarget) || isRejected || (inCall && outgoingPrio)) {
         highlight = "green";
     } else {
         highlight = undefined;
