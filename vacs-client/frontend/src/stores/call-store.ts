@@ -142,18 +142,23 @@ export const useCallStore = create<CallState>()((set, get) => ({
                             : "outgoing"
                         : callDisplay.type;
 
-                const joinedParticipants = callDisplay.call.joinedParticipants;
-                const newlyJoinedParticipants = Object.entries(update.joinedParticipants).map(
-                    ([clientId, target]) => ({
-                        [clientId]: {
-                            target,
-                            state:
-                                (joinedParticipants[clientId as ClientId].state ??
-                                clientId !== ownClientId)
-                                    ? "connecting"
-                                    : "connected",
-                        },
-                    }),
+                const oldJoinedParticipants = callDisplay.call.joinedParticipants;
+                const joinedParticipants = Object.entries(update.joinedParticipants).map(
+                    ([clientId, target]) => {
+                        let oldState = undefined;
+                        if (clientId in oldJoinedParticipants) {
+                            oldState = oldJoinedParticipants[clientId as ClientId].state;
+                        }
+
+                        return {
+                            [clientId]: {
+                                target,
+                                state:
+                                    oldState ??
+                                    (clientId !== ownClientId ? "connecting" : "connected"),
+                            },
+                        };
+                    },
                 );
 
                 const nextCallDisplay: CallDisplay = {
@@ -162,7 +167,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     call: {
                         ...callDisplay.call,
                         invitedTargets: update.invitedTargets,
-                        joinedParticipants: Object.assign({}, ...newlyJoinedParticipants),
+                        joinedParticipants: Object.assign({}, ...joinedParticipants),
                     },
                 };
 
