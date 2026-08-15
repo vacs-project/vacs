@@ -44,12 +44,12 @@ export function useStationKeyInteraction(
         !own &&
         callDisplay !== undefined &&
         callDisplay.call.invitedTargets.some(target => target.station === stationId);
-    const involved =
+    const inCall =
+        hasStationId &&
         !own &&
-        callDisplay !== undefined &&
+        callDisplay?.type === "accepted" &&
         (callDisplay.call.source.stationId === stationId ||
             hasTarget(callDisplay.call.joinedParticipants, {station: stationId}));
-    const inCall = hasStationId && involved && callDisplay.type === "accepted";
     const isRejected =
         !own &&
         hasStationId &&
@@ -107,7 +107,7 @@ export function useStationKeyInteraction(
         }
     });
 
-    const outgoingPrio = callDisplay?.call.prio === true && enablePrio;
+    const outgoingPrio = callDisplay?.call.prio === true && enablePrio; // TODO: some invited targets are prioed, some are not
     const incomingPrio = incomingCall?.prio === true && enablePrio;
 
     const {color, highlight} = getCallStateColors({
