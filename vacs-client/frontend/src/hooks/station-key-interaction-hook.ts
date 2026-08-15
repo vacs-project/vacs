@@ -48,11 +48,18 @@ export function useStationKeyInteraction(
         !own &&
         callDisplay !== undefined &&
         (callDisplay.call.source.stationId === stationId ||
-            callDisplay.call.invitedTargets.some(target => target.station === stationId) ||
             hasTarget(callDisplay.call.joinedParticipants, {station: stationId}));
     const inCall = hasStationId && involved && callDisplay.type === "accepted";
-    const isRejected = hasStationId && involved && callDisplay?.type === "rejected";
-    const isError = hasStationId && involved && callDisplay?.type === "error";
+    const isRejected =
+        !own &&
+        hasStationId &&
+        callDisplay !== undefined &&
+        hasTarget(callDisplay.rejectedTargets, {station: stationId});
+    const isError =
+        !own &&
+        hasStationId &&
+        callDisplay !== undefined &&
+        hasTarget(callDisplay.erroredTargets, {station: stationId});
 
     const isTarget =
         highlightTarget &&
