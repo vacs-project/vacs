@@ -17,16 +17,16 @@ export function setupWebrtcListeners() {
     const init = () => {
         unlistenFns.push(
             listen<WebrtcUpdateEvent>("webrtc:call-connected", event => {
-                setConnectionState(event.payload.callId, "connected");
+                setConnectionState(event.payload.callId, event.payload.peerId, "connected");
             }),
             listen<WebrtcUpdateEvent>("webrtc:call-disconnected", event => {
-                setConnectionState(event.payload.callId, "disconnected");
+                setConnectionState(event.payload.callId, event.payload.peerId, "disconnected");
             }),
             listen<WebrtcUpdateEvent>("webrtc:call-degraded", event => {
-                setConnectionState(event.payload.callId, "degraded");
+                setConnectionState(event.payload.callId, event.payload.peerId, "degraded");
             }),
             listen<WebrtcUpdateEvent>("webrtc:call-reconnecting", event => {
-                setConnectionState(event.payload.callId, "connecting");
+                setConnectionState(event.payload.callId, event.payload.peerId, "connecting");
             }),
             listen<CallError>("webrtc:call-error", event => {
                 errorTargets(event.payload);
