@@ -42,7 +42,7 @@ export function useStationKeyInteraction(
     const beingCalled =
         hasStationId &&
         !own &&
-        callDisplay?.type === "outgoing" &&
+        callDisplay !== undefined &&
         callDisplay.call.invitedTargets.some(target => target.station === stationId);
     const involved =
         !own &&
