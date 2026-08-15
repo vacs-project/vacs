@@ -1,3 +1,4 @@
+import {ConnectionState} from "../stores/call-store.ts";
 import {CallId, ClientId, PositionId, StationId} from "./generic.ts";
 
 export type CallSource = {
@@ -23,24 +24,48 @@ export type Call = {
     prio: boolean;
 };
 
+export type CallParticipantsWithConnectionState = Record<
+    ClientId,
+    {target: CallTarget; state: ConnectionState}
+>;
+
+export type CallWithConnectionStates = Omit<Call, "joinedParticipants"> & {
+    joinedParticipants: CallParticipantsWithConnectionState;
+};
+
 export type CallUpdate = {
     callId: CallId;
     invitedTargets: CallTarget[];
     joinedParticipants: CallParticipants;
 };
 
-export function participantCount(participants: CallParticipants, excludeSelf: boolean = false) {
+export function participantCount(
+    participants: Record<ClientId, unknown>,
+    excludeSelf: boolean = false,
+) {
     return Math.max(Object.keys(participants).length - (excludeSelf ? 1 : 0), 0);
 }
 
-export function hasTarget(participants: CallParticipants, target: CallTarget) {
+export function hasTarget(
+    participants: CallParticipants | CallParticipantsWithConnectionState,
+    target: CallTarget,
+) {
     for (const value of Object.values(participants)) {
-        if (
+        if (typeof value.target === "object") {
+            if (
+                value.target.client === target.client &&
+                value.target.position === target.position &&
+                value.target.station === target.station
+            ) {
+                return true;
+            }
+        } else if (
             value.client === target.client &&
             value.position === target.position &&
             value.station === target.station
-        )
+        ) {
             return true;
+        }
     }
     return false;
 }
