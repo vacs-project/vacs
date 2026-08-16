@@ -7,7 +7,7 @@ import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
 import {useBlinkStore} from "../../stores/blink-store.ts";
-import {hasTarget} from "../../types/call.ts";
+import {hasTarget, participantCount} from "../../types/call.ts";
 
 type DAKeyProps = {
     client: ClientInfo;
@@ -18,7 +18,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+    const {endCall, updateCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
         state => state.actions,
     );
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
@@ -49,10 +49,46 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
                 await invokeStrict("signaling_accept_call", {callId: incomingCall.callId});
             } catch {}
         } else if (beingCalled || inCall) {
-            try {
-                await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId}); // TODO: CallDropTarget
-                endCall();
-            } catch {}
+            if (
+                callDisplay.call.invitedTargets.length +
+                    participantCount(callDisplay.call.joinedParticipants) >
+                2
+            ) {
+                // TODO: only if you are conf leader; without this led to a weird bug, where the CD was empty
+                try {
+                    await invokeStrict("signaling_drop_target", {
+                        callId: callDisplay.call.callId,
+                        target: {client: client.id},
+                    });
+                    updateCall({
+                        callId: callDisplay.call.callId,
+                        invitedTargets: callDisplay.call.invitedTargets.filter(
+                            target =>
+                                target.client !== client.id &&
+                                target.position === undefined &&
+                                target.station === undefined,
+                        ),
+                        joinedParticipants: Object.assign(
+                            {},
+                            ...Object.entries(callDisplay.call.joinedParticipants)
+                                .filter(
+                                    ([_, value]) =>
+                                        value.target.client !== client.id &&
+                                        value.target.position === undefined &&
+                                        value.target.station === undefined,
+                                )
+                                .map(([clientId, value]) => ({
+                                    [clientId]: value,
+                                })),
+                        ),
+                    });
+                } catch {}
+            } else {
+                try {
+                    await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
+                    endCall();
+                } catch {}
+            }
         } else if (isRejected) {
             dismissRejectedTarget({client: client.id});
         } else if (isError) {

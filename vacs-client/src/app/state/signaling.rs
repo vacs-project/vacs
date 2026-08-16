@@ -18,7 +18,9 @@ use vacs_signaling::client::{SignalingClient, SignalingEvent, State};
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
 use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId, StationChange};
-use vacs_signaling::protocol::ws::client::{CallInvite, CallRejectReason, ClientMessage};
+use vacs_signaling::protocol::ws::client::{
+    CallDropReason, CallInvite, CallRejectReason, ClientMessage,
+};
 use vacs_signaling::protocol::ws::server::{
     CallCancelReason, DisconnectReason, LoginFailureReason, ServerMessage, SessionProfile,
 };
@@ -105,6 +107,7 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         targets: HashSet<CallTarget>,
         prio: bool,
     ) -> Result<CallId, Error>;
+    async fn drop_target(&mut self, call_id: CallId, target: CallTarget) -> Result<(), Error>;
     async fn end_call(&mut self, app: &AppHandle, call_id: CallId) -> Result<bool, Error>;
     fn clear_session_cache(&mut self);
     fn current_call(&self, call_id: CallId) -> Option<&Call>;
@@ -283,10 +286,6 @@ impl AppStateSignalingExt for AppStateInner {
     ) {
         self.cancel_unanswered_call_timers_for_targets(call_id, targets.iter());
 
-        let Ok(own_client_id) = self.require_client_id() else {
-            return;
-        };
-
         let timeout = Duration::from_secs(self.config.client.auto_hangup_seconds);
         if timeout.is_zero() {
             return;
@@ -299,7 +298,6 @@ impl AppStateSignalingExt for AppStateInner {
                 let app = app.clone();
                 let cancel = cancel.clone();
 
-                let own_client_id = own_client_id.clone();
                 let target = target.clone();
 
                 let call_id = *call_id;
@@ -318,9 +316,9 @@ impl AppStateSignalingExt for AppStateInner {
                             let state = app.state::<AppState>();
                             let mut state = state.lock().await;
 
-                            if let Err(err) = state.send_signaling_message(shared::CallEnd { call_id, ending_client_id: own_client_id }).await {
-                                log::warn!("Failed to send call end message after call timer expired for target {target:?} in call {call_id}: {err:?}");
-                            } // TODO: This should be a CallDropTarget message
+                            if let Err(err) = state.send_signaling_message(client::CallDropTarget { call_id, target: target.clone(), reason: CallDropReason::AutoHangup }).await {
+                                log::warn!("Failed to send call drop target after call timer expired for target {target:?} in call {call_id}: {err:?}");
+                            }
 
                             state.cleanup_current_call(call_id).await;
 
@@ -469,6 +467,35 @@ impl AppStateSignalingExt for AppStateInner {
         self.audio_manager.read().restart(SourceType::Ringback);
 
         Ok(call_id)
+    }
+
+    async fn drop_target(&mut self, call_id: CallId, target: CallTarget) -> Result<(), Error> {
+        log::debug!("Dropping target {target:?} from call {call_id}");
+
+        if self.current_call(call_id).is_none() {
+            return Err(WebrtcError::NoCallActive.into());
+        };
+
+        self.cancel_unanswered_call_timers_for_targets(&call_id, [&target].into_iter());
+
+        self.send_signaling_message(client::CallDropTarget {
+            call_id,
+            target: target.clone(),
+            reason: CallDropReason::Requested,
+        })
+        .await?;
+
+        let Some(current_call) = self.current_call_mut(call_id) else {
+            return Err(WebrtcError::NoCallActive.into());
+        };
+
+        let removed = current_call.drop_target(&target);
+
+        for peer_id in removed {
+            self.cleanup_call_peer(call_id, &peer_id).await;
+        }
+
+        Ok(())
     }
 
     async fn end_call(&mut self, app: &AppHandle, call_id: CallId) -> Result<bool, Error> {

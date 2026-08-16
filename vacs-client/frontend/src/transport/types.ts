@@ -79,6 +79,7 @@ export type RemoteCommand =
     | "signaling_add_ignored_client"
     | "signaling_connect"
     | "signaling_disconnect"
+    | "signaling_drop_target"
     | "signaling_end_call"
     | "signaling_get_ignored_clients"
     | "signaling_remove_ignored_client"
