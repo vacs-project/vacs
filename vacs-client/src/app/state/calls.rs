@@ -49,6 +49,11 @@ impl Call {
     pub fn invited_targets(&self) -> &HashSet<CallTarget> {
         &self.invited_targets
     }
+
+    pub fn add_invited_targets(&mut self, targets: HashSet<CallTarget>) {
+        self.invited_targets.extend(targets);
+    }
+
     pub fn remove_invited_targets(&mut self, targets: &HashSet<CallTarget>) {
         self.invited_targets
             .retain(|target| !targets.contains(target));
