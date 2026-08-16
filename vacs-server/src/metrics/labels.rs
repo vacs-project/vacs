@@ -105,6 +105,7 @@ impl AsMetricLabel for ClientMessage {
             ClientMessage::CallReject(_) => "call_reject",
             ClientMessage::CallEnd(_) => "call_end",
             ClientMessage::CallError(_) => "call_error",
+            ClientMessage::CallDropTarget(_) => "call_drop_target",
             ClientMessage::WebrtcOffer(_) => "webrtc_offer",
             ClientMessage::WebrtcAnswer(_) => "webrtc_answer",
             ClientMessage::WebrtcIceCandidate(_) => "webrtc_ice_candidate",

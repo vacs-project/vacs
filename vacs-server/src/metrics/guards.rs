@@ -1,6 +1,7 @@
 use crate::metrics::labels::AsMetricLabel;
 use metrics::{counter, gauge, histogram};
 use std::time::Instant;
+use vacs_protocol::ws::client::CallDropReason;
 use vacs_protocol::ws::server::DisconnectReason;
 use vacs_protocol::ws::shared::CallErrorReason;
 
@@ -54,6 +55,15 @@ pub enum CallAttemptOutcome {
     Error(CallErrorReason),
     Cancelled,
     Aborted,
+}
+
+impl From<CallDropReason> for CallAttemptOutcome {
+    fn from(reason: CallDropReason) -> Self {
+        match reason {
+            CallDropReason::Requested => CallAttemptOutcome::Cancelled,
+            CallDropReason::AutoHangup => CallAttemptOutcome::Error(CallErrorReason::AutoHangup),
+        }
+    }
 }
 
 #[derive(Debug)]

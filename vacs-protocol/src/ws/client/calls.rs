@@ -35,6 +35,32 @@ pub struct CallReject {
     pub reason: CallRejectReason,
 }
 
+/// Why a target is being dropped from a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallDropReason {
+    /// The dropping client acted deliberately: it cancelled an invitation it
+    /// sent, or, as conference leader, removed a participant from the call.
+    Requested,
+    /// The invitation timed out without being answered; only ever cancels a
+    /// ringing invitation. A target that answered while the time was expiring
+    /// is never removed from the call by it.
+    AutoHangup,
+}
+
+/// Removes a single target from a call without ending it.
+///
+/// Applies to a target that is still ringing, which may be dropped by the
+/// client that invited it, and to a joined participant, which may only be
+/// dropped by the conference leader.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallDropTarget {
+    pub call_id: CallId,
+    pub target: CallTarget,
+    pub reason: CallDropReason,
+}
+
 impl From<CallInvite> for ClientMessage {
     fn from(value: CallInvite) -> Self {
         Self::CallInvite(value)
@@ -50,5 +76,11 @@ impl From<CallAccept> for ClientMessage {
 impl From<CallReject> for ClientMessage {
     fn from(value: CallReject) -> Self {
         Self::CallReject(value)
+    }
+}
+
+impl From<CallDropTarget> for ClientMessage {
+    fn from(value: CallDropTarget) -> Self {
+        Self::CallDropTarget(value)
     }
 }
