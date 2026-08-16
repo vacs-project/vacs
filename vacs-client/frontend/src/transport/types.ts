@@ -82,7 +82,7 @@ export type RemoteCommand =
     | "signaling_end_call"
     | "signaling_get_ignored_clients"
     | "signaling_remove_ignored_client"
-    | "signaling_start_call"
+    | "signaling_invite_to_call"
     | "signaling_terminate";
 
 export type RemoteEvent =

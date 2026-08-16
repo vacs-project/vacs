@@ -18,7 +18,9 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
+    const {endCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+        state => state.actions,
+    );
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
     const incomingCall = incomingCalls.find(
@@ -48,14 +50,14 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
             } catch {}
         } else if (beingCalled || inCall) {
             try {
-                await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
+                await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId}); // TODO: CallDropTarget
                 endCall();
             } catch {}
         } else if (isRejected) {
-            dismissRejectedCall();
+            dismissRejectedTarget({client: client.id});
         } else if (isError) {
-            dismissErrorCall();
-        } else if (callDisplay === undefined) {
+            dismissErrorTarget({client: client.id});
+        } else {
             await startCall({client: client.id});
         }
     });

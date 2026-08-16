@@ -812,7 +812,7 @@ async fn dispatch_command(
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();
             dispatch(
-                signaling_start_call(app.clone(), app_state, http_state, targets, source, prio)
+                signaling_invite_to_call(app.clone(), app_state, http_state, targets, source, prio)
                     .await,
             )
         }

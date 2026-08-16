@@ -3,7 +3,7 @@ import {someConnectionState, useCallStore} from "../stores/call-store.ts";
 import {invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
-import {Call, CallWithConnectionStates, participantCount} from "../types/call.ts";
+import {Call, CallDisplayCall, participantCount} from "../types/call.ts";
 import {useProfileStationKeys} from "../stores/profile-store.ts";
 import {DirectAccessKey} from "../types/profile.ts";
 import {ComponentChild} from "preact";
@@ -29,7 +29,7 @@ function CallQueue() {
     const clients = useClientsStore(state => state.clients);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
-    const handleCallDisplayClick = async (call: CallWithConnectionStates) => {
+    const handleCallDisplayClick = async (call: CallDisplayCall) => {
         if (callDisplay?.type === "accepted" || callDisplay?.type === "outgoing") {
             try {
                 await invokeStrict("signaling_end_call", {callId: call.callId});
@@ -126,7 +126,7 @@ function CallQueue() {
                         )}
                         onClick={() => handleAnswerKeyClick(call)}
                     >
-                        {participantCount(call.joinedParticipants) > 2
+                        {participantCount(call.joinedParticipants) + call.invitedTargets.length > 2
                             ? "CONF"
                             : callLabel(
                                   call.source.stationId,
@@ -146,7 +146,7 @@ function CallQueue() {
 }
 
 function callDisplayLabel(
-    call: CallWithConnectionStates,
+    call: CallDisplayCall,
     cid: ClientId | undefined,
     stationKeys: DirectAccessKey[],
     clients: ClientInfo[],
