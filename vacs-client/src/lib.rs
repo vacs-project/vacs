@@ -232,6 +232,7 @@ pub fn run() {
             signaling::commands::signaling_add_ignored_client,
             signaling::commands::signaling_connect,
             signaling::commands::signaling_disconnect,
+            signaling::commands::signaling_drop_target,
             signaling::commands::signaling_end_call,
             signaling::commands::signaling_get_ignored_clients,
             signaling::commands::signaling_remove_ignored_client,

@@ -132,7 +132,6 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({incomingCalls: [...incomingCalls, call]});
         },
         updateCall: update => {
-            console.log("received callupdate");
             const incomingCall = get().incomingCalls.find(call => call.callId === update.callId);
             const callDisplay = get().callDisplay;
 

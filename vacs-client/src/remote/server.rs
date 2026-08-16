@@ -803,11 +803,16 @@ async fn dispatch_command(
             dispatch(signaling_connect(app.clone(), app_state, http_state, position_id).await)
         }
         SignalingDisconnect => dispatch(signaling_disconnect(app.clone()).await),
+        SignalingDropTarget => {
+            let app_state = app.state::<AppState>();
+            let (call_id, target) = args!(args, "callId", "target");
+            dispatch(signaling_drop_target(app_state, call_id, target).await)
+        }
         SignalingTerminate => {
             let http_state = app.state::<HttpState>();
             dispatch(signaling_terminate(app.clone(), http_state).await)
         }
-        SignalingStartCall => {
+        SignalingInviteToCall => {
             let (targets, source, prio) = args!(args, "targets", "source", "prio");
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();

@@ -105,6 +105,19 @@ pub async fn signaling_accept_call(
 
 #[tauri::command]
 #[vacs_macros::log_err]
+pub async fn signaling_drop_target(
+    app_state: State<'_, AppState>,
+    call_id: CallId,
+    target: CallTarget,
+) -> Result<(), Error> {
+    let mut state = app_state.lock().await;
+    state.drop_target(call_id, target).await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
 pub async fn signaling_end_call(
     app: AppHandle,
     app_state: State<'_, AppState>,

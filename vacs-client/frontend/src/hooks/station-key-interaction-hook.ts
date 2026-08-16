@@ -7,7 +7,7 @@ import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
 import {CustomButtonColor} from "../types/custom-button-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
-import {hasTarget} from "../types/call.ts";
+import {hasTarget, participantCount} from "../types/call.ts";
 
 export function useStationKeyInteraction(
     stationId: StationId | undefined,
@@ -17,7 +17,7 @@ export function useStationKeyInteraction(
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+    const {endCall, updateCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
         state => state.actions,
     );
 
@@ -96,10 +96,46 @@ export function useStationKeyInteraction(
             if (callDisplay !== undefined) return;
             await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {
-            try {
-                await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
-                endCall();
-            } catch {}
+            if (
+                callDisplay.call.invitedTargets.length +
+                    participantCount(callDisplay.call.joinedParticipants) >
+                2
+            ) {
+                // TODO: only if you are conf leader; without this led to a weird bug, where the CD was empty
+                try {
+                    await invokeStrict("signaling_drop_target", {
+                        callId: callDisplay.call.callId,
+                        target: {station: stationId},
+                    });
+                    updateCall({
+                        callId: callDisplay.call.callId,
+                        invitedTargets: callDisplay.call.invitedTargets.filter(
+                            target =>
+                                target.client === undefined &&
+                                target.position === undefined &&
+                                target.station !== stationId,
+                        ),
+                        joinedParticipants: Object.assign(
+                            {},
+                            ...Object.entries(callDisplay.call.joinedParticipants)
+                                .filter(
+                                    ([_, value]) =>
+                                        value.target.client === undefined &&
+                                        value.target.position === undefined &&
+                                        value.target.station !== stationId,
+                                )
+                                .map(([clientId, value]) => ({
+                                    [clientId]: value,
+                                })),
+                        ),
+                    });
+                } catch {}
+            } else {
+                try {
+                    await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
+                    endCall();
+                } catch {}
+            }
         } else if (isRejected) {
             dismissRejectedTarget({station: stationId});
         } else if (isError) {
