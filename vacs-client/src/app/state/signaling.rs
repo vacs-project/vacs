@@ -98,7 +98,7 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         app: &AppHandle,
         call_id: Option<CallId>,
     ) -> Result<bool, Error>;
-    async fn start_call(
+    async fn invite_to_call(
         &mut self,
         app: &AppHandle,
         source: CallSource,
@@ -429,20 +429,24 @@ impl AppStateSignalingExt for AppStateInner {
         Ok(true)
     }
 
-    async fn start_call(
+    async fn invite_to_call(
         &mut self,
         app: &AppHandle,
         source: CallSource,
         targets: HashSet<CallTarget>,
         prio: bool,
     ) -> Result<CallId, Error> {
-        if self.current_call.is_some() {
-            log::warn!("Tried to start call, but another call is already active");
-            return Err(WebrtcError::CallActive.into());
-        }
-
-        let call_id = CallId::new();
-        log::debug!("Starting call {call_id} as source {source:?} with targets {targets:?}");
+        let call_id = if let Some(current_call) = self.current_call.as_ref() {
+            let call_id = current_call.call_id();
+            log::debug!("Starting call {call_id} as source {source:?} with targets {targets:?}");
+            call_id
+        } else {
+            let call_id = CallId::new();
+            log::debug!(
+                "Inviting targets {targets:?} to existing call {call_id} as source {source:?}"
+            );
+            call_id
+        };
 
         let invite = CallInvite {
             call_id,
@@ -452,7 +456,12 @@ impl AppStateSignalingExt for AppStateInner {
         };
         self.send_signaling_message(invite.clone()).await?;
 
-        self.current_call = Some(Call::from_invite(&invite, &self.shutdown_token));
+        if let Some(current_call) = self.current_call.as_mut() {
+            current_call.add_invited_targets(targets);
+        } else {
+            self.current_call = Some(Call::from_invite(&invite, &self.shutdown_token));
+        }
+
         self.start_unanswered_call_timer_for_targets(app, &invite.call_id, invite.targets.clone());
 
         self.audio_manager.read().restart(SourceType::Ringback);

@@ -50,6 +50,7 @@ export function makeTestCallDisplay(
                           },
                       }
                     : {},
+            isConferenceLeader: undefined,
         },
         erroredTargets: [],
         rejectedTargets: [],

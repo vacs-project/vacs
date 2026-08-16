@@ -15,20 +15,20 @@ import outgoingX from "../../assets/call-list/outgoing-x.svg";
 function CallList() {
     const calls = useCallListArray();
     const {clearCallList} = useCallListStore(state => state.actions);
-    const callDisplay = useCallStore(state => state.callDisplay);
+    const callDisplayActive = useCallStore(state => state.callDisplay !== undefined);
     const [selectedCall, setSelectedCall] = useState<number>(0);
 
     const connected = useConnectionStore(state => state.connectionState === "connected");
 
     const handleIgnoreClick = useAsyncDebounce(async () => {
         const peerId = calls[selectedCall]?.clientId;
-        if (peerId === undefined || callDisplay !== undefined) return;
+        if (peerId === undefined || callDisplayActive) return;
         await invokeSafe<boolean>("signaling_add_ignored_client", {clientId: peerId});
     });
 
     const handleCallClick = useAsyncDebounce(async () => {
         const target = calls[selectedCall]?.target;
-        if (target === undefined || callDisplay !== undefined) return;
+        if (target === undefined) return;
         await startCall(target);
     });
 

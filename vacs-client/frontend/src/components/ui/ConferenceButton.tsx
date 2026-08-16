@@ -1,5 +1,6 @@
 import {useBlinkStore} from "../../stores/blink-store";
 import {someConnectionState, useCallStore} from "../../stores/call-store";
+import {participantCount} from "../../types/call";
 import Button from "./Button";
 
 function ConferenceButton() {
@@ -8,10 +9,18 @@ function ConferenceButton() {
         state =>
             state.callDisplay !== undefined &&
             state.callDisplay.type === "accepted" &&
-            someConnectionState(state.callDisplay, "connected"),
+            someConnectionState(state.callDisplay, "connected", true),
     );
+
     const conferenceState = useCallStore(state => state.conferenceState);
     const setConferenceState = useCallStore(state => state.actions.setConferenceState);
+
+    const isConference = useCallStore(state => {
+        const call = state.callDisplay?.call;
+        if (call === undefined) return 0;
+        return call.invitedTargets.length + participantCount(call.joinedParticipants) > 2;
+    });
+    const isConferenceLeader = useCallStore(state => state.callDisplay?.call.isConferenceLeader);
 
     const handleOnClick = () => {
         if (!establishedCall) return;
@@ -19,19 +28,21 @@ function ConferenceButton() {
         if (conferenceState === "inactive" || conferenceState === "active") {
             setConferenceState("modify");
         } else {
-            setConferenceState("inactive"); // TODO: needs to be the prev value (more precisely the actual conference state of the call display)
+            setConferenceState(isConference ? "active" : "inactive");
         }
     };
 
     return (
         <Button
             color={
-                (blink && conferenceState === "modify") || conferenceState === "active"
+                (blink && conferenceState === "modify") ||
+                conferenceState === "active" ||
+                (conferenceState === "inactive" && isConference)
                     ? "blue"
                     : "cyan"
             }
             onClick={handleOnClick}
-            disabled={!establishedCall}
+            disabled={!establishedCall || isConferenceLeader === false}
             title="Conference Call"
         >
             CONF
