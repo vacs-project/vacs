@@ -304,20 +304,22 @@ impl AppStateSignalingExt for AppStateInner {
 
                 let call_id = *call_id;
                 async move {
-                    log::debug!("Starting unanswered call timer of {timeout:?} for call {call_id}");
+                    log::debug!(
+                        "Starting unanswered call timer of {timeout:?} for target {target:?} in call {call_id}"
+                    );
                     tokio::select! {
                         biased;
                         _ = cancel.cancelled() => {
-                            log::debug!("Unanswered call timer cancelled for call {call_id}");
+                            log::debug!("Unanswered call timer cancelled for target {target:?} in call {call_id}");
                         }
                         _ = tokio::time::sleep(timeout) => {
-                            log::debug!("Unanswered call timer expired for call {call_id}, hanging up");
+                            log::debug!("Unanswered call timer expired for target {target:?} in call {call_id}, hanging up");
 
                             let state = app.state::<AppState>();
                             let mut state = state.lock().await;
 
                             if let Err(err) = state.send_signaling_message(shared::CallEnd { call_id, ending_client_id: own_client_id }).await {
-                                log::warn!("Failed to send call end message after call timer expired: {err:?}");
+                                log::warn!("Failed to send call end message after call timer expired for target {target:?} in call {call_id}: {err:?}");
                             } // TODO: This should be a CallDropTarget message
 
                             state.cleanup_current_call(call_id).await;
