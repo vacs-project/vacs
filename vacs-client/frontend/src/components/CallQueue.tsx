@@ -151,13 +151,13 @@ function callDisplayLabel(
     stationKeys: DirectAccessKey[],
     clients: ClientInfo[],
 ): ComponentChild {
+    const total_size = call.invitedTargets.length + participantCount(call.joinedParticipants);
+
+    if (total_size > 2) {
+        return "CONF";
+    }
+
     if (call.source.clientId === cid) {
-        const total_size = call.invitedTargets.length + participantCount(call.joinedParticipants);
-
-        if (total_size > 2) {
-            return "CONF";
-        }
-
         return callLabel(
             call.target.station,
             call.target.position,
@@ -166,6 +166,7 @@ function callDisplayLabel(
             clients,
         );
     }
+
     return callLabel(
         call.source.stationId,
         call.source.positionId,
