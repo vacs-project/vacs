@@ -17,7 +17,9 @@ export function useStationKeyInteraction(
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
+    const {endCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+        state => state.actions,
+    );
 
     const defaultStationSource = useStationsStore(state => state.defaultSource);
     const temporaryStationSource = useStationsStore(state => state.temporarySource);
@@ -99,10 +101,10 @@ export function useStationKeyInteraction(
                 endCall();
             } catch {}
         } else if (isRejected) {
-            dismissRejectedCall();
+            dismissRejectedTarget({station: stationId});
         } else if (isError) {
-            dismissErrorCall();
-        } else if (callDisplay === undefined) {
+            dismissErrorTarget({station: stationId});
+        } else {
             await startCall({station: stationId});
         }
     });

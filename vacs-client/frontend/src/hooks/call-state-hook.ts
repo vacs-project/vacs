@@ -1,7 +1,7 @@
 import {useCallStore} from "../stores/call-store.ts";
 import {useAuthStore} from "../stores/auth-store.ts";
 import {DirectAccessPage} from "../types/profile.ts";
-import {CallWithConnectionStates, hasTarget} from "../types/call.ts";
+import {CallDisplayCall, hasTarget} from "../types/call.ts";
 import {ClientId, StationId} from "../types/generic.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
@@ -71,7 +71,7 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
 }
 
 function inCallWithButtonStations(
-    call: CallWithConnectionStates,
+    call: CallDisplayCall,
     stationIds: StationId[],
     cid: ClientId | undefined,
 ) {

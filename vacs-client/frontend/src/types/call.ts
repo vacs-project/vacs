@@ -29,8 +29,9 @@ export type CallParticipantsWithConnectionState = Record<
     {target: CallTarget; state: ConnectionState}
 >;
 
-export type CallWithConnectionStates = Omit<Call, "joinedParticipants"> & {
+export type CallDisplayCall = Omit<Call, "joinedParticipants"> & {
     joinedParticipants: CallParticipantsWithConnectionState;
+    isConferenceLeader: boolean | undefined;
 };
 
 export type CallUpdate = {

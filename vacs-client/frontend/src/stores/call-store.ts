@@ -7,7 +7,7 @@ import {
     CallSource,
     CallTarget,
     CallUpdate,
-    CallWithConnectionStates,
+    CallDisplayCall,
     participantCount,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
@@ -21,7 +21,7 @@ export type CallDisplayType = "outgoing" | "accepted" | "rejected" | "error";
 
 export type CallDisplay = {
     type: CallDisplayType;
-    call: CallWithConnectionStates;
+    call: CallDisplayCall;
     erroredTargets: {target: CallTarget; reason: string}[];
     rejectedTargets: CallTarget[];
     errorReason?: string;
@@ -35,7 +35,7 @@ type CallState = {
     prio: boolean;
     conferenceState: ConferenceState;
     actions: {
-        setOutgoingCall: (call: CallWithConnectionStates) => void;
+        setOutgoingCall: (call: CallDisplayCall) => void;
         acceptIncomingCall: (callId: CallId) => void;
         endCall: () => void;
         addIncomingCall: (call: Call) => void;
@@ -43,8 +43,10 @@ type CallState = {
         removeCall: (id: CallId, callEnd?: boolean) => void;
         rejectCall: (id: CallId, targets: CallTarget[]) => void;
         dismissRejectedCall: () => void;
+        dismissRejectedTarget: (target: CallTarget) => void;
         errorTargets: (error: CallError) => void;
         dismissErrorCall: () => void;
+        dismissErrorTarget: (target: CallTarget) => void;
         setConnectionState: (
             id: CallId,
             peerId: ClientId,
@@ -89,6 +91,10 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             answerCallInCallList(callId);
 
+            const callSize =
+                incomingCall.invitedTargets.length +
+                participantCount(incomingCall.joinedParticipants);
+
             set({
                 callDisplay: {
                     type: "accepted",
@@ -105,6 +111,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                                 }),
                             ),
                         ),
+                        isConferenceLeader: callSize > 1 ? false : undefined,
                     },
                     rejectedTargets: [],
                     erroredTargets: [],
@@ -124,6 +131,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({incomingCalls: [...incomingCalls, call]});
         },
         updateCall: update => {
+            console.log("received callupdate");
             const incomingCall = get().incomingCalls.find(call => call.callId === update.callId);
             const callDisplay = get().callDisplay;
 
@@ -161,6 +169,17 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     },
                 );
 
+                const callSize =
+                    update.invitedTargets.length + participantCount(update.joinedParticipants);
+
+                let isConferenceLeader = callDisplay.call.isConferenceLeader;
+                if (callSize > 2 && callDisplay.call.isConferenceLeader === undefined) {
+                    isConferenceLeader = false;
+                } else if (callSize <= 2) {
+                    isConferenceLeader = undefined;
+                    set({conferenceState: "inactive"});
+                }
+
                 const nextCallDisplay: CallDisplay = {
                     ...callDisplay,
                     type,
@@ -168,6 +187,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                         ...callDisplay.call,
                         invitedTargets: update.invitedTargets,
                         joinedParticipants: Object.assign({}, ...joinedParticipants),
+                        isConferenceLeader,
                     },
                 };
 
@@ -219,11 +239,15 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     ),
             );
 
-            if (
+            const callSize =
                 callDisplay.call.invitedTargets.length +
-                    participantCount(callDisplay.call.joinedParticipants) >
-                0
-            ) {
+                participantCount(callDisplay.call.joinedParticipants);
+
+            if (callSize <= 2) {
+                set({conferenceState: "inactive"});
+            }
+
+            if (callSize > 0) {
                 callDisplay.rejectedTargets.push(...targets);
             } else {
                 callDisplay.type = "rejected";
@@ -239,6 +263,23 @@ export const useCallStore = create<CallState>()((set, get) => ({
         dismissRejectedCall: () => {
             set({callDisplay: undefined});
             tryStopBlink(null, undefined, null, null, null);
+        },
+        dismissRejectedTarget: target => {
+            const callDisplay = get().callDisplay;
+            if (callDisplay === undefined) return;
+
+            let nextCallDisplay: CallDisplay = {
+                ...callDisplay,
+                rejectedTargets: callDisplay.rejectedTargets.filter(
+                    rejectedTarget =>
+                        rejectedTarget.client !== target.client &&
+                        rejectedTarget.position !== target.position &&
+                        rejectedTarget.station !== target.station,
+                ),
+            };
+
+            set({callDisplay: nextCallDisplay});
+            tryStopBlink(null, nextCallDisplay, null, null, null);
         },
         errorTargets: error => {
             const callId = error.callId;
@@ -276,11 +317,15 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 );
             }
 
-            if (
+            const callSize =
                 callDisplay.call.invitedTargets.length +
-                    participantCount(callDisplay.call.joinedParticipants, true) >
-                0
-            ) {
+                participantCount(callDisplay.call.joinedParticipants);
+
+            if (callSize <= 2) {
+                set({conferenceState: "inactive"});
+            }
+
+            if (callSize > 1) {
                 callDisplay.erroredTargets.push(
                     ...targets.map(target => ({target, reason: error.reason})),
                 );
@@ -301,6 +346,23 @@ export const useCallStore = create<CallState>()((set, get) => ({
         dismissErrorCall: () => {
             set({callDisplay: undefined});
             tryStopBlink(null, undefined, null, null, null);
+        },
+        dismissErrorTarget: target => {
+            const callDisplay = get().callDisplay;
+            if (callDisplay === undefined) return;
+
+            let nextCallDisplay: CallDisplay = {
+                ...callDisplay,
+                erroredTargets: callDisplay.erroredTargets.filter(
+                    erroredTarget =>
+                        erroredTarget.target.client !== target.client &&
+                        erroredTarget.target.position !== target.position &&
+                        erroredTarget.target.station !== target.station,
+                ),
+            };
+
+            set({callDisplay: nextCallDisplay});
+            tryStopBlink(null, nextCallDisplay, null, null, null);
         },
         setConnectionState: (callId, peerId, connectionState) => {
             let callDisplay = get().callDisplay;
@@ -347,8 +409,17 @@ const rejectCallInCallListIfUnanswered = (callId: CallId) =>
 export function someConnectionState(
     callDisplay: CallDisplay | undefined,
     state: ConnectionState,
+    excludeSelf?: boolean,
 ): boolean {
-    const joinedParticipants = callDisplay?.call.joinedParticipants;
+    let joinedParticipants = callDisplay?.call.joinedParticipants;
+    if (joinedParticipants === undefined) return false;
+
+    if (excludeSelf === true) {
+        const cid = useAuthStore.getState().cid;
+        joinedParticipants = {...joinedParticipants};
+        delete joinedParticipants[cid as ClientId];
+    }
+
     for (const participant in joinedParticipants) {
         if (joinedParticipants[participant as ClientId].state === state) return true;
     }
@@ -369,8 +440,22 @@ export function allConnectionStates(
 export const startCall = async (...targets: CallTarget[]) => {
     if (targets.length === 0) return;
 
-    const {cid} = useAuthStore.getState();
+    const {callDisplay, conferenceState} = useCallStore.getState();
     const openErrorOverlay = useErrorOverlayStore.getState().open;
+
+    if (callDisplay !== undefined && conferenceState !== "modify") {
+        return;
+    } else if (callDisplay?.call.isConferenceLeader === false) {
+        openErrorOverlay(
+            "Call",
+            "You are not the conference leader. Can not invite target to call.",
+            false,
+            5000,
+        );
+        return;
+    }
+
+    const {cid} = useAuthStore.getState();
 
     if (cid === undefined) {
         openErrorOverlay(
@@ -386,7 +471,6 @@ export const startCall = async (...targets: CallTarget[]) => {
     }
 
     const {info} = useConnectionStore.getState();
-    // const {addOutgoingCall: addOutgoingCallToCallList} = useCallListStore.getState().actions;
     const {prio} = useCallStore.getState();
     const {setOutgoingCall, setPrio} = useCallStore.getState().actions;
     const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
@@ -406,71 +490,40 @@ export const startCall = async (...targets: CallTarget[]) => {
     };
 
     try {
-        const callId = await invokeStrict<CallId>("signaling_start_call", {source, targets, prio});
-        setOutgoingCall({
-            callId,
+        const callId = await invokeStrict<CallId>("signaling_invite_to_call", {
             source,
-            target: targets[0],
-            invitedTargets: targets,
-            joinedParticipants: {},
+            targets,
             prio,
         });
-        setPrio(false);
-        // TODO: addOutgoingCallToCallList({callId, target});
-    } catch {}
-};
 
-export const startConferenceCall = async (...targets: CallTarget[]) => {
-    const {callDisplay, prio} = useCallStore.getState();
-    if (targets.length === 0 || callDisplay?.call === undefined) return;
-
-    const {cid} = useAuthStore.getState();
-    const openErrorOverlay = useErrorOverlayStore.getState().open;
-
-    if (cid === undefined) {
-        openErrorOverlay(
-            "Unauthenticated",
-            "You are unauthenticated and cannot start a call",
-            false,
-            5000,
-        );
-        return;
-    } else if (targets.some(target => target.client === cid)) {
-        openErrorOverlay("Call error", "You cannot call yourself", false, 5000);
-        return;
-    }
-
-    const {info} = useConnectionStore.getState();
-    // const {addOutgoingCall: addOutgoingCallToCallList} = useCallListStore.getState().actions;
-    const {setPrio} = useCallStore.getState().actions;
-    const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
-
-    let stationId: StationId | undefined;
-    if (temporarySource !== undefined) {
-        stationId = temporarySource;
-        setTemporarySource(undefined);
-    } else if (defaultSource !== undefined) {
-        stationId = defaultSource;
-    }
-
-    const source: CallSource = {
-        clientId: cid,
-        positionId: info.positionId,
-        stationId,
-    };
-
-    try {
-        await invokeStrict<CallId>("signaling_start_call", {source, targets, prio});
-        useCallStore.setState({
-            callDisplay: {
-                ...callDisplay,
-                call: {
-                    ...callDisplay.call,
-                    invitedTargets: callDisplay.call.invitedTargets.concat(targets),
+        if (callDisplay !== undefined) {
+            useCallStore.setState({
+                callDisplay: {
+                    ...callDisplay,
+                    call: {
+                        ...callDisplay.call,
+                        invitedTargets: callDisplay.call.invitedTargets.concat(targets),
+                        isConferenceLeader: true,
+                    },
                 },
-            },
-        });
+                conferenceState: "active",
+            });
+        } else {
+            setOutgoingCall({
+                callId,
+                source,
+                target: targets[0],
+                invitedTargets: targets,
+                joinedParticipants: {},
+                isConferenceLeader: targets.length > 1 ? true : undefined,
+                prio,
+            });
+        }
+
         setPrio(false);
         // TODO: addOutgoingCallToCallList({callId, target});
-    } catch {}
+        return {callId, source, prio};
+    } catch {
+        return;
+    }
 };

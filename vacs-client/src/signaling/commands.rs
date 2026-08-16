@@ -69,7 +69,7 @@ pub async fn signaling_terminate(
 
 #[tauri::command]
 #[vacs_macros::log_err]
-pub async fn signaling_start_call(
+pub async fn signaling_invite_to_call(
     app: AppHandle,
     app_state: State<'_, AppState>,
     http_state: State<'_, HttpState>,
@@ -83,7 +83,7 @@ pub async fn signaling_start_call(
         refresh_ice_config(&http_state, &mut state).await;
     }
 
-    let call_id = state.start_call(&app, source, targets, prio).await?;
+    let call_id = state.invite_to_call(&app, source, targets, prio).await?;
 
     Ok(call_id)
 }
