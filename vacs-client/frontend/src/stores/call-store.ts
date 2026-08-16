@@ -9,6 +9,7 @@ import {
     CallUpdate,
     CallDisplayCall,
     participantCount,
+    hasTarget,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
@@ -180,18 +181,27 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     set({conferenceState: "inactive"});
                 }
 
+                const targetStillPresent =
+                    hasTarget(update.invitedTargets, callDisplay.call.target) ||
+                    hasTarget(update.joinedParticipants, callDisplay.call.target);
+
+                const target: CallTarget = targetStillPresent
+                    ? callDisplay.call.target
+                    : (update.invitedTargets[0] ??
+                      Object.values(update.joinedParticipants)[0] ??
+                      callDisplay.call.target);
+
                 const nextCallDisplay: CallDisplay = {
                     ...callDisplay,
                     type,
                     call: {
                         ...callDisplay.call,
+                        target,
                         invitedTargets: update.invitedTargets,
                         joinedParticipants: Object.assign({}, ...joinedParticipants),
                         isConferenceLeader,
                     },
                 };
-
-                // TODO: update call.target if it leaves -> not as easy as though; check if necessary
 
                 set({callDisplay: nextCallDisplay});
 
