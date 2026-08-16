@@ -10,6 +10,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use tracing::instrument;
 use vacs_protocol::vatsim::ClientId;
+use vacs_protocol::ws::client::CallDropReason;
 use vacs_protocol::ws::server::CallCancelReason;
 use vacs_protocol::ws::server::{self, ServerMessage};
 use vacs_protocol::ws::shared::{
@@ -22,6 +23,20 @@ pub enum StartCallError {
     AlreadyParticipant,
     NotConferenceLeader,
     NotParticipant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DropTargetOutcome {
+    CallNotFound,
+    NotPermitted,
+    /// The drop is obsolete as the target dropped by an auto-hangup is
+    /// already an active participant in the call and will thus not be
+    /// removed automatically. The dropping client receives the current
+    /// call state as an `CallUpdate`, just to make sure its local state
+    /// is correct.
+    Obsolete(UpdateParticipants),
+    RingingTargetCancelled(RingingTarget, UpdateParticipants),
+    ParticipantDropped(ClientId, UpdateParticipants),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,6 +430,214 @@ impl CallManager {
         };
 
         Some((ringing_target, update))
+    }
+
+    /// Removes a single target from a call without ending it: a ringing target
+    /// may be dropped by the client that invited it, a joined participant only
+    /// by the conference leader.
+    #[instrument(level = "trace", skip(self))]
+    pub fn drop_target(
+        &self,
+        call_id: &CallId,
+        dropping_client_id: &ClientId,
+        target: &CallTarget,
+        reason: CallDropReason,
+    ) -> DropTargetOutcome {
+        if let Some(outcome) = self.drop_ringing_target(call_id, dropping_client_id, target, reason)
+        {
+            return outcome;
+        }
+
+        self.drop_joined_participant(call_id, dropping_client_id, target, reason)
+    }
+
+    /// Returns `None` when the target does not ring within this call, so that
+    /// the drop can be retried against the joined participants.
+    fn drop_ringing_target(
+        &self,
+        call_id: &CallId,
+        dropping_client_id: &ClientId,
+        target: &CallTarget,
+        reason: CallDropReason,
+    ) -> Option<DropTargetOutcome> {
+        let (ringing_target, invited_participants, caller_id, ringing_ended) = {
+            let mut ringing_calls = self.ringing_calls.write();
+
+            let ringing_call = ringing_calls.get_mut(call_id)?;
+            if ringing_call.targets.get(target)?.source.client_id != *dropping_client_id {
+                tracing::debug!("Dropping client did not invite this target");
+                return Some(DropTargetOutcome::NotPermitted);
+            }
+
+            let caller_id = ringing_call.caller_id.clone();
+            let mut ringing_target_entry = ringing_call.targets.remove(target)?;
+            let source = ringing_target_entry.source.clone();
+            let ringing_target =
+                ringing_target_entry.complete(reason.into(), call_id, &caller_id, source, target);
+
+            let invited_participants = ringing_call.invited_participants();
+            let ringing_ended = ringing_call.targets.is_empty();
+            if ringing_ended {
+                ringing_calls.remove(call_id);
+            }
+
+            (
+                ringing_target,
+                invited_participants,
+                caller_id,
+                ringing_ended,
+            )
+        };
+
+        for callee_id in &ringing_target.notified_clients {
+            self.remove_client_incoming_call(call_id, callee_id);
+        }
+
+        let joined_participants = self
+            .active_calls
+            .read()
+            .get(call_id)
+            .map(|active_call| active_call.participants.clone())
+            .unwrap_or_default();
+
+        if ringing_ended && !joined_participants.contains_key(&caller_id) {
+            let mut client_active_calls = self.client_active_calls.write();
+            if client_active_calls
+                .get(&caller_id)
+                .is_some_and(|id| id == call_id)
+            {
+                client_active_calls.remove(&caller_id);
+            }
+        }
+
+        Some(DropTargetOutcome::RingingTargetCancelled(
+            ringing_target,
+            UpdateParticipants {
+                call_id: *call_id,
+                invited_participants,
+                joined_participants,
+            },
+        ))
+    }
+
+    fn drop_joined_participant(
+        &self,
+        call_id: &CallId,
+        dropping_client_id: &ClientId,
+        target: &CallTarget,
+        reason: CallDropReason,
+    ) -> DropTargetOutcome {
+        // Decided while the active call is locked. The resulting snapshot has to be
+        // taken afterwards, because reading the ringing calls while holding the active
+        // calls lock inverts the lock order.
+        let dropped_client_id = {
+            let mut active_calls = self.active_calls.write();
+
+            match active_calls.get_mut(call_id) {
+                None => None,
+                Some(active_call) if !active_call.involves(dropping_client_id) => {
+                    tracing::debug!("Dropping client does not participate in this call");
+                    return DropTargetOutcome::NotPermitted;
+                }
+                Some(active_call) => {
+                    let dropped_client_id = active_call.participants.iter().find_map(
+                        |(client_id, participating_target)| {
+                            if participating_target == target {
+                                Some(client_id.clone())
+                            } else {
+                                None
+                            }
+                        },
+                    );
+
+                    match dropped_client_id {
+                        None => None,
+                        // A target that answered while the invitation was timing out stays in
+                        // the call: an expired timer must never remove a joined participant.
+                        Some(_) if reason == CallDropReason::AutoHangup => None,
+                        Some(dropped_client_id) if dropped_client_id == *dropping_client_id => {
+                            tracing::debug!("Dropping client tried to drop itself");
+                            return DropTargetOutcome::NotPermitted;
+                        }
+                        Some(_) if active_call.participants.len() <= 2 => {
+                            tracing::debug!(
+                                ?dropped_client_id,
+                                "Call is not a conference, nothing to drop from"
+                            );
+                            return DropTargetOutcome::NotPermitted;
+                        }
+                        Some(_)
+                            if active_call.conference_leader.as_ref()
+                                != Some(dropping_client_id) =>
+                        {
+                            tracing::debug!(
+                                ?dropped_client_id,
+                                "Dropping client is not conference leader"
+                            );
+                            return DropTargetOutcome::NotPermitted;
+                        }
+                        Some(dropped_client_id) => {
+                            active_call.participants.remove(&dropped_client_id);
+
+                            if active_call.participants.len() <= 2 {
+                                tracing::debug!(
+                                    ?dropped_client_id,
+                                    "Dropping participant downgraded conference to regular call"
+                                );
+                                active_call.conference_leader = None;
+                            }
+
+                            Some(dropped_client_id)
+                        }
+                    }
+                }
+            }
+        };
+
+        let invited_participants = self
+            .ringing_calls
+            .read()
+            .get(call_id)
+            .map(RingingCallEntry::invited_participants)
+            .unwrap_or_default();
+
+        let joined_participants = self
+            .active_calls
+            .read()
+            .get(call_id)
+            .map(|active_call| active_call.participants.clone())
+            .unwrap_or_default();
+
+        let update = UpdateParticipants {
+            call_id: *call_id,
+            invited_participants,
+            joined_participants,
+        };
+
+        let Some(dropped_client_id) = dropped_client_id else {
+            return if update.invited_participants.is_empty()
+                && update.joined_participants.is_empty()
+            {
+                tracing::warn!(
+                    "Call with dropped target has no invited or joined participants anymore"
+                );
+                DropTargetOutcome::CallNotFound
+            } else {
+                DropTargetOutcome::Obsolete(update)
+            };
+        };
+
+        {
+            let mut client_active_calls = self.client_active_calls.write();
+            if client_active_calls
+                .get(&dropped_client_id)
+                .is_some_and(|id| id == call_id)
+            {
+                client_active_calls.remove(&dropped_client_id);
+            }
+        }
+
+        DropTargetOutcome::ParticipantDropped(dropped_client_id, update)
     }
 
     pub fn end_call(
@@ -1105,6 +1328,208 @@ mod tests {
                 panic!("expected TargetFailed after the last client errored, got {outcome:?}")
             }
         }
+    }
+
+    /// Rings `callee` for `caller` within `call_id` and lets it accept, which
+    /// either creates the active call or joins the existing one.
+    fn join(manager: &CallManager, call_id: &CallId, caller: &ClientId, callee: &ClientId) {
+        manager
+            .attempt_call(
+                call_id,
+                caller,
+                &source(caller),
+                &CallTarget::Client(callee.clone()),
+                &HashSet::from([callee.clone()]),
+            )
+            .expect("call attempt should succeed");
+
+        manager
+            .accept_call(call_id, callee)
+            .expect("call should be accepted");
+    }
+
+    /// Only the client that sent an invitation may cancel it, even though every
+    /// participant of a two party call may invite while there is no leader.
+    #[test]
+    fn dropping_a_ringing_target_requires_the_inviter() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let invited = ClientId::from("invited");
+
+        join(&manager, &call_id, &caller, &callee);
+
+        manager
+            .attempt_call(
+                &call_id,
+                &callee,
+                &source(&callee),
+                &CallTarget::Client(invited.clone()),
+                &HashSet::from([invited.clone()]),
+            )
+            .expect("participant should be able to invite into a two party call");
+
+        assert_eq!(
+            manager.drop_target(
+                &call_id,
+                &caller,
+                &CallTarget::Client(invited),
+                CallDropReason::Requested,
+            ),
+            DropTargetOutcome::NotPermitted,
+            "a client must not cancel an invitation it did not send"
+        );
+    }
+
+    /// Dropping the last ringing target of a call nobody joined ends the call,
+    /// so the caller must not stay busy afterwards.
+    #[test]
+    fn dropping_the_last_ringing_target_frees_the_caller() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+
+        manager
+            .attempt_call(
+                &call_id,
+                &caller,
+                &source(&caller),
+                &CallTarget::Client(callee.clone()),
+                &HashSet::from([callee.clone()]),
+            )
+            .expect("call attempt should succeed");
+
+        match manager.drop_target(
+            &call_id,
+            &caller,
+            &CallTarget::Client(callee),
+            CallDropReason::AutoHangup,
+        ) {
+            DropTargetOutcome::RingingTargetCancelled(_, update) => {
+                assert!(
+                    update.invited_participants.is_empty() && update.joined_participants.is_empty(),
+                    "the call must be over once its last ringing target is dropped"
+                );
+            }
+            outcome => panic!("expected the ringing target to be cancelled, got {outcome:?}"),
+        }
+
+        let other = ClientId::from("other");
+        manager
+            .attempt_call(
+                &CallId::new(),
+                &caller,
+                &source(&caller),
+                &CallTarget::Client(other.clone()),
+                &HashSet::from([other]),
+            )
+            .expect("caller should be free after dropping its last ringing target");
+    }
+
+    /// An invitation timer that expires while the target answers must never
+    /// remove the target from the call it just joined.
+    #[test]
+    fn auto_hangup_never_drops_a_joined_participant() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let invited = ClientId::from("invited");
+
+        join(&manager, &call_id, &caller, &callee);
+        join(&manager, &call_id, &caller, &invited);
+
+        match manager.drop_target(
+            &call_id,
+            &caller,
+            &CallTarget::Client(invited.clone()),
+            CallDropReason::AutoHangup,
+        ) {
+            DropTargetOutcome::Obsolete(update) => {
+                assert!(
+                    update.joined_participants.contains_key(&invited),
+                    "the answering client must stay in the call"
+                );
+            }
+            outcome => panic!("expected the auto hangup to be obsolete, got {outcome:?}"),
+        }
+    }
+
+    #[test]
+    fn dropping_a_participant_requires_the_conference_leader() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let invited = ClientId::from("invited");
+
+        join(&manager, &call_id, &caller, &callee);
+        join(&manager, &call_id, &caller, &invited);
+
+        assert_eq!(
+            manager.drop_target(
+                &call_id,
+                &callee,
+                &CallTarget::Client(invited.clone()),
+                CallDropReason::Requested,
+            ),
+            DropTargetOutcome::NotPermitted,
+            "a participant that does not lead the conference must not drop anyone"
+        );
+
+        match manager.drop_target(
+            &call_id,
+            &caller,
+            &CallTarget::Client(invited.clone()),
+            CallDropReason::Requested,
+        ) {
+            DropTargetOutcome::ParticipantDropped(dropped_client_id, update) => {
+                assert_eq!(
+                    dropped_client_id, invited,
+                    "the wrong participant was dropped"
+                );
+                assert_eq!(
+                    update.joined_participants.keys().collect::<HashSet<_>>(),
+                    HashSet::from([&caller, &callee]),
+                    "the remaining participants must stay in the call"
+                );
+            }
+            outcome => panic!("expected the participant to be dropped, got {outcome:?}"),
+        }
+
+        assert!(
+            manager
+                .active_call(&call_id)
+                .expect("call should still be active")
+                .conference_leader
+                .is_none(),
+            "a call of two must not keep a conference leader"
+        );
+    }
+
+    /// Dropping the only other participant of a two party call would leave a
+    /// call of one; leaving is [`CallManager::end_call`]'s job.
+    #[test]
+    fn dropping_a_participant_of_a_two_party_call_is_not_permitted() {
+        let manager = CallManager::new();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+
+        join(&manager, &call_id, &caller, &callee);
+
+        assert_eq!(
+            manager.drop_target(
+                &call_id,
+                &caller,
+                &CallTarget::Client(callee),
+                CallDropReason::Requested,
+            ),
+            DropTargetOutcome::NotPermitted,
+            "a two party call has no participant to drop"
+        );
     }
 
     /// A failed client only takes down its own target; other ringing targets of the

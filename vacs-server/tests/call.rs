@@ -5,7 +5,7 @@ use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::ServerMessage;
 use vacs_protocol::ws::shared::{CallId, CallTarget};
-use vacs_server::test_utils::{TestApp, setup_n_test_clients};
+use vacs_server::test_utils::{TestApp, TestClient, setup_n_test_clients};
 
 #[test(tokio::test)]
 async fn call_offer() -> anyhow::Result<()> {
@@ -1215,6 +1215,321 @@ async fn empty_targets_rejected() -> anyhow::Result<()> {
         invite_messages.len(),
         1,
         "client2 should receive CallInvitation for the follow-up call"
+    );
+
+    Ok(())
+}
+
+/// Invites `callee` into `call_id` and lets it accept, so that the call either
+/// starts or grows by one participant.
+async fn join_call(
+    caller: &mut TestClient,
+    callee: &mut TestClient,
+    call_id: CallId,
+) -> anyhow::Result<()> {
+    caller
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: caller.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(callee.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+
+    let invitations = callee
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+    assert_eq!(invitations.len(), 1, "callee should receive CallInvitation");
+
+    callee
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: callee.id().clone(),
+            },
+        ))
+        .await?;
+
+    let callee_id = callee.id().clone();
+    for client in [caller, callee] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && update.joined_participants.contains_key(&callee_id))
+            })
+            .await;
+        assert_eq!(updates.len(), 1, "participant should see the callee join");
+    }
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn auto_hangup_drops_a_ringing_target_without_ending_the_call() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    join_call(&mut client1, &mut client2, call_id).await?;
+
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client3.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let invitations = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        invitations.len(),
+        1,
+        "client3 should receive CallInvitation"
+    );
+
+    client1
+        .send(ClientMessage::CallDropTarget(
+            vacs_protocol::ws::client::CallDropTarget {
+                call_id,
+                target: CallTarget::Client(client3.id().clone()),
+                reason: vacs_protocol::ws::client::CallDropReason::AutoHangup,
+            },
+        ))
+        .await?;
+
+    let cancelled_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled)
+                if cancelled.call_id == call_id
+                    && cancelled.reason == vacs_protocol::ws::server::CallCancelReason::Errored(
+                        vacs_protocol::ws::shared::CallErrorReason::AutoHangup))
+        })
+        .await;
+    assert_eq!(
+        cancelled_messages.len(),
+        1,
+        "client3 should receive CallCancelled for the timed out invitation"
+    );
+
+    let client2_id = client2.id().clone();
+    for client in [&mut client1, &mut client2] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && update.invited_targets.is_empty()
+                        && update.joined_participants.contains_key(&client2_id))
+            })
+            .await;
+        assert_eq!(
+            updates.len(),
+            1,
+            "remaining participants should see the dropped invitation while the call continues"
+        );
+    }
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn conference_leader_drops_a_participant() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    join_call(&mut client1, &mut client2, call_id).await?;
+    join_call(&mut client1, &mut client3, call_id).await?;
+
+    client2
+        .send(ClientMessage::CallDropTarget(
+            vacs_protocol::ws::client::CallDropTarget {
+                call_id,
+                target: CallTarget::Client(client3.id().clone()),
+                reason: vacs_protocol::ws::client::CallDropReason::Requested,
+            },
+        ))
+        .await?;
+    let error_messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+            if error.call_id == call_id
+                && matches!(
+                    error.reason,
+                    vacs_protocol::ws::shared::CallErrorReason::NotConferenceLeader(_)
+                ))
+        })
+        .await;
+    assert_eq!(
+        error_messages.len(),
+        1,
+        "client2 should be refused as it does not lead the conference"
+    );
+
+    client1
+        .send(ClientMessage::CallDropTarget(
+            vacs_protocol::ws::client::CallDropTarget {
+                call_id,
+                target: CallTarget::Client(client3.id().clone()),
+                reason: vacs_protocol::ws::client::CallDropReason::Requested,
+            },
+        ))
+        .await?;
+
+    let client1_id = client1.id().clone();
+    let end_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallEnd(end)
+                if end.call_id == call_id && end.ending_client_id == client1_id)
+        })
+        .await;
+    assert_eq!(
+        end_messages.len(),
+        1,
+        "the dropped participant should receive CallEnd naming the conference leader"
+    );
+
+    let client3_id = client3.id().clone();
+    for client in [&mut client1, &mut client2] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && !update.joined_participants.contains_key(&client3_id))
+            })
+            .await;
+        assert_eq!(
+            updates.len(),
+            1,
+            "remaining participants should see the dropped participant leave"
+        );
+    }
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let invitations = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        invitations.len(),
+        1,
+        "client2 should receive CallInvitation"
+    );
+
+    client1
+        .send(ClientMessage::CallDropTarget(
+            vacs_protocol::ws::client::CallDropTarget {
+                call_id,
+                target: CallTarget::Client(client2.id().clone()),
+                reason: vacs_protocol::ws::client::CallDropReason::AutoHangup,
+            },
+        ))
+        .await?;
+
+    let cancelled_messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled) if cancelled.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        cancelled_messages.len(),
+        1,
+        "client2 should receive CallCancelled for the timed out invitation"
+    );
+
+    let updates = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.invited_targets.is_empty()
+                    && update.joined_participants.is_empty())
+        })
+        .await;
+    assert_eq!(
+        updates.len(),
+        1,
+        "client1 should be told that the call is over"
+    );
+
+    // The ended call must not leave the caller marked busy
+    let next_call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id: next_call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client3.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let invitations = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation)
+                if invitation.call_id == next_call_id)
+        })
+        .await;
+    assert_eq!(
+        invitations.len(),
+        1,
+        "client3 should receive CallInvitation for the follow-up call"
     );
 
     Ok(())

@@ -2,14 +2,17 @@ use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::ratelimit::CallInviteRejection;
 use crate::state::AppState;
 use crate::state::calls::{
-    CallTerminationOutcome, RingingTarget, StartCallError, UpdateCallAction,
+    CallTerminationOutcome, DropTargetOutcome, RingingTarget, StartCallError, UpdateCallAction,
+    UpdateParticipants,
 };
 use crate::state::clients::session::ClientSession;
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use vacs_protocol::vatsim::ClientId;
-use vacs_protocol::ws::client::{CallAccept, CallInvite, CallReject, ClientMessage};
+use vacs_protocol::ws::client::{
+    CallAccept, CallDropReason, CallDropTarget, CallInvite, CallReject, ClientMessage,
+};
 use vacs_protocol::ws::server::{CallCancelReason, CallInvitation, ServerMessage};
 use vacs_protocol::ws::shared::{
     CallEnd, CallError, CallErrorReason, CallId, CallTarget, ErrorReason, WebrtcAnswer,
@@ -57,6 +60,9 @@ pub async fn handle_application_message(
         }
         ClientMessage::CallError(call_error) => {
             handle_call_error(state, client, call_error).await;
+        }
+        ClientMessage::CallDropTarget(call_drop_target) => {
+            handle_call_drop_target(state, client, call_drop_target).await;
         }
         ClientMessage::WebrtcOffer(webrtc_offer) => {
             handle_webrtc_offer(state, client, webrtc_offer).await;
@@ -353,7 +359,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         }
     }
 
-    tracing::trace!("Sending call acceptance to all joined participants");
+    tracing::trace!("Sending call update to all joined participants");
 
     for participant_id in update.joined_participants.keys() {
         if let Err(err) = state
@@ -832,6 +838,90 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
 }
 
 #[tracing::instrument(level = "trace", skip(state, client))]
+async fn handle_call_drop_target(
+    state: &AppState,
+    client: &ClientSession,
+    drop_target: CallDropTarget,
+) {
+    tracing::trace!("Handling call drop target");
+    let dropping_id = client.id();
+    let call_id = &drop_target.call_id;
+
+    match state.calls.drop_target(
+        call_id,
+        dropping_id,
+        &drop_target.target,
+        drop_target.reason,
+    ) {
+        DropTargetOutcome::CallNotFound => {
+            tracing::debug!("No ringing or active call found, returning call error");
+            send_call_error(client, call_id, CallErrorReason::CallNotFound, None).await;
+        }
+        DropTargetOutcome::NotPermitted => {
+            tracing::debug!("Client may not drop this target, returning call error");
+            send_call_error(
+                client,
+                call_id,
+                CallErrorReason::NotConferenceLeader(drop_target.target),
+                None,
+            )
+            .await;
+        }
+        DropTargetOutcome::Obsolete(update) => {
+            tracing::debug!("Target drop is now obsolete, sending current call state");
+            send_call_update(state, dropping_id, &update).await;
+        }
+        DropTargetOutcome::RingingTargetCancelled(ringing_target, update) => {
+            tracing::trace!("Cancelling dropped ringing target");
+            let cancelled = server::CallCancelled::new(
+                *call_id,
+                HashSet::from([ringing_target.target]),
+                match drop_target.reason {
+                    CallDropReason::Requested => CallCancelReason::CallerCancelled,
+                    CallDropReason::AutoHangup => {
+                        CallCancelReason::Errored(CallErrorReason::AutoHangup)
+                    }
+                },
+            );
+
+            for notified_client in ringing_target.notified_clients {
+                if let Err(err) = state
+                    .send_message(&notified_client, cancelled.clone())
+                    .await
+                {
+                    tracing::warn!(
+                        ?err,
+                        ?notified_client,
+                        "Failed to send call cancelled to notified client"
+                    );
+                }
+            }
+
+            broadcast_call_update(state, &update, dropping_id).await;
+        }
+        DropTargetOutcome::ParticipantDropped(dropped_client_id, update) => {
+            tracing::trace!(?dropped_client_id, "Dropping participant from conference");
+
+            if let Err(err) = state
+                .send_message(
+                    &dropped_client_id,
+                    CallEnd::new(*call_id, dropping_id.clone()),
+                )
+                .await
+            {
+                tracing::warn!(
+                    ?err,
+                    ?dropped_client_id,
+                    "Failed to send call end to dropped participant"
+                );
+            }
+
+            broadcast_call_update(state, &update, dropping_id).await;
+        }
+    }
+}
+
+#[tracing::instrument(level = "trace", skip(state, client))]
 async fn handle_webrtc_offer(state: &AppState, client: &ClientSession, offer: WebrtcOffer) {
     tracing::trace!("Handling WebRTC offer");
     let client_id = client.id();
@@ -990,6 +1080,40 @@ async fn cancel_failed_target(
         .await
     {
         tracing::warn!(?err, "Failed to send call cancellation to source client");
+    }
+}
+
+/// Sends the authoritative membership snapshot to every participant, plus the
+/// dropping client itself: a caller that has not joined the call is listed in
+/// neither half of the snapshot, and would otherwise never learn that the call
+/// it started shrank or ended.
+async fn broadcast_call_update(
+    state: &AppState,
+    update: &UpdateParticipants,
+    dropping_id: &ClientId,
+) {
+    let mut recipients: HashSet<&ClientId> = update.all_participants().map(|(id, _)| id).collect();
+    recipients.insert(dropping_id);
+
+    for participant_id in recipients {
+        send_call_update(state, participant_id, update).await;
+    }
+}
+
+async fn send_call_update(
+    state: &AppState,
+    participant_id: &ClientId,
+    update: &UpdateParticipants,
+) {
+    if let Err(err) = state
+        .send_message(participant_id, ServerMessage::CallUpdate(update.into()))
+        .await
+    {
+        tracing::warn!(
+            ?err,
+            ?participant_id,
+            "Failed to send call update to participant"
+        );
     }
 }
 
