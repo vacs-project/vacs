@@ -1329,8 +1329,10 @@ impl AppStateInner {
                     )
                     .ok();
                 }
-                ErrorReason::RateLimited { retry_after_secs } => {
-                    // TODO: this needs to have targets, which invite was rate limited, to not remove the entire call, but only those targets
+                ErrorReason::RateLimited {
+                    targets,
+                    retry_after_secs,
+                } => {
                     log::warn!(
                         "Received rate limited error from signaling server, rate limited for {retry_after_secs}"
                     );
@@ -1339,12 +1341,34 @@ impl AppStateInner {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
-                        state.cleanup_current_call(call_id).await;
+                        state.stop_ringback_if_no_invited_targets(call_id);
                         state.remove_incoming_call(call_id);
-                        state.cancel_all_unanswered_call_timers(call_id);
 
-                        app.emit("signaling:force-call-end", call_id).ok(); // TODO: emit force-call-end if all targets gone, or call-update if only some
+                        let Some(current_call) = state.current_call_mut(call_id) else {
+                            log::debug!("Received call error for unknown call {call_id}, ignoring");
+                            return;
+                        };
+
+                        current_call.remove_invited_targets(&targets);
+                        if current_call.is_empty() {
+                            state.cancel_all_unanswered_call_timers(call_id);
+                            state.cleanup_current_call(call_id).await;
+
+                            app.emit("signaling:force-call-end", call_id).ok();
+                        } else {
+                            app.emit(
+                                "signaling:call-update",
+                                server::CallUpdate::from(current_call),
+                            )
+                            .ok();
+
+                            state.cancel_unanswered_call_timers_for_targets(
+                                &call_id,
+                                targets.iter(),
+                            );
+                        }
                     }
+
                     app.emit::<FrontendError>(
                         "error",
                         FrontendError::from(Error::from(SignalingRuntimeError::RateLimited(

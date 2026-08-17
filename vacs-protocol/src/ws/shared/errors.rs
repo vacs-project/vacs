@@ -1,7 +1,9 @@
-use crate::vatsim::ClientId;
+use std::collections::HashSet;
+
 use crate::ws::client::ClientMessage;
 use crate::ws::server::ServerMessage;
 use crate::ws::shared::CallId;
+use crate::{vatsim::ClientId, ws::shared::CallTarget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,7 +13,10 @@ pub enum ErrorReason {
     Internal(String),
     PeerConnection,
     UnexpectedMessage(String),
-    RateLimited { retry_after_secs: u64 },
+    RateLimited {
+        targets: HashSet<CallTarget>,
+        retry_after_secs: u64,
+    },
     ClientNotFound,
 }
 

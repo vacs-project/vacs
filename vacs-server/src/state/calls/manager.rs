@@ -73,6 +73,8 @@ impl std::fmt::Debug for CallManager {
     }
 }
 
+// TODO: Limit max conf participants
+
 impl CallManager {
     pub fn new() -> Self {
         Self {
