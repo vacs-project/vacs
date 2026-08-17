@@ -50,6 +50,8 @@ afterEach(() => {
             enablePriorityCalls: true,
             enableCallStartSound: true,
             enableCallEndSound: true,
+            enableParticipantJoinedSound: true,
+            enableParticipantLeftSound: true,
             forceRelay: false,
             useDefaultCallSources: true,
         },

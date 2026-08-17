@@ -202,8 +202,11 @@ impl WebrtcCall {
     pub fn is_empty(&self) -> bool {
         self.peers.is_empty()
     }
-    pub fn is_only_peer(&self, peer_id: &ClientId) -> bool {
-        !self.peers.is_empty() && self.peers.keys().all(|p| p == peer_id)
+
+    pub fn has_other_connected_peer(&self, peer_id: &ClientId) -> bool {
+        self.peers
+            .values()
+            .any(|peer| &peer.peer_id != peer_id && peer.connected)
     }
 
     pub fn into_peers(self) -> impl Iterator<Item = WebrtcPeer> {
@@ -339,7 +342,6 @@ impl AppStateWebrtcExt for AppStateInner {
                 let mut audio_manager = self.audio_manager.write();
                 audio_manager.detach_call_output(audio_source_id);
 
-                // TODO separate ParticipateJoined/Left sound
                 // TODO remove input stream, detach input device if last
                 audio_manager.detach_input_device();
             }
@@ -408,18 +410,19 @@ impl AppStateWebrtcExt for AppStateInner {
         let connected = peer.connected;
         peer.shutdown().await;
 
+        let left_sound = connected
+            .then(|| self.peer_left_sound(call_id, peer_id))
+            .flatten();
+
         {
             let mut audio_manager = self.audio_manager.write();
 
-            // TODO separate ParticipateJoined/Left sound
             if let Some(audio_source_id) = audio_source_id {
                 audio_manager.detach_call_output(audio_source_id);
             }
 
-            // The audio source may already be gone (taken by a Disconnected event), so the
-            // end-of-call teardown must not depend on it
-            if last && self.config.client.call.enable_call_end_sound && connected {
-                audio_manager.restart(SourceType::CallEnd);
+            if let Some(left_sound) = left_sound {
+                audio_manager.restart(left_sound);
             }
 
             audio_manager.detach_input_device();
@@ -547,6 +550,40 @@ impl AppStateInner {
         }
     }
 
+    fn peer_joined_sound(&self, call_id: CallId, peer_id: &ClientId) -> Option<SourceType> {
+        let call_config = &self.config.client.call;
+
+        if self
+            .webrtc_call(call_id)
+            .is_some_and(|call| call.has_other_connected_peer(peer_id))
+        {
+            call_config
+                .enable_participant_joined_sound
+                .then_some(SourceType::ParticipantJoined)
+        } else {
+            call_config
+                .enable_call_start_sound
+                .then_some(SourceType::CallStart)
+        }
+    }
+
+    fn peer_left_sound(&self, call_id: CallId, peer_id: &ClientId) -> Option<SourceType> {
+        let call_config = &self.config.client.call;
+
+        if self
+            .webrtc_call(call_id)
+            .is_some_and(|call| call.has_other_connected_peer(peer_id))
+        {
+            call_config
+                .enable_participant_left_sound
+                .then_some(SourceType::ParticipantLeft)
+        } else {
+            call_config
+                .enable_call_end_sound
+                .then_some(SourceType::CallEnd)
+        }
+    }
+
     fn take_webrtc_peer(
         &mut self,
         call_id: CallId,
@@ -622,6 +659,11 @@ impl AppStateInner {
         };
         let reconnected = peer.reconnected;
 
+        // An in-call reconnect resumes the existing call, so it announces nothing at all
+        let joined_sound = (!reconnected)
+            .then(|| self.peer_joined_sound(call_id, peer_id))
+            .flatten();
+
         log::debug!("Starting peer {peer_id} for call {call_id} in WebRTC manager");
 
         let (output_tx, output_rx) = mpsc::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
@@ -659,9 +701,8 @@ impl AppStateInner {
                     }
                 };
 
-            // An in-call reconnect resumes the existing call, so don't signal a new one
-            if self.config.client.call.enable_call_start_sound && !reconnected {
-                audio_manager.restart(SourceType::CallStart);
+            if let Some(joined_sound) = joined_sound {
+                audio_manager.restart(joined_sound);
             }
 
             (audio_source_id, input_rx)
@@ -786,41 +827,26 @@ fn spawn_peer_events_task(
                             let mut state = app_state.lock().await;
 
                             let mut sender = None;
-                            if let Some(call) = state.webrtc_call_mut(call_id) {
-                                let last = call.is_only_peer(&peer_id);
+                            let mut was_connected = false;
+                            if let Some(peer) = state.webrtc_peer_mut(call_id, &peer_id) {
+                                sender = peer.peer.pause();
+                                let audio_source_id = peer.audio_source_id.take();
 
-                                if let Some(peer) = call.peer_mut(&peer_id) {
-                                    sender = peer.peer.pause();
+                                was_connected = peer.connected;
+                                peer.connected = false;
 
-                                    if let Some(audio_source_id) = peer.audio_source_id.take() {
-                                        let mut audio_manager = state.audio_manager.write();
-                                        audio_manager.detach_call_output(audio_source_id);
-
-                                        // TODO separate ParticipateJoined/Left sound
-                                    }
+                                if let Some(audio_source_id) = audio_source_id {
+                                    state
+                                        .audio_manager
+                                        .write()
+                                        .detach_call_output(audio_source_id);
                                 }
+                            }
 
-                                if last {
-                                    let played = {
-                                        let audio_manager = state.audio_manager.write();
-
-                                        let played = state.config.client.call.enable_call_end_sound
-                                            && audio_manager.is_input_device_attached();
-                                        if played {
-                                            audio_manager.restart(SourceType::CallEnd);
-                                        }
-
-                                        played
-                                    };
-
-                                    // The end sound must not play a second time when the peer
-                                    // transitions to Failed and is cleaned up
-                                    if played
-                                        && let Some(peer) = state.webrtc_peer_mut(call_id, &peer_id)
-                                    {
-                                        peer.connected = false;
-                                    }
-                                }
+                            if was_connected
+                                && let Some(left_sound) = state.peer_left_sound(call_id, &peer_id)
+                            {
+                                state.audio_manager.read().restart(left_sound);
                             }
                             drop(state);
 

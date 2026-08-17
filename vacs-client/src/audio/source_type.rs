@@ -1,5 +1,5 @@
 use std::time::Duration;
-use vacs_audio::sources::waveform::{Waveform, WaveformSource, WaveformTone};
+use vacs_audio::sources::waveform::{Waveform, WaveformSegment, WaveformSource, WaveformTone};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SourceType {
@@ -10,6 +10,8 @@ pub enum SourceType {
     Click,
     CallStart,
     CallEnd,
+    ParticipantJoined,
+    ParticipantLeft,
 }
 
 impl SourceType {
@@ -108,6 +110,55 @@ impl SourceType {
                 ],
                 None,
                 Duration::from_millis(10),
+                sample_rate,
+                output_channels,
+                volume,
+            ),
+            // A three-rung ladder in even 220 Hz steps, sitting just above CallStart/CallEnd.
+            // The extra step is what sets these apart from the two-tone call sounds; joined
+            // climbs and grows, left descends and fades.
+            SourceType::ParticipantJoined => WaveformSource::new(
+                vec![
+                    WaveformSegment::new(
+                        WaveformTone::new(660.0, Waveform::Sine, 0.10),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(880.0, Waveform::Sine, 0.12),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(1100.0, Waveform::Sine, 0.14),
+                        Duration::from_millis(90),
+                    ),
+                ],
+                None,
+                Duration::from_millis(8),
+                sample_rate,
+                output_channels,
+                volume,
+            ),
+            SourceType::ParticipantLeft => WaveformSource::new(
+                vec![
+                    WaveformSegment::new(
+                        WaveformTone::new(1100.0, Waveform::Sine, 0.14),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(880.0, Waveform::Sine, 0.12),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(660.0, Waveform::Sine, 0.10),
+                        Duration::from_millis(90),
+                    ),
+                ],
+                None,
+                Duration::from_millis(8),
                 sample_rate,
                 output_channels,
                 volume,
