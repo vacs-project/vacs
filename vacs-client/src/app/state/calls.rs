@@ -136,6 +136,16 @@ impl From<&Call> for CallUpdate {
     }
 }
 
+impl From<&mut Call> for CallUpdate {
+    fn from(call: &mut Call) -> Self {
+        CallUpdate {
+            call_id: call.call_id,
+            invited_targets: call.invited_targets.clone(),
+            joined_participants: call.joined_participants.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

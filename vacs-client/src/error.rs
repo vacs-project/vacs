@@ -252,7 +252,7 @@ fn format_signaling_error(err: &SignalingError) -> String {
                 ErrorReason::UnexpectedMessage(msg) => {
                     format!("Server error: unexpected message: {msg}")
                 },
-                ErrorReason::RateLimited {retry_after_secs} => {
+                ErrorReason::RateLimited { retry_after_secs, ..} => {
                     format!("Server error: Rate limited. Retry after {retry_after_secs}.")
                 },
                 ErrorReason::ClientNotFound => {

@@ -117,6 +117,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         Err(CallInviteRejection::RateLimited(until)) => {
             tracing::debug!(?until, "Rate limit exceeded, rejecting call invite");
             let reason = ErrorReason::RateLimited {
+                targets: invite.targets,
                 retry_after_secs: until.as_secs(),
             };
             ErrorMetrics::error(&reason);
