@@ -33,6 +33,8 @@ const snapshot: SessionStateSnapshot = {
         enablePriorityCalls: true,
         enableCallStartSound: false,
         enableCallEndSound: true,
+        enableParticipantJoinedSound: false,
+        enableParticipantLeftSound: true,
         useDefaultCallSources: true,
         forceRelay: false,
     },
