@@ -639,6 +639,17 @@ impl AudioManager {
                 SourceType::CallEnd,
                 audio_config.output_device_volume,
             );
+
+            insert_waveform_source(
+                &mut source_ids,
+                SourceType::ParticipantJoined,
+                audio_config.output_device_volume,
+            );
+            insert_waveform_source(
+                &mut source_ids,
+                SourceType::ParticipantLeft,
+                audio_config.output_device_volume,
+            );
         }
 
         Ok((output, source_ids))

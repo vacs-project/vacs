@@ -42,6 +42,8 @@ function baseSnapshot(overrides: Partial<SessionStateSnapshot> = {}): SessionSta
             enableCallEndSound: true,
             useDefaultCallSources: true,
             forceRelay: false,
+            enableParticipantJoinedSound: true,
+            enableParticipantLeftSound: true,
         },
         clientPageSettings: {selected: undefined, configs: {}},
         capabilities: {

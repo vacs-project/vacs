@@ -3,6 +3,8 @@ export type CallConfig = {
     enablePriorityCalls: boolean;
     enableCallStartSound: boolean;
     enableCallEndSound: boolean;
+    enableParticipantJoinedSound: boolean;
+    enableParticipantLeftSound: boolean;
     useDefaultCallSources: boolean;
     forceRelay: boolean;
 };
