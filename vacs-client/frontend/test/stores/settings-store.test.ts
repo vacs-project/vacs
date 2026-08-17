@@ -20,6 +20,8 @@ const CALL_CONFIG: CallConfig = {
     enablePriorityCalls: false,
     enableCallStartSound: false,
     enableCallEndSound: false,
+    enableParticipantJoinedSound: false,
+    enableParticipantLeftSound: false,
     useDefaultCallSources: true,
     forceRelay: true,
 };

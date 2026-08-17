@@ -47,6 +47,8 @@ export const useSettingsStore = create<SettingsState>()(set => ({
         enablePriorityCalls: true,
         enableCallStartSound: true,
         enableCallEndSound: true,
+        enableParticipantJoinedSound: true,
+        enableParticipantLeftSound: true,
         useDefaultCallSources: true,
         forceRelay: false,
     },
