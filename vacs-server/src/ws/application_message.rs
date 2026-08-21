@@ -109,9 +109,59 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         return;
     }
 
+    let mut not_found_targets = HashSet::new();
+    let mut resolved_targets: Vec<(CallTarget, HashSet<ClientId>)> = Vec::new();
+
+    CallMetrics::call_invite_targets(invite.targets.len());
+
+    for target in &invite.targets {
+        let target_clients: HashSet<ClientId> = match target {
+            CallTarget::Client(client_id) => {
+                if state.clients.is_client_connected(client_id).await {
+                    HashSet::from([client_id.clone()])
+                } else {
+                    HashSet::new()
+                }
+            }
+            CallTarget::Position(position_id) => {
+                state.clients.clients_for_position(position_id).await
+            }
+            CallTarget::Station(station_id) => state.clients.clients_for_station(station_id).await,
+        }
+        .into_iter()
+        .filter(|client_id| client_id != client.id())
+        .collect();
+
+        if target_clients.is_empty() {
+            tracing::debug!("Call target has no clients, skipping target");
+            not_found_targets.insert(target.clone());
+            continue;
+        }
+
+        resolved_targets.push((target.clone(), target_clients));
+    }
+
+    if resolved_targets.is_empty() {
+        tracing::trace!("No call target has clients, returning targets not found error");
+        send_call_error(
+            client,
+            call_id,
+            CallErrorReason::TargetsNotFound(not_found_targets),
+            None,
+        )
+        .await;
+        return;
+    }
+
+    // Checked on the resolved targets so unreachable or already present ones
+    // do not count against the limit.
+    let resolved_target_set: HashSet<CallTarget> = resolved_targets
+        .iter()
+        .map(|(target, _)| target.clone())
+        .collect();
     if state
         .calls
-        .invite_exceeds_max_conf_size(&invite.call_id, invite.targets.len())
+        .invite_exceeds_max_conf_size(&invite.call_id, caller_id, &resolved_target_set)
     {
         tracing::debug!("Call invite would exceed max conf size, rejecting call invite");
         send_call_error(
@@ -126,7 +176,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
 
     match state
         .rate_limiters()
-        .check_call_invite(caller_id, invite.targets.len())
+        .check_call_invite(caller_id, resolved_targets.len())
     {
         Ok(()) => {}
         Err(CallInviteRejection::RateLimited(until)) => {
@@ -158,47 +208,18 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     let mut joined_participants = HashMap::new();
     let mut all_target_participants = HashMap::new();
 
-    let mut not_found_targets = HashSet::new();
-
-    CallMetrics::call_invite_targets(invite.targets.len());
-
-    for target in &invite.targets {
-        let target_clients: HashSet<ClientId> = match target {
-            CallTarget::Client(client_id) => {
-                if state.clients.is_client_connected(client_id).await {
-                    HashSet::from([client_id.clone()])
-                } else {
-                    HashSet::new()
-                }
-            }
-            CallTarget::Position(position_id) => {
-                state.clients.clients_for_position(position_id).await
-            }
-            CallTarget::Station(station_id) => state.clients.clients_for_station(station_id).await,
-        }
-        .into_iter()
-        .filter(|client_id| client_id != client.id())
-        .collect();
-
-        if target_clients.is_empty() {
-            tracing::debug!("Call target has no clients, skipping target");
-            not_found_targets.insert(target.clone());
-            continue;
-        }
-
-        match state.calls.attempt_call(
-            call_id,
-            client.id(),
-            &invite.source,
-            target,
-            &target_clients,
-        ) {
+    for (target, target_clients) in &resolved_targets {
+        match state
+            .calls
+            .attempt_call(call_id, client.id(), &invite.source, target, target_clients)
+        {
             Ok((invited, joined)) => {
                 invited_participants = invited;
                 joined_participants = joined;
                 all_target_participants.extend(
                     target_clients
-                        .into_iter()
+                        .iter()
+                        .cloned()
                         .map(|target_client| (target_client, target.clone())),
                 );
 
