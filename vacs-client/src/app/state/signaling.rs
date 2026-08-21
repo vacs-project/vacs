@@ -966,7 +966,8 @@ impl AppStateInner {
                 );
 
                 match &reason {
-                    CallErrorReason::TargetsNotFound(targets) => {
+                    CallErrorReason::TargetsNotFound(targets)
+                    | CallErrorReason::MaxConferenceSizeReached(targets) => {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
