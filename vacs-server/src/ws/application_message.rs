@@ -2,8 +2,8 @@ use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::ratelimit::CallInviteRejection;
 use crate::state::AppState;
 use crate::state::calls::{
-    CallTerminationOutcome, DropTargetOutcome, RingingTarget, StartCallError, UpdateCallAction,
-    UpdateParticipants,
+    AcceptCallOutcome, CallTerminationOutcome, DropTargetOutcome, RingingTarget, StartCallError,
+    UpdateCallAction, UpdateParticipants,
 };
 use crate::state::clients::session::ClientSession;
 use std::collections::{HashMap, HashSet};
@@ -355,16 +355,18 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         return;
     }
 
-    if state.calls.has_any_active_call(answerer_id) {
-        tracing::warn!("Accepting client has already an active call, rejecting call accept");
-        send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
-        return;
-    }
-
-    let Some((accepted_target, update)) = state.calls.accept_call(call_id, answerer_id) else {
-        tracing::warn!("No ringing call for accepting client found, returning call error");
-        send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
-        return;
+    let (accepted_target, update) = match state.calls.accept_call(call_id, answerer_id) {
+        AcceptCallOutcome::Accepted { target, update } => (target, update),
+        AcceptCallOutcome::AcceptorBusy => {
+            tracing::warn!("Accepting client has already an active call, rejecting call accept");
+            send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
+            return;
+        }
+        AcceptCallOutcome::NotFound => {
+            tracing::warn!("No ringing call for accepting client found, returning call error");
+            send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
+            return;
+        }
     };
 
     tracing::trace!("Sending call update to all invited participants");
