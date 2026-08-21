@@ -187,7 +187,9 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 const target: CallTarget = targetStillPresent
                     ? callDisplay.call.target
                     : (update.invitedTargets[0] ??
-                      Object.values(update.joinedParticipants)[0] ??
+                      Object.entries(update.joinedParticipants).flatMap(([clientId, target]) =>
+                          clientId !== ownClientId ? [target] : [],
+                      )[0] ??
                       callDisplay.call.target);
 
                 const nextCallDisplay: CallDisplay = {
