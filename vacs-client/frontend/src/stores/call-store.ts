@@ -260,14 +260,12 @@ export const useCallStore = create<CallState>()((set, get) => ({
         rejectCall: (callId, targets) => {
             let callDisplay = get().callDisplay;
 
-            if (
-                callDisplay === undefined ||
-                callDisplay.call.callId !== callId ||
-                callDisplay.type !== "outgoing"
-            ) {
+            if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 get().actions.removeCall(callId);
                 return;
             }
+
+            targets = targets.filter(target => hasTarget(callDisplay.call.invitedTargets, target));
 
             callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
                 target => !hasTarget(targets, target),
@@ -325,18 +323,18 @@ export const useCallStore = create<CallState>()((set, get) => ({
             const callId = error.callId;
             let callDisplay = get().callDisplay;
 
-            if (
-                callDisplay === undefined ||
-                callDisplay.call.callId !== callId ||
-                callDisplay.type === "rejected"
-            ) {
+            if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 get().actions.removeCall(callId);
                 return;
             }
 
             let targets: CallTarget[] = [];
             if (error.origin.type === "targets") {
-                targets = error.origin.value;
+                targets = error.origin.value.filter(
+                    target =>
+                        hasTarget(callDisplay.call.invitedTargets, target) ||
+                        hasTarget(callDisplay.call.joinedParticipants, target),
+                );
             } else if (error.origin.type === "client") {
                 targets = [{client: error.origin.value}];
                 delete callDisplay.call.joinedParticipants[error.origin.value];
