@@ -6,7 +6,7 @@ import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
 import {useBlinkStore} from "../../stores/blink-store.ts";
 import DirectAccessKeyButton from "./DirectAccessKeyButton.tsx";
-import {hasTarget, participantCount} from "../../types/call.ts";
+import {CallTarget, hasTarget, participantCount} from "../../types/call.ts";
 
 type DAKeyProps = {
     client: ClientInfo;
@@ -17,7 +17,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, updateCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+    const {endCall, cancelInvitedTarget, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
         state => state.actions,
     );
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
@@ -47,32 +47,36 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
                 await invokeStrict("signaling_accept_call", {callId: incomingCall.callId});
             } catch {}
         } else if (beingCalled || inCall) {
-            if (
+            const target: CallTarget = {client: client.id};
+            const callSize =
                 callDisplay.call.invitedTargets.length +
-                    participantCount(callDisplay.call.joinedParticipants) >
-                    2 &&
-                callDisplay.call.isConferenceLeader
-            ) {
+                participantCount(callDisplay.call.joinedParticipants);
+            const ownInvited = beingCalled && hasTarget(callDisplay.call.ownInvitedTargets, target);
+
+            if (ownInvited && callSize > 1) {
+                // Optimistic: a caller without joined participants gets no
+                // confirming call update.
                 try {
                     await invokeStrict("signaling_drop_target", {
                         callId: callDisplay.call.callId,
-                        target: {client: client.id},
+                        target,
                     });
-                    updateCall({
+                    cancelInvitedTarget(callDisplay.call.callId, target);
+                } catch {}
+            } else if (
+                inCall &&
+                callDisplay.call.isConferenceLeader &&
+                participantCount(callDisplay.call.joinedParticipants) > 2
+            ) {
+                // Removed once the server confirms the drop via a call update.
+                try {
+                    await invokeStrict("signaling_drop_target", {
                         callId: callDisplay.call.callId,
-                        invitedTargets: callDisplay.call.invitedTargets.filter(
-                            target => target.client !== client.id,
-                        ),
-                        joinedParticipants: Object.assign(
-                            {},
-                            ...Object.entries(callDisplay.call.joinedParticipants)
-                                .filter(([_, value]) => value.target.client !== client.id)
-                                .map(([clientId, value]) => ({
-                                    [clientId]: value.target,
-                                })),
-                        ),
+                        target,
                     });
                 } catch {}
+            } else if (beingCalled && !inCall && !ownInvited) {
+                // Another participant's pending invitation: display only.
             } else {
                 try {
                     await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
