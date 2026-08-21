@@ -126,7 +126,10 @@ impl Peer {
 
         {
             let events_tx = events_tx.clone();
-            let dtls_transport = peer_connection.sctp().transport();
+            // Weak, because the handler is owned by the peer connection: a
+            // strong Arc into the transport graph forms a cycle that keeps the
+            // ICE candidate sockets alive after close.
+            let dtls_transport = Arc::downgrade(&peer_connection.sctp().transport());
             peer_connection.on_peer_connection_state_change(Box::new(
                 move |state: RTCPeerConnectionState| {
                     tracing::trace!(?state, "Peer connection state changed");
@@ -134,9 +137,12 @@ impl Peer {
                         tracing::warn!(?err, "Failed to send peer connection state event");
                     }
 
-                    let dtls_transport = Arc::clone(&dtls_transport);
+                    let dtls_transport = dtls_transport.clone();
                     Box::pin(async move {
                         if state == RTCPeerConnectionState::Connected {
+                            let Some(dtls_transport) = dtls_transport.upgrade() else {
+                                return;
+                            };
                             match dtls_transport
                                 .ice_transport()
                                 .get_selected_candidate_pair()
