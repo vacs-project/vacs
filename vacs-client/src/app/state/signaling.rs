@@ -481,11 +481,10 @@ impl AppStateSignalingExt for AppStateInner {
     async fn drop_target(&mut self, call_id: CallId, target: CallTarget) -> Result<(), Error> {
         log::debug!("Dropping target {target:?} from call {call_id}");
 
-        if self.current_call(call_id).is_none() {
+        let Some(current_call) = self.current_call(call_id) else {
             return Err(WebrtcError::NoCallActive.into());
         };
-
-        self.cancel_unanswered_call_timers_for_targets(&call_id, [&target].into_iter());
+        let is_invited = current_call.invited_targets().contains(&target);
 
         self.send_signaling_message(client::CallDropTarget {
             call_id,
@@ -494,15 +493,25 @@ impl AppStateSignalingExt for AppStateInner {
         })
         .await?;
 
-        let Some(current_call) = self.current_call_mut(call_id) else {
-            return Err(WebrtcError::NoCallActive.into());
-        };
+        if is_invited {
+            // Applied locally: the server does not echo a call update to a
+            // caller whose call has no joined participants yet.
+            self.cancel_unanswered_call_timers_for_targets(&call_id, [&target].into_iter());
 
-        let removed = current_call.drop_target(&target);
+            let Some(current_call) = self.current_call_mut(call_id) else {
+                return Ok(());
+            };
+            current_call.remove_invited_targets(&HashSet::from([target]));
 
-        for peer_id in removed {
-            self.cleanup_call_peer(call_id, &peer_id).await;
+            self.stop_ringback_if_no_invited_targets(call_id);
+
+            if self.current_call(call_id).is_some_and(Call::is_empty) {
+                self.cancel_all_unanswered_call_timers(call_id);
+                self.cleanup_current_call(call_id).await;
+            }
         }
+        // A joined participant is only removed once the server confirms the
+        // drop via a call update.
 
         Ok(())
     }
