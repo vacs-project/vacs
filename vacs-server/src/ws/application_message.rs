@@ -355,6 +355,12 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         return;
     }
 
+    if state.calls.has_any_active_call(answerer_id) {
+        tracing::warn!("Accepting client has already an active call, rejecting call accept");
+        send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
+        return;
+    }
+
     let Some((accepted_target, update)) = state.calls.accept_call(call_id, answerer_id) else {
         tracing::warn!("No ringing call for accepting client found, returning call error");
         send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
