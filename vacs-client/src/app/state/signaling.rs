@@ -320,11 +320,20 @@ impl AppStateSignalingExt for AppStateInner {
                                 log::warn!("Failed to send call drop target after call timer expired for target {target:?} in call {call_id}: {err:?}");
                             }
 
-                            state.cleanup_current_call(call_id).await;
-
                             state.unanswered_call_guards.remove(&target);
 
-                            state.emit_call_error(&app, call_id, false, target.into(), CallErrorReason::AutoHangup);
+                            state.emit_call_error(&app, call_id, false, target.clone().into(), CallErrorReason::AutoHangup);
+
+                            let Some(current_call) = state.current_call_mut(call_id) else {
+                                log::warn!("Unanswered call timer expired in call {call_id} which is not active");
+                                return;
+                            };
+
+                            current_call.remove_invited_targets(&HashSet::from([target]));
+                            if current_call.is_empty() {
+                                state.cancel_all_unanswered_call_timers(call_id);
+                                state.cleanup_current_call(call_id).await;
+                            }
                         }
                     }
                 }
