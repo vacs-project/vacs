@@ -555,8 +555,12 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                                 (self.on_event)(event).await;
                             }
                         },
-                        Err(err) => {
-                            tracing::warn!(?err, "Failed to receive broadcast event, exiting supervisor task");
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            // Recoverable: the receiver stays usable after a lag.
+                            tracing::warn!(skipped, "Supervisor lagged behind broadcast events, continuing");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            tracing::warn!("Broadcast event channel closed, exiting supervisor task");
                             self.disconnect(false).await;
                             break;
                         }
@@ -673,6 +677,11 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                                 } else {
                                     tracing::trace!(message_type = message.variant(), "No receivers subscribed, not broadcasting message");
                                 }
+                            }
+                            Err(SignalingRuntimeError::SerializationError(err)) => {
+                                // The connection itself is healthy; skip the message
+                                // instead of tearing the session down.
+                                tracing::warn!(?err, "Failed to deserialize server message, skipping");
                             }
                             Err(err) => {
                                 Self::emit_task_error(&state_rx, &broadcast_tx, err);
@@ -993,7 +1002,7 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    async fn malformed_known_message_disconnects() {
+    async fn malformed_known_message_is_skipped_and_stream_continues() {
         let transport = MockTransport::default();
         let mock_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
@@ -1003,26 +1012,30 @@ mod tests {
         mock_tx
             .send(tungstenite::Message::Text(r#"{"type":"callEnd"}"#.into()))
             .unwrap();
+        let known = ServerMessage::ClientList(server::ClientList {
+            clients: Vec::new(),
+        });
+        mock_tx
+            .send(tungstenite::Message::Text(
+                known.serialize().unwrap().into(),
+            ))
+            .unwrap();
 
         let received = events
             .recv_with_timeout(Duration::from_millis(500), |event| {
-                matches!(event, SignalingEvent::Error(_))
+                matches!(
+                    event,
+                    SignalingEvent::Message(ServerMessage::ClientList(_))
+                        | SignalingEvent::Error(_)
+                )
             })
             .await;
         assert_matches!(
             received,
-            Ok(SignalingEvent::Error(
-                SignalingRuntimeError::SerializationError(_)
-            ))
+            Ok(SignalingEvent::Message(ServerMessage::ClientList(_))),
+            "the message following a malformed one must still be delivered"
         );
-
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !matches!(client.state(), State::Disconnected) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("client did not disconnect after a malformed known message");
+        assert_matches!(client.state(), State::LoggedIn);
     }
 
     #[test(tokio::test)]
