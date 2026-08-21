@@ -115,7 +115,13 @@ impl CallManager {
             .map(|call| call.targets.len())
             .unwrap_or_default();
 
-        joined_len + ringing_len + targets_len > self.max_conf_size
+        let caller = if joined_len == 0 && ringing_len == 0 {
+            1
+        } else {
+            0
+        };
+
+        joined_len + ringing_len + targets_len + caller > self.max_conf_size
     }
 
     #[instrument(level = "trace", skip(self))]
