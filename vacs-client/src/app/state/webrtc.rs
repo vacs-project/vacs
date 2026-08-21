@@ -356,6 +356,8 @@ impl AppStateWebrtcExt for AppStateInner {
             return Err(WebrtcError::CallActive.into());
         }
 
+        self.cancel_call_establishment_timer();
+
         Ok(sdp)
     }
 
@@ -439,6 +441,8 @@ impl AppStateWebrtcExt for AppStateInner {
         };
 
         log::debug!("Cleaning up call {call_id}");
+
+        self.cancel_call_establishment_timer();
 
         let webrtc_call = call.into_webrtc();
 
