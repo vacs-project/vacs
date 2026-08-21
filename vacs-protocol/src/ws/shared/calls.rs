@@ -87,6 +87,7 @@ pub enum CallErrorReason {
     AutoHangup,
     NotConferenceLeader(CallTarget),
     NotParticipant,
+    MaxConferenceSizeReached(HashSet<CallTarget>),
     Other,
 }
 

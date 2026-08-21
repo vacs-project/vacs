@@ -66,17 +66,17 @@ impl AppState {
                 data_feed.clone(),
                 config.vatsim.data_feed_position_grace_period,
             ),
-            config,
             updates,
             ice_config_provider,
             store,
-            calls: CallManager::new(),
+            calls: CallManager::new(config.call.max_conf_size),
             dataset,
             broadcast_tx,
             slurper,
             data_feed,
             rate_limiters,
             shutdown_rx,
+            config,
         }
     }
 

@@ -371,6 +371,7 @@ impl CallError {
                     CallErrorReason::CallNotFound => "Call not found",
                     CallErrorReason::NotConferenceLeader(_) => "Call not lead",
                     CallErrorReason::NotParticipant => "Call not participating",
+                    CallErrorReason::MaxConferenceSizeReached(_) => "Max conf size",
                 }
             ),
         }
