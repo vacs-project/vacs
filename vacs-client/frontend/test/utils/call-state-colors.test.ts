@@ -11,8 +11,7 @@ const defaults: CallStateColorParams = {
     beingCalled: false,
     isRejected: false,
     isError: false,
-    outgoingPrio: false,
-    incomingPrio: false,
+    prio: false,
     blink: false,
 };
 
@@ -45,7 +44,7 @@ describe("getCallStateColors", () => {
         });
 
         it("returns yellow with green highlight for priority calls", () => {
-            expect(colors({inCall: true, outgoingPrio: true})).toEqual({
+            expect(colors({inCall: true, prio: true})).toEqual({
                 color: "yellow",
                 highlight: "green",
             });
@@ -68,14 +67,14 @@ describe("getCallStateColors", () => {
         });
 
         it("returns yellow with green highlight when incoming prio and blink on", () => {
-            expect(colors({isCalling: true, incomingPrio: true, blink: true})).toEqual({
+            expect(colors({isCalling: true, prio: true, blink: true})).toEqual({
                 color: "yellow",
                 highlight: "green",
             });
         });
 
         it("returns gray with gray highlight when incoming prio and blink off", () => {
-            expect(colors({isCalling: true, incomingPrio: true, blink: false})).toEqual({
+            expect(colors({isCalling: true, prio: true, blink: false})).toEqual({
                 color: "gray",
                 highlight: "gray",
             });
@@ -88,14 +87,14 @@ describe("getCallStateColors", () => {
         });
 
         it("returns yellow with green highlight when outgoing prio and blink on", () => {
-            expect(colors({beingCalled: true, outgoingPrio: true, blink: true})).toEqual({
+            expect(colors({beingCalled: true, prio: true, blink: true})).toEqual({
                 color: "yellow",
                 highlight: "green",
             });
         });
 
         it("returns gray with green highlight when outgoing prio and blink off", () => {
-            expect(colors({beingCalled: true, outgoingPrio: true, blink: false})).toEqual({
+            expect(colors({beingCalled: true, prio: true, blink: false})).toEqual({
                 color: "gray",
                 highlight: "green",
             });

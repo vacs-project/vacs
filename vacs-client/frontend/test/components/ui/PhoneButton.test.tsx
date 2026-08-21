@@ -8,7 +8,7 @@ import {
     ButtonHighlightColors,
 } from "../../../src/components/ui/Button.tsx";
 import {useCallStore} from "../../../src/stores/call-store.ts";
-import {CallId} from "../../../src/types/generic.ts";
+import {CallId, StationId} from "../../../src/types/generic.ts";
 import {flipBlink, makeTestCall, makeTestCallDisplay} from "../../util.ts";
 import {useBlinkStore} from "../../../src/stores/blink-store.ts";
 
@@ -34,7 +34,9 @@ describe("PhoneButton", () => {
 
         it("blinks between yellow with green highlight and gray with green highlight for priority call", async () => {
             useCallStore.setState({
-                callDisplay: makeTestCallDisplay("outgoing", {prio: true}),
+                callDisplay: makeTestCallDisplay("outgoing", {}, [
+                    {station: "station1" as StationId},
+                ]),
             });
             useBlinkStore.setState({blink: true});
             render(<PhoneButton />);
@@ -171,7 +173,9 @@ describe("PhoneButton", () => {
 
         it("renders yellow with green highlight for priority call", () => {
             useCallStore.setState({
-                callDisplay: makeTestCallDisplay("accepted", {prio: true}),
+                callDisplay: makeTestCallDisplay("accepted", {}, [
+                    {station: "station1" as StationId},
+                ]),
             });
             render(<PhoneButton />);
             expectColorAndHighlight("yellow", "green");
