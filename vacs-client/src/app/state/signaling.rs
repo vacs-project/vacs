@@ -1352,7 +1352,6 @@ impl AppStateInner {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
-                        state.stop_ringback_if_no_invited_targets(call_id);
                         state.remove_incoming_call(call_id);
 
                         let Some(current_call) = state.current_call_mut(call_id) else {
@@ -1378,6 +1377,8 @@ impl AppStateInner {
                                 targets.iter(),
                             );
                         }
+
+                        state.stop_ringback_if_no_invited_targets(call_id);
                     }
 
                     app.emit::<FrontendError>(
