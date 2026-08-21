@@ -45,7 +45,8 @@ pub enum PeerEvent {
 }
 
 pub struct Peer {
-    peer_connection: RTCPeerConnection,
+    peer_connection: Arc<RTCPeerConnection>,
+    closed: bool,
     track: Arc<TrackLocalStaticSample>,
     sender: Option<crate::Sender>,
     receiver: Option<crate::Receiver>,
@@ -82,10 +83,11 @@ impl Peer {
             tracing::info!("Forcing relayed (TURN) connection for peer");
         }
 
-        let peer_connection = api
-            .new_peer_connection(rtc_configuration(config, force_relay))
-            .await
-            .context("Failed to create peer connection")?;
+        let peer_connection = Arc::new(
+            api.new_peer_connection(rtc_configuration(config, force_relay))
+                .await
+                .context("Failed to create peer connection")?,
+        );
 
         let track = Arc::new(TrackLocalStaticSample::new(
             RTCRtpCodecCapability {
@@ -196,6 +198,7 @@ impl Peer {
         Ok((
             Self {
                 peer_connection,
+                closed: false,
                 track,
                 sender: None,
                 receiver: None,
@@ -352,6 +355,7 @@ impl Peer {
         self.stop().await.context("Failed to stop peer")?;
 
         tracing::trace!("Closing peer connection");
+        self.closed = true;
         self.peer_connection
             .close()
             .await
@@ -467,6 +471,27 @@ impl Drop for Peer {
             watchdog.abort();
         }
         self.rtcp_reader.abort();
+
+        // RTCPeerConnection has no Drop of its own: without an explicit
+        // close, the ICE agent, DTLS transport and bound UDP sockets outlive
+        // the peer for the rest of the process.
+        if !self.closed {
+            let peer_connection = Arc::clone(&self.peer_connection);
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(async move {
+                        if let Err(err) = peer_connection.close().await {
+                            tracing::warn!(?err, "Failed to close dropped peer connection");
+                        }
+                    });
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "Peer dropped outside a tokio runtime, leaking the peer connection"
+                    );
+                }
+            }
+        }
     }
 }
 
