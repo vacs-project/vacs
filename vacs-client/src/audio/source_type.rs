@@ -114,9 +114,6 @@ impl SourceType {
                 output_channels,
                 volume,
             ),
-            // A three-rung ladder in even 220 Hz steps, sitting just above CallStart/CallEnd.
-            // The extra step is what sets these apart from the two-tone call sounds; joined
-            // climbs and grows, left descends and fades.
             SourceType::ParticipantJoined => WaveformSource::new(
                 vec![
                     WaveformSegment::new(
