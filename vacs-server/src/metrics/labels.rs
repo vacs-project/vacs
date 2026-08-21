@@ -69,6 +69,9 @@ impl AsMetricLabel for CallAttemptOutcome {
                 "error_not_conference_leader"
             }
             CallAttemptOutcome::Error(CallErrorReason::NotParticipant) => "error_not_participant",
+            CallAttemptOutcome::Error(CallErrorReason::MaxConferenceSizeReached(_)) => {
+                "error_max_conference_size_reached"
+            }
             CallAttemptOutcome::Error(CallErrorReason::Other) => "error_other",
         }
     }
@@ -170,6 +173,7 @@ impl AsMetricLabel for CallErrorReason {
             CallErrorReason::AutoHangup => "auto_hangup",
             CallErrorReason::NotConferenceLeader(_) => "not_conference_leader",
             CallErrorReason::NotParticipant => "not_participant",
+            CallErrorReason::MaxConferenceSizeReached(_) => "max_conference_size_reached",
             CallErrorReason::Other => "other",
         }
     }
