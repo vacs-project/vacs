@@ -107,28 +107,35 @@ impl CallManager {
         self.active_calls.read().get(call_id).map(Into::into)
     }
 
-    pub fn invite_exceeds_max_conf_size(&self, call_id: &CallId, targets_len: usize) -> bool {
-        let joined_len = self
-            .active_calls
-            .read()
-            .get(call_id)
+    pub fn invite_exceeds_max_conf_size(
+        &self,
+        call_id: &CallId,
+        caller_id: &ClientId,
+        targets: &HashSet<CallTarget>,
+    ) -> bool {
+        let ringing_calls = self.ringing_calls.read();
+        let ringing = ringing_calls.get(call_id);
+        let ringing_len = ringing.map(|call| call.targets.len()).unwrap_or_default();
+
+        let active_calls = self.active_calls.read();
+        let active = active_calls.get(call_id);
+        let joined_len = active
             .map(|call| call.participants.len())
             .unwrap_or_default();
+        let caller_joined = active.is_some_and(|call| call.participants.contains_key(caller_id));
 
-        let ringing_len = self
-            .ringing_calls
-            .read()
-            .get(call_id)
-            .map(|call| call.targets.len())
-            .unwrap_or_default();
+        // Only targets not already ringing or joined can grow the call.
+        let new_targets = targets
+            .iter()
+            .filter(|target| {
+                !ringing.is_some_and(|call| call.targets.contains_key(*target))
+                    && !active.is_some_and(|call| {
+                        call.participants.values().any(|joined| joined == *target)
+                    })
+            })
+            .count();
 
-        let caller = if joined_len == 0 && ringing_len == 0 {
-            1
-        } else {
-            0
-        };
-
-        joined_len + ringing_len + targets_len + caller > self.max_conf_size
+        joined_len + ringing_len + new_targets + usize::from(!caller_joined) > self.max_conf_size
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -1405,6 +1412,111 @@ mod tests {
                 AcceptCallOutcome::Accepted { .. }
             ),
             "call should be accepted"
+        );
+    }
+
+    /// The size check counts the caller, joined participants, ringing targets
+    /// and only the genuinely new targets of the invite.
+    #[test]
+    fn max_conf_size_counts_new_targets_and_the_caller() {
+        let manager = CallManager::new(3);
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+
+        assert!(
+            !manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([
+                    CallTarget::Client(ClientId::from("a")),
+                    CallTarget::Client(ClientId::from("b")),
+                ]),
+            ),
+            "caller plus two targets must fit a limit of three"
+        );
+        assert!(
+            manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([
+                    CallTarget::Client(ClientId::from("a")),
+                    CallTarget::Client(ClientId::from("b")),
+                    CallTarget::Client(ClientId::from("c")),
+                ]),
+            ),
+            "caller plus three targets must exceed a limit of three"
+        );
+
+        join(&manager, &call_id, &caller, &callee);
+
+        assert!(
+            !manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([CallTarget::Client(callee.clone())]),
+            ),
+            "a target that already joined must not count against the limit"
+        );
+        assert!(
+            !manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([CallTarget::Client(ClientId::from("third"))]),
+            ),
+            "two joined plus one new target must fit a limit of three"
+        );
+        assert!(
+            manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([
+                    CallTarget::Client(ClientId::from("third")),
+                    CallTarget::Client(ClientId::from("fourth")),
+                ]),
+            ),
+            "two joined plus two new targets must exceed a limit of three"
+        );
+    }
+
+    /// The caller of a purely ringing call is counted even though it has not
+    /// joined yet, and already ringing targets are not counted twice.
+    #[test]
+    fn max_conf_size_counts_the_unjoined_caller_and_dedups_ringing_targets() {
+        let manager = CallManager::new(3);
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let target = CallTarget::Client(callee.clone());
+
+        manager
+            .attempt_call(
+                &call_id,
+                &caller,
+                &source(&caller),
+                &target,
+                &HashSet::from([callee]),
+            )
+            .expect("call attempt should succeed");
+
+        assert!(
+            !manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([target.clone(), CallTarget::Client(ClientId::from("third"))]),
+            ),
+            "the already ringing target must not count twice"
+        );
+        assert!(
+            manager.invite_exceeds_max_conf_size(
+                &call_id,
+                &caller,
+                &HashSet::from([
+                    CallTarget::Client(ClientId::from("third")),
+                    CallTarget::Client(ClientId::from("fourth")),
+                ]),
+            ),
+            "the unjoined caller plus one ringing plus two new targets must exceed a limit of three"
         );
     }
 
