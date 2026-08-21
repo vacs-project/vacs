@@ -2,7 +2,7 @@ import {act} from "@testing-library/preact";
 import {CallId, ClientId, PositionId, StationId} from "../src/types/generic.ts";
 import {useBlinkStore} from "../src/stores/blink-store.ts";
 import {CallDisplay, CallDisplayType} from "../src/stores/call-store.ts";
-import {Call} from "../src/types/call.ts";
+import {Call, CallTarget} from "../src/types/call.ts";
 
 export async function flipBlink() {
     await act(() => {
@@ -32,6 +32,7 @@ export function makeTestCall(
 export function makeTestCallDisplay(
     type: CallDisplayType,
     overrides: Partial<Call> = {},
+    prioTargets: CallTarget[] = [],
 ): CallDisplay {
     return {
         type,
@@ -52,6 +53,7 @@ export function makeTestCallDisplay(
                     : {},
             isConferenceLeader: undefined,
         },
+        prioTargets,
         erroredTargets: [],
         rejectedTargets: [],
     };

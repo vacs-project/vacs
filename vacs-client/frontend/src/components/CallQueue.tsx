@@ -53,7 +53,7 @@ function CallQueue() {
         }
     };
 
-    const cdPrio = callDisplay?.call.prio === true && enablePrio;
+    const cdPrio = enablePrio && callDisplay !== undefined && callDisplay.prioTargets.length > 0;
 
     const {color: cdColor, highlight: cdHighlight} = getCallStateColors({
         inCall: callDisplay?.type === "accepted",
@@ -61,8 +61,7 @@ function CallQueue() {
         beingCalled: callDisplay?.type === "outgoing",
         isRejected: callDisplay?.type === "rejected",
         isError: callDisplay?.type === "error",
-        outgoingPrio: cdPrio,
-        incomingPrio: false,
+        prio: cdPrio,
         blink,
     });
 
@@ -111,8 +110,7 @@ function CallQueue() {
                     beingCalled: false,
                     isRejected: false,
                     isError: false,
-                    outgoingPrio: false,
-                    incomingPrio,
+                    prio: incomingPrio,
                     blink,
                 });
                 return (
