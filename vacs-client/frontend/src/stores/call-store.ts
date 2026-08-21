@@ -10,6 +10,7 @@ import {
     CallDisplayCall,
     participantCount,
     hasTarget,
+    callSourceToTarget,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
@@ -23,6 +24,7 @@ export type CallDisplayType = "outgoing" | "accepted" | "rejected" | "error";
 export type CallDisplay = {
     type: CallDisplayType;
     call: CallDisplayCall;
+    prioTargets: CallTarget[];
     erroredTargets: {target: CallTarget; reason: string}[];
     rejectedTargets: CallTarget[];
     errorReason?: string;
@@ -77,6 +79,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 callDisplay: {
                     type: "outgoing",
                     call,
+                    prioTargets: call.prio ? call.invitedTargets : [],
                     rejectedTargets: [],
                     erroredTargets: [],
                 },
@@ -114,6 +117,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                         ),
                         isConferenceLeader: callSize > 1 ? false : undefined,
                     },
+                    prioTargets: incomingCall.prio ? [callSourceToTarget(incomingCall.source)] : [],
                     rejectedTargets: [],
                     erroredTargets: [],
                 },
@@ -192,17 +196,44 @@ export const useCallStore = create<CallState>()((set, get) => ({
                       )[0] ??
                       callDisplay.call.target);
 
+                const sourceAsTarget = callSourceToTarget(callDisplay.call.source);
+                const sourceStillPresent =
+                    hasTarget(update.invitedTargets, sourceAsTarget) ||
+                    hasTarget(update.joinedParticipants, sourceAsTarget);
+
+                const source: CallSource = sourceStillPresent
+                    ? callDisplay.call.source
+                    : (Object.entries(update.joinedParticipants).flatMap(([clientId, target]) =>
+                          clientId !== ownClientId
+                              ? [
+                                    {
+                                        clientId: clientId as ClientId,
+                                        positionId: target.position,
+                                        stationId: target.station,
+                                    },
+                                ]
+                              : [],
+                      )[0] ?? callDisplay.call.source);
+
                 const nextCallDisplay: CallDisplay = {
                     ...callDisplay,
                     type,
                     call: {
                         ...callDisplay.call,
+                        source,
                         target,
                         invitedTargets: update.invitedTargets,
                         joinedParticipants: Object.assign({}, ...joinedParticipants),
                         isConferenceLeader,
                     },
+                    prioTargets: callDisplay.prioTargets.filter(
+                        target =>
+                            hasTarget(update.invitedTargets, target) ||
+                            hasTarget(update.joinedParticipants, target),
+                    ),
                 };
+
+                console.log(nextCallDisplay);
 
                 set({callDisplay: nextCallDisplay});
 
@@ -241,13 +272,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
             }
 
             callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
+                target => !hasTarget(targets, target),
+            );
+
+            callDisplay.prioTargets = callDisplay.prioTargets.filter(
                 target =>
-                    !targets.some(
-                        rejectedTarget =>
-                            rejectedTarget.client === target.client &&
-                            rejectedTarget.position === target.position &&
-                            rejectedTarget.station === target.station,
-                    ),
+                    hasTarget(callDisplay.call.invitedTargets, target) ||
+                    hasTarget(callDisplay.call.joinedParticipants, target),
             );
 
             const callSize =
@@ -316,15 +347,15 @@ export const useCallStore = create<CallState>()((set, get) => ({
             if (targets.length === 0) {
                 callDisplay.call.invitedTargets = [];
                 callDisplay.call.joinedParticipants = {};
+                callDisplay.prioTargets = [];
             } else {
                 callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
+                    target => !hasTarget(targets, target),
+                );
+                callDisplay.prioTargets = callDisplay.prioTargets.filter(
                     target =>
-                        !targets.some(
-                            errorTarget =>
-                                errorTarget.client === target.client &&
-                                errorTarget.position === target.position &&
-                                errorTarget.station === target.station,
-                        ),
+                        hasTarget(callDisplay.call.invitedTargets, target) ||
+                        hasTarget(callDisplay.call.joinedParticipants, target),
                 );
             }
 
@@ -516,6 +547,9 @@ export const startCall = async (...targets: CallTarget[]) => {
                         invitedTargets: callDisplay.call.invitedTargets.concat(targets),
                         isConferenceLeader: true,
                     },
+                    prioTargets: prio
+                        ? callDisplay.prioTargets.concat(targets)
+                        : callDisplay.prioTargets,
                 },
                 conferenceState: "active",
             });

@@ -23,6 +23,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     );
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
+    // TODO fix states to align with station-key-interaction-hook
     const incomingCall = incomingCalls.find(
         call =>
             call.source.clientId === client.id ||
@@ -101,8 +102,10 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const [stationName, stationType] = splitDisplayName(client.displayName);
     const showFrequency = client.frequency !== "" && config?.frequencies === "ShowAll";
 
-    const outgoingPrio = callDisplay?.call.prio === true && enablePrio;
-    const incomingPrio = incomingCall?.prio === true && enablePrio;
+    const prio =
+        enablePrio &&
+        callDisplay !== undefined &&
+        hasTarget(callDisplay.prioTargets, {client: client.id});
 
     const {color, highlight} = getCallStateColors({
         inCall,
@@ -110,8 +113,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
         beingCalled,
         isRejected,
         isError,
-        outgoingPrio,
-        incomingPrio,
+        prio,
         blink,
     });
 

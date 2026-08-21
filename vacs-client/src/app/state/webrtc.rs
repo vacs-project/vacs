@@ -344,8 +344,6 @@ impl AppStateWebrtcExt for AppStateInner {
             if let Some(audio_source_id) = audio_source_id {
                 let mut audio_manager = self.audio_manager.write();
                 audio_manager.detach_call_output(audio_source_id);
-
-                // TODO remove input stream, detach input device if last
                 audio_manager.detach_input_device();
             }
         }

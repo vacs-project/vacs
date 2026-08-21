@@ -12,9 +12,13 @@ function PhoneButton() {
     const blink = useBlinkStore(state => state.blink);
     const callDisplayType = useCallStore(state => state.callDisplay?.type);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
-    const outgoingPrio = useCallStore(state => state.callDisplay?.call.prio === true) && enablePrio;
-    const incomingPrio =
-        useCallStore(state => state.incomingCalls.some(call => call.prio)) && enablePrio;
+    const prio = useCallStore(
+        state =>
+            enablePrio &&
+            (state.callDisplay !== undefined
+                ? state.callDisplay.prioTargets.length > 0
+                : state.incomingCalls.some(call => call.prio)),
+    );
     const incoming = useCallStore(state => state.incomingCalls.length > 0);
     const setFilter = useFilterStore(state => state.setFilter);
     const setSelectedPage = useProfileStore(state => state.setPage);
@@ -28,8 +32,7 @@ function PhoneButton() {
         beingCalled: callDisplayType === "outgoing",
         isRejected: callDisplayType === "rejected",
         isError: callDisplayType === "error",
-        outgoingPrio,
-        incomingPrio,
+        prio,
         blink,
     });
 
