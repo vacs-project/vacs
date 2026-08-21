@@ -109,22 +109,14 @@ export function useStationKeyInteraction(
                     updateCall({
                         callId: callDisplay.call.callId,
                         invitedTargets: callDisplay.call.invitedTargets.filter(
-                            target =>
-                                target.client === undefined &&
-                                target.position === undefined &&
-                                target.station !== stationId,
+                            target => target.station !== stationId,
                         ),
                         joinedParticipants: Object.assign(
                             {},
                             ...Object.entries(callDisplay.call.joinedParticipants)
-                                .filter(
-                                    ([_, value]) =>
-                                        value.target.client === undefined &&
-                                        value.target.position === undefined &&
-                                        value.target.station !== stationId,
-                                )
+                                .filter(([_, value]) => value.target.station !== stationId)
                                 .map(([clientId, value]) => ({
-                                    [clientId]: value,
+                                    [clientId]: value.target,
                                 })),
                         ),
                     });
