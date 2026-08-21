@@ -1,16 +1,30 @@
-import {describe, expect, it, afterEach} from "vitest";
+import {describe, expect, it, afterEach, vi} from "vitest";
+
+const {invoke, listen} = vi.hoisted(() => ({
+    invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
+        Promise.resolve(undefined),
+    ),
+    listen: vi.fn<() => Promise<() => void>>(() => Promise.resolve(() => {})),
+}));
+
+vi.mock("../../src/transport", () => ({invoke, listen, isTauri: false, isRemote: () => true}));
+
 import {renderHook, act} from "@testing-library/preact";
 import {useStationKeyInteraction} from "../../src/hooks/station-key-interaction-hook.ts";
 import {useStationsStore} from "../../src/stores/stations-store.ts";
-import {useCallStore} from "../../src/stores/call-store.ts";
+import {CallDisplay, CallDisplayType, useCallStore} from "../../src/stores/call-store.ts";
 import {useSettingsStore} from "../../src/stores/settings-store.ts";
-import type {StationId} from "../../src/types/generic.ts";
+import type {ClientId, StationId} from "../../src/types/generic.ts";
 import type {ButtonColor, ButtonHighlightColor} from "../../src/components/ui/Button.tsx";
 import type {StationInfo} from "../../src/types/station.ts";
+import type {CallParticipantsWithConnectionState, CallTarget} from "../../src/types/call.ts";
+import {makeTestCallDisplay} from "../util.ts";
 
 const OWN_STATION = "LOVV_N1" as StationId;
 const OTHER_OWN_STATION = "LOVV_N2" as StationId;
 const FOREIGN_STATION = "LOWI_APP" as StationId;
+const SECOND_FOREIGN_STATION = "LOWW_APP" as StationId;
+const THIRD_FOREIGN_STATION = "LOWS_APP" as StationId;
 
 type InteractionResult = ReturnType<typeof useStationKeyInteraction>;
 type ExpectedInteraction = {
@@ -41,7 +55,44 @@ function setOwnStations(...ids: StationId[]) {
     setStations(ids.map(id => ({id, own: true})));
 }
 
+type CallDisplayOptions = {
+    type: CallDisplayType;
+    invitedTargets?: StationId[];
+    ownInvitedTargets?: StationId[];
+    joinedStations?: StationId[];
+    isConferenceLeader?: boolean;
+};
+
+function target(station: StationId): CallTarget {
+    return {station};
+}
+
+function makeCallDisplay(options: CallDisplayOptions): CallDisplay {
+    const invitedTargets = (options.invitedTargets ?? []).map(target);
+    const base = makeTestCallDisplay("outgoing", {invitedTargets});
+
+    const joinedParticipants: CallParticipantsWithConnectionState = {};
+    (options.joinedStations ?? []).forEach((station, index) => {
+        joinedParticipants[`client${index}` as ClientId] = {
+            target: target(station),
+            state: "connected",
+        };
+    });
+
+    return {
+        ...base,
+        type: options.type,
+        call: {
+            ...base.call,
+            joinedParticipants,
+            ownInvitedTargets: (options.ownInvitedTargets ?? []).map(target),
+            isConferenceLeader: options.isConferenceLeader,
+        },
+    };
+}
+
 afterEach(() => {
+    vi.clearAllMocks();
     useStationsStore.getState().reset();
     useCallStore.getState().actions.reset();
     useSettingsStore.setState({
@@ -454,6 +505,189 @@ describe("useStationKeyInteraction", () => {
                 result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
+        });
+    });
+
+    describe("clicking a station that is part of the current call", () => {
+        it("cancels one of two ringing targets it invited itself", async () => {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+            ]);
+            useCallStore.setState({
+                callDisplay: makeCallDisplay({
+                    type: "outgoing",
+                    invitedTargets: [FOREIGN_STATION, SECOND_FOREIGN_STATION],
+                    ownInvitedTargets: [FOREIGN_STATION, SECOND_FOREIGN_STATION],
+                    isConferenceLeader: true,
+                }),
+                conferenceState: "active",
+            });
+            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).toHaveBeenCalledTimes(1);
+            expect(invoke).toHaveBeenCalledWith("signaling_drop_target", {
+                callId: "call0",
+                target: {station: FOREIGN_STATION},
+            });
+            const callDisplay = useCallStore.getState().callDisplay;
+            expect(callDisplay?.call.invitedTargets).toEqual([{station: SECOND_FOREIGN_STATION}]);
+        });
+
+        it("keeps the invitation when the server refuses the drop", async () => {
+            setStations([
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+            ]);
+            const display = makeCallDisplay({
+                type: "outgoing",
+                invitedTargets: [FOREIGN_STATION, SECOND_FOREIGN_STATION],
+                ownInvitedTargets: [FOREIGN_STATION, SECOND_FOREIGN_STATION],
+                isConferenceLeader: true,
+            });
+            useCallStore.setState({callDisplay: display});
+            invoke.mockRejectedValueOnce({
+                title: "Call",
+                detail: "Not allowed",
+                isNonCritical: true,
+            });
+            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+            expect(useCallStore.getState().callDisplay?.call.invitedTargets).toEqual([
+                {station: FOREIGN_STATION},
+                {station: SECOND_FOREIGN_STATION},
+            ]);
+        });
+
+        it("does nothing for a pending invitation of another participant", async () => {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+            ]);
+            const display = makeCallDisplay({
+                type: "accepted",
+                invitedTargets: [SECOND_FOREIGN_STATION],
+                ownInvitedTargets: [],
+                joinedStations: [OWN_STATION, FOREIGN_STATION],
+                isConferenceLeader: false,
+            });
+            useCallStore.setState({callDisplay: display});
+            const {result} = renderHook(() => useStationKeyInteraction(SECOND_FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).not.toHaveBeenCalled();
+            expect(useCallStore.getState().callDisplay).toBe(display);
+            // The key still renders as ringing, so the click really hit the
+            // display-only branch instead of falling through to startCall.
+            expect(result.current.highlight).toBe("green");
+        });
+
+        it("drops a joined participant as conference leader without changing local state", async () => {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+                {id: THIRD_FOREIGN_STATION, own: false},
+            ]);
+            const display = makeCallDisplay({
+                type: "accepted",
+                joinedStations: [
+                    OWN_STATION,
+                    FOREIGN_STATION,
+                    SECOND_FOREIGN_STATION,
+                    THIRD_FOREIGN_STATION,
+                ],
+                isConferenceLeader: true,
+            });
+            useCallStore.setState({callDisplay: display, conferenceState: "active"});
+            const {result} = renderHook(() => useStationKeyInteraction(SECOND_FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).toHaveBeenCalledTimes(1);
+            expect(invoke).toHaveBeenCalledWith("signaling_drop_target", {
+                callId: "call0",
+                target: {station: SECOND_FOREIGN_STATION},
+            });
+            // The participant is only removed once the server confirms the drop.
+            expect(useCallStore.getState().callDisplay).toBe(display);
+            expect(Object.keys(display.call.joinedParticipants)).toHaveLength(4);
+        });
+
+        it("ends the call when a non-leader clicks a joined participant", async () => {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+                {id: THIRD_FOREIGN_STATION, own: false},
+            ]);
+            useCallStore.setState({
+                callDisplay: makeCallDisplay({
+                    type: "accepted",
+                    joinedStations: [
+                        OWN_STATION,
+                        FOREIGN_STATION,
+                        SECOND_FOREIGN_STATION,
+                        THIRD_FOREIGN_STATION,
+                    ],
+                    isConferenceLeader: false,
+                }),
+                conferenceState: "active",
+            });
+            const {result} = renderHook(() => useStationKeyInteraction(SECOND_FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).toHaveBeenCalledTimes(1);
+            expect(invoke).toHaveBeenCalledWith("signaling_end_call", {callId: "call0"});
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
+        });
+
+        it("ends the call when the leader clicks the only other participant", async () => {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+            ]);
+            useCallStore.setState({
+                callDisplay: makeCallDisplay({
+                    type: "accepted",
+                    joinedStations: [OWN_STATION, FOREIGN_STATION],
+                    isConferenceLeader: true,
+                }),
+            });
+            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).toHaveBeenCalledTimes(1);
+            expect(invoke).toHaveBeenCalledWith("signaling_end_call", {callId: "call0"});
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
+        });
+
+        it("ends the call when cancelling the only ringing target of a 1:1 call", async () => {
+            setStations([{id: FOREIGN_STATION, own: false}]);
+            useCallStore.setState({
+                callDisplay: makeCallDisplay({
+                    type: "outgoing",
+                    invitedTargets: [FOREIGN_STATION],
+                    ownInvitedTargets: [FOREIGN_STATION],
+                }),
+            });
+            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).toHaveBeenCalledTimes(1);
+            expect(invoke).toHaveBeenCalledWith("signaling_end_call", {callId: "call0"});
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
         });
     });
 });
