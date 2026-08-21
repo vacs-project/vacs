@@ -48,6 +48,17 @@ pub enum CallTerminationOutcome {
     Changed(Vec<UpdateCallAction>),
 }
 
+#[derive(Debug)]
+pub enum AcceptCallOutcome {
+    Accepted {
+        target: Box<RingingTarget>,
+        update: UpdateParticipants,
+    },
+    /// The accepting client already participates in another active call.
+    AcceptorBusy,
+    NotFound,
+}
+
 /// Lock order: when holding more than one lock, acquire them in field order —
 /// `ringing_calls` → `active_calls` → `client_incoming_calls` / `client_active_calls`.
 /// Never acquire a lock while holding one that comes later in this order.
@@ -90,10 +101,6 @@ impl CallManager {
             .read()
             .get(call_id)
             .is_some_and(|active| active.involves(client_id))
-    }
-
-    pub fn has_any_active_call(&self, client_id: &ClientId) -> bool {
-        self.client_active_calls.read().get(client_id).is_some()
     }
 
     pub fn active_call(&self, call_id: &CallId) -> Option<ActiveCall> {
@@ -332,10 +339,23 @@ impl CallManager {
         &self,
         call_id: &CallId,
         accepting_client_id: &ClientId,
-    ) -> Option<(RingingTarget, UpdateParticipants)> /* (accepted_target, update_participants) */
-    {
-        let (ringing_target, invited_participants) = {
-            let mut ringing_calls = self.ringing_calls.write();
+    ) -> AcceptCallOutcome {
+        // Held across the whole accept: every teardown path acquires
+        // `ringing_calls` before `active_calls`, so this guard keeps a
+        // concurrent teardown from interleaving between the ringing and
+        // active updates below.
+        let mut ringing_calls = self.ringing_calls.write();
+
+        // Under the same guard, so concurrent accepts serialize.
+        if self
+            .client_active_calls
+            .read()
+            .contains_key(accepting_client_id)
+        {
+            return AcceptCallOutcome::AcceptorBusy;
+        }
+
+        let accepted = {
             match ringing_calls.entry(*call_id) {
                 Entry::Occupied(mut entry) => {
                     let ringing_call = entry.get_mut();
@@ -379,7 +399,10 @@ impl CallManager {
                 }
                 _ => None,
             }
-        }?;
+        };
+        let Some((ringing_target, invited_participants)) = accepted else {
+            return AcceptCallOutcome::NotFound;
+        };
 
         {
             let mut client_incoming_calls = self.client_incoming_calls.write();
@@ -443,11 +466,11 @@ impl CallManager {
 
                 drop(active_calls);
 
-                {
-                    let mut client_active_calls = self.client_active_calls.write();
-                    client_active_calls.insert(ringing_target.caller_id.clone(), *call_id);
-                    client_active_calls.insert(accepting_client_id.clone(), *call_id);
-                }
+                // attempt_call already registered the caller; re-inserting it
+                // would resurrect an entry a concurrent teardown just removed.
+                self.client_active_calls
+                    .write()
+                    .insert(accepting_client_id.clone(), *call_id);
 
                 participants
             }
@@ -459,7 +482,10 @@ impl CallManager {
             joined_participants,
         };
 
-        Some((ringing_target, update))
+        AcceptCallOutcome::Accepted {
+            target: Box::new(ringing_target),
+            update,
+        }
     }
 
     /// Removes a single target from a call without ending it: a ringing target
@@ -1373,9 +1399,87 @@ mod tests {
             )
             .expect("call attempt should succeed");
 
+        assert!(
+            matches!(
+                manager.accept_call(call_id, callee),
+                AcceptCallOutcome::Accepted { .. }
+            ),
+            "call should be accepted"
+        );
+    }
+
+    /// A client that already participates in an active call must not be able
+    /// to accept another one, however it was rung.
+    #[test]
+    fn accepting_while_in_another_call_is_rejected() {
+        let manager = CallManager::default();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+
+        join(&manager, &call_id, &caller, &callee);
+
+        let other_call_id = CallId::new();
+        let other_caller = ClientId::from("other-caller");
         manager
-            .accept_call(call_id, callee)
-            .expect("call should be accepted");
+            .attempt_call(
+                &other_call_id,
+                &other_caller,
+                &source(&other_caller),
+                &CallTarget::Client(callee.clone()),
+                &HashSet::from([callee.clone()]),
+            )
+            .expect("ringing a busy client is allowed");
+
+        assert!(
+            matches!(
+                manager.accept_call(&other_call_id, &callee),
+                AcceptCallOutcome::AcceptorBusy
+            ),
+            "a busy client's accept must be rejected"
+        );
+        assert!(
+            manager.active_call(&other_call_id).is_none(),
+            "the rejected accept must not create an active call"
+        );
+    }
+
+    /// A late accept for a call the caller already cancelled must fail
+    /// without creating an active call, and must leave both clients free to
+    /// start new calls.
+    #[test]
+    fn late_accept_after_cancel_does_not_resurrect_the_call() {
+        let manager = CallManager::default();
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+
+        manager
+            .attempt_call(
+                &call_id,
+                &caller,
+                &source(&caller),
+                &CallTarget::Client(callee.clone()),
+                &HashSet::from([callee.clone()]),
+            )
+            .expect("call attempt should succeed");
+        manager
+            .end_call(&call_id, &caller)
+            .expect("cancelling the ringing call must produce actions");
+
+        assert!(
+            matches!(
+                manager.accept_call(&call_id, &callee),
+                AcceptCallOutcome::NotFound
+            ),
+            "the late accept must not find the cancelled call"
+        );
+        assert!(
+            manager.active_call(&call_id).is_none(),
+            "the late accept must not create an active call"
+        );
+
+        join(&manager, &CallId::new(), &caller, &callee);
     }
 
     /// Only the client that sent an invitation may cancel it, even though every
