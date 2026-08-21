@@ -46,12 +46,16 @@ impl Receiver {
                                 Ok((packet, _)) => {
                                     received_packets.fetch_add(1, Ordering::Relaxed);
                                     match output_tx.as_ref() {
-                                        Some(output_tx) => {
-                                            if output_tx.send(packet.payload).await.is_err() {
-                                                tracing::warn!("Failed to send received RTP packet to output");
-                                                break;
+                                        Some(tx) => {
+                                            if tx.send(packet.payload).await.is_err() {
+                                                // The track is still alive; park like a pause so a
+                                                // later resume() takes effect instead of leaving
+                                                // the peer one-way.
+                                                tracing::warn!("Output for received RTP packets is gone, pausing receiver");
+                                                output_tx = None;
+                                            } else {
+                                                forwarded_packets.fetch_add(1, Ordering::Relaxed);
                                             }
-                                            forwarded_packets.fetch_add(1, Ordering::Relaxed);
                                         }
                                         None => {
                                             tracing::trace!("Receiver paused, dropping inbound frame");
