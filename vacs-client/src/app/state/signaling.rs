@@ -1078,7 +1078,9 @@ impl AppStateInner {
                 let mut state = state.lock().await;
 
                 match reason {
-                    CallCancelReason::AnsweredElsewhere(_) | CallCancelReason::CallerCancelled => {
+                    CallCancelReason::AnsweredElsewhere(_)
+                    | CallCancelReason::CallerCancelled
+                    | CallCancelReason::Errored(CallErrorReason::AutoHangup) => {
                         state.cleanup_current_call(call_id).await;
 
                         state.remove_incoming_call(call_id);
