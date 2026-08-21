@@ -33,6 +33,10 @@ use vacs_webrtc::error::WebrtcError;
 
 const INCOMING_CALLS_LIMIT: usize = 5;
 const WS_LOGIN_TIMEOUT: Duration = Duration::from_secs(10);
+// Bounds the time between joining a call and the first peer connection attempt
+// existing; without it, an accepted call whose offer never arrives sits in a
+// silent, peer-less state until manually ended.
+const CALL_ESTABLISHMENT_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +99,8 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         targets: impl Iterator<Item = &'a CallTarget>,
     );
     fn cancel_all_unanswered_call_timers(&mut self, call_id: CallId);
+    fn start_call_establishment_timer(&mut self, app: &AppHandle, call_id: CallId);
+    fn cancel_call_establishment_timer(&mut self);
     async fn accept_call(
         &mut self,
         app: &AppHandle,
@@ -378,6 +384,77 @@ impl AppStateSignalingExt for AppStateInner {
         });
     }
 
+    fn start_call_establishment_timer(&mut self, app: &AppHandle, call_id: CallId) {
+        if self
+            .establishment_guard
+            .as_ref()
+            .is_some_and(|guard| guard.call_id == call_id)
+        {
+            return;
+        }
+        self.cancel_call_establishment_timer();
+
+        let cancel = self.shutdown_token.child_token();
+        let handle = tauri::async_runtime::spawn({
+            let app = app.clone();
+            let cancel = cancel.clone();
+
+            async move {
+                log::debug!(
+                    "Starting call establishment timer of {CALL_ESTABLISHMENT_TIMEOUT:?} for call {call_id}"
+                );
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => {
+                        log::debug!("Call establishment timer cancelled for call {call_id}");
+                    }
+                    _ = tokio::time::sleep(CALL_ESTABLISHMENT_TIMEOUT) => {
+                        let state = app.state::<AppState>();
+                        let mut state = state.lock().await;
+
+                        state.establishment_guard = None;
+
+                        if state.current_call(call_id).is_none()
+                            || state.webrtc_call(call_id).is_some_and(|call| !call.is_empty())
+                        {
+                            return;
+                        }
+
+                        log::warn!(
+                            "No peer connection established for call {call_id} within {CALL_ESTABLISHMENT_TIMEOUT:?}, ending call"
+                        );
+
+                        if let Some(ending_client_id) = state.client_id.clone()
+                            && let Err(err) = state
+                                .send_signaling_message(shared::CallEnd { call_id, ending_client_id })
+                                .await
+                        {
+                            log::warn!("Failed to send call end after establishment timeout for call {call_id}: {err:?}");
+                        }
+
+                        state.emit_call_error(&app, call_id, true, CallErrorOrigin::Call, CallErrorReason::CallFailure);
+                        state.cancel_all_unanswered_call_timers(call_id);
+                        state.cleanup_current_call(call_id).await;
+                        app.emit("signaling:force-call-end", &call_id).ok();
+                    }
+                }
+            }
+        });
+
+        self.establishment_guard = Some(UnansweredCallGuard {
+            call_id,
+            cancel,
+            handle,
+        });
+    }
+
+    fn cancel_call_establishment_timer(&mut self) {
+        if let Some(guard) = self.establishment_guard.take() {
+            guard.cancel.cancel();
+            guard.handle.abort();
+        }
+    }
+
     async fn accept_call(
         &mut self,
         app: &AppHandle,
@@ -430,6 +507,8 @@ impl AppStateSignalingExt for AppStateInner {
         }
 
         self.current_call = Some(call);
+
+        self.start_call_establishment_timer(app, call_id);
 
         self.stop_ringing_if_no_incoming_calls();
 
@@ -858,6 +937,21 @@ impl AppStateInner {
 
                     app.emit("signaling:force-call-end", call_id).ok();
                     return;
+                }
+
+                // As the answering side of every pair, no peer exists until the
+                // offer arrives; bound that wait.
+                if is_active
+                    && state.current_call(*call_id).is_some_and(|call| {
+                        call.joined_participants()
+                            .keys()
+                            .any(|id| id != &own_client_id)
+                    })
+                    && state
+                        .webrtc_call(*call_id)
+                        .is_some_and(|call| call.is_empty())
+                {
+                    state.start_call_establishment_timer(app, *call_id);
                 }
 
                 app.emit("signaling:call-update", msg).ok();
