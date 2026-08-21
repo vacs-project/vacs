@@ -92,6 +92,10 @@ impl CallManager {
             .is_some_and(|active| active.involves(client_id))
     }
 
+    pub fn has_any_active_call(&self, client_id: &ClientId) -> bool {
+        self.client_active_calls.read().get(client_id).is_some()
+    }
+
     pub fn active_call(&self, call_id: &CallId) -> Option<ActiveCall> {
         self.active_calls.read().get(call_id).map(Into::into)
     }
