@@ -107,8 +107,8 @@ const shouldStopBlinking = (
         (callDisplay === undefined ||
             (callDisplay.type !== "rejected" &&
                 callDisplay.type !== "error" &&
-                callDisplay.rejectedTargets.length !== 0 &&
-                callDisplay.erroredTargets.length !== 0 &&
+                callDisplay.rejectedTargets.length === 0 &&
+                callDisplay.erroredTargets.length === 0 &&
                 callDisplay.type === "accepted") ||
             (callDisplay.type === "outgoing" && !callDisplay.call.prio))
     );
