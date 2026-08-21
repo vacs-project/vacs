@@ -44,6 +44,7 @@ type CallState = {
         addIncomingCall: (call: Call) => void;
         updateCall: (update: CallUpdate) => void;
         removeCall: (id: CallId, callEnd?: boolean) => void;
+        cancelInvitedTarget: (id: CallId, target: CallTarget) => void;
         rejectCall: (id: CallId, targets: CallTarget[]) => void;
         dismissRejectedCall: () => void;
         dismissRejectedTarget: (target: CallTarget) => void;
@@ -116,6 +117,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                             ),
                         ),
                         isConferenceLeader: callSize > 1 ? false : undefined,
+                        ownInvitedTargets: [],
                     },
                     prioTargets: incomingCall.prio ? [callSourceToTarget(incomingCall.source)] : [],
                     rejectedTargets: [],
@@ -256,6 +258,31 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState);
             set({incomingCalls, callDisplay, conferenceState});
+        },
+        cancelInvitedTarget: (callId, target) => {
+            const callDisplay = get().callDisplay;
+            if (callDisplay === undefined || callDisplay.call.callId !== callId) return;
+
+            const invitedTargets = callDisplay.call.invitedTargets.filter(
+                invited => !hasTarget([target], invited),
+            );
+
+            const nextCallDisplay: CallDisplay = {
+                ...callDisplay,
+                call: {...callDisplay.call, invitedTargets},
+                prioTargets: callDisplay.prioTargets.filter(
+                    prioTarget =>
+                        hasTarget(invitedTargets, prioTarget) ||
+                        hasTarget(callDisplay.call.joinedParticipants, prioTarget),
+                ),
+            };
+
+            const callSize =
+                invitedTargets.length + participantCount(callDisplay.call.joinedParticipants);
+            const conferenceState = callSize <= 2 ? "inactive" : get().conferenceState;
+
+            set({callDisplay: nextCallDisplay, conferenceState});
+            tryStopBlink(null, nextCallDisplay, null, null, conferenceState);
         },
         rejectCall: (callId, targets) => {
             let callDisplay = get().callDisplay;
@@ -539,6 +566,7 @@ export const startCall = async (...targets: CallTarget[]) => {
                     call: {
                         ...callDisplay.call,
                         invitedTargets: callDisplay.call.invitedTargets.concat(targets),
+                        ownInvitedTargets: callDisplay.call.ownInvitedTargets.concat(targets),
                         isConferenceLeader: true,
                     },
                     prioTargets: prio
@@ -561,6 +589,7 @@ export const startCall = async (...targets: CallTarget[]) => {
                 source,
                 target: targets[0],
                 invitedTargets: targets,
+                ownInvitedTargets: targets,
                 joinedParticipants: {},
                 isConferenceLeader: targets.length > 1 ? true : undefined,
                 prio,

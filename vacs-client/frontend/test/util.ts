@@ -52,6 +52,7 @@ export function makeTestCallDisplay(
                       }
                     : {},
             isConferenceLeader: undefined,
+            ownInvitedTargets: [],
         },
         prioTargets,
         erroredTargets: [],

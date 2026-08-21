@@ -7,7 +7,7 @@ import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
 import {CustomButtonColor} from "../types/custom-button-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
-import {hasTarget, participantCount} from "../types/call.ts";
+import {CallTarget, hasTarget, participantCount} from "../types/call.ts";
 
 export function useStationKeyInteraction(
     stationId: StationId | undefined,
@@ -17,7 +17,7 @@ export function useStationKeyInteraction(
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, updateCall, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+    const {endCall, cancelInvitedTarget, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
         state => state.actions,
     );
 
@@ -95,32 +95,36 @@ export function useStationKeyInteraction(
             if (callDisplay !== undefined) return;
             await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {
-            if (
+            const target: CallTarget = {station: stationId};
+            const callSize =
                 callDisplay.call.invitedTargets.length +
-                    participantCount(callDisplay.call.joinedParticipants) >
-                    2 &&
-                callDisplay.call.isConferenceLeader
-            ) {
+                participantCount(callDisplay.call.joinedParticipants);
+            const ownInvited = beingCalled && hasTarget(callDisplay.call.ownInvitedTargets, target);
+
+            if (ownInvited && callSize > 1) {
+                // Optimistic: a caller without joined participants gets no
+                // confirming call update.
                 try {
                     await invokeStrict("signaling_drop_target", {
                         callId: callDisplay.call.callId,
-                        target: {station: stationId},
+                        target,
                     });
-                    updateCall({
+                    cancelInvitedTarget(callDisplay.call.callId, target);
+                } catch {}
+            } else if (
+                inCall &&
+                callDisplay.call.isConferenceLeader &&
+                participantCount(callDisplay.call.joinedParticipants) > 2
+            ) {
+                // Removed once the server confirms the drop via a call update.
+                try {
+                    await invokeStrict("signaling_drop_target", {
                         callId: callDisplay.call.callId,
-                        invitedTargets: callDisplay.call.invitedTargets.filter(
-                            target => target.station !== stationId,
-                        ),
-                        joinedParticipants: Object.assign(
-                            {},
-                            ...Object.entries(callDisplay.call.joinedParticipants)
-                                .filter(([_, value]) => value.target.station !== stationId)
-                                .map(([clientId, value]) => ({
-                                    [clientId]: value.target,
-                                })),
-                        ),
+                        target,
                     });
                 } catch {}
+            } else if (beingCalled && !inCall && !ownInvited) {
+                // Another participant's pending invitation: display only.
             } else {
                 try {
                     await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});

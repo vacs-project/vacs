@@ -32,6 +32,9 @@ export type CallParticipantsWithConnectionState = Record<
 export type CallDisplayCall = Omit<Call, "joinedParticipants"> & {
     joinedParticipants: CallParticipantsWithConnectionState;
     isConferenceLeader: boolean | undefined;
+    // Targets this client invited itself; the wire carries no per-target
+    // inviter. Grow-only, intersect with the live invitedTargets.
+    ownInvitedTargets: CallTarget[];
 };
 
 export type CallUpdate = {

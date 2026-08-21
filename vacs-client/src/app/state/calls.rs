@@ -71,15 +71,6 @@ impl Call {
         self.joined_participants.is_empty() && self.invited_targets.is_empty()
     }
 
-    pub fn drop_target(&mut self, target: &CallTarget) -> HashSet<ClientId> {
-        self.invited_targets.remove(target);
-
-        self.joined_participants
-            .extract_if(|_, participant_target| participant_target == target)
-            .map(|(participant_id, _)| participant_id)
-            .collect()
-    }
-
     pub fn update(
         &mut self,
         own_client_id: &ClientId,
