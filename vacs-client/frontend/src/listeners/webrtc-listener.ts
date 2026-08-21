@@ -3,7 +3,6 @@ import {useCallStore} from "../stores/call-store.ts";
 import {CallError} from "../error.ts";
 import {CallId, ClientId} from "../types/generic.ts";
 
-// TODO update per-peer connection state
 type WebrtcUpdateEvent = {
     callId: CallId;
     peerId: ClientId;

@@ -8,8 +8,7 @@ export type CallStateColorParams = {
     isRejected: boolean;
     isError: boolean;
     isTarget?: boolean;
-    outgoingPrio: boolean;
-    incomingPrio: boolean;
+    prio: boolean;
     blink: boolean;
     temporarySource?: boolean;
     defaultSource?: boolean;
@@ -28,8 +27,7 @@ export function getCallStateColors({
     isRejected,
     isError,
     isTarget = false,
-    outgoingPrio,
-    incomingPrio,
+    prio,
     blink,
     temporarySource = false,
     defaultSource = false,
@@ -40,14 +38,14 @@ export function getCallStateColors({
     let color: ButtonColor;
 
     if (inCall) {
-        color = outgoingPrio ? "yellow" : "green";
+        color = prio ? "yellow" : "green";
     } else if (isCalling) {
         if (blink) {
-            color = incomingPrio ? "yellow" : "green";
+            color = prio ? "yellow" : "green";
         } else {
             color = backgroundColor;
         }
-    } else if (beingCalled && outgoingPrio) {
+    } else if (beingCalled && prio) {
         color = blink ? "yellow" : backgroundColor;
     } else if (isRejected && blink) {
         color = "green";
@@ -65,9 +63,9 @@ export function getCallStateColors({
 
     let highlight: ButtonHighlightColor | undefined;
 
-    if (isCalling && incomingPrio) {
+    if (isCalling && prio) {
         highlight = blink ? "green" : backgroundColor;
-    } else if ((beingCalled && !isTarget) || isRejected || (inCall && outgoingPrio)) {
+    } else if ((beingCalled && !isTarget) || isRejected || (inCall && prio)) {
         highlight = "green";
     } else {
         highlight = undefined;
