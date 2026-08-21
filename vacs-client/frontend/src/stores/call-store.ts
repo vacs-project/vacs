@@ -233,8 +233,6 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     ),
                 };
 
-                console.log(nextCallDisplay);
-
                 set({callDisplay: nextCallDisplay});
 
                 tryStopBlink(null, nextCallDisplay, null, null, null);
@@ -532,12 +530,6 @@ export const startCall = async (...targets: CallTarget[]) => {
     };
 
     try {
-        const callId = await invokeStrict<CallId>("signaling_invite_to_call", {
-            source,
-            targets,
-            prio,
-        });
-
         if (callDisplay !== undefined) {
             useCallStore.setState({
                 callDisplay: {
@@ -553,7 +545,15 @@ export const startCall = async (...targets: CallTarget[]) => {
                 },
                 conferenceState: "active",
             });
-        } else {
+        }
+
+        const callId = await invokeStrict<CallId>("signaling_invite_to_call", {
+            source,
+            targets,
+            prio,
+        });
+
+        if (callDisplay === undefined) {
             setOutgoingCall({
                 callId,
                 source,
