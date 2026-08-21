@@ -311,8 +311,10 @@ impl CaptureStream {
         if let Some(cancel) = self.cancel.take() {
             cancel.cancel();
         }
-        drop(self._stream);
-        if let Some(task) = self.task.take()
+        let task = self.task.take();
+        // Drops the cpal stream before the processing task is joined.
+        drop(self);
+        if let Some(task) = task
             && let Err(err) = task.await
         {
             tracing::warn!(?err, "Input capture stream task failed");
@@ -348,6 +350,16 @@ impl CaptureStream {
 
     pub fn receiver_count(&self) -> usize {
         self.tx.receiver_count()
+    }
+}
+
+impl Drop for CaptureStream {
+    fn drop(&mut self) {
+        // The blocking processing task only exits via this token, and dropping
+        // a CancellationToken does not cancel it. stop() takes the token first.
+        if let Some(cancel) = self.cancel.take() {
+            cancel.cancel();
+        }
     }
 }
 
