@@ -23,7 +23,6 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     );
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
-    // TODO fix states to align with station-key-interaction-hook
     const incomingCall = incomingCalls.find(
         call =>
             call.source.clientId === client.id ||
@@ -31,16 +30,15 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     );
     const isCalling = incomingCall !== undefined;
     const beingCalled =
-        callDisplay?.type === "outgoing" &&
-        callDisplay.call.invitedTargets.some(target => target.client === client.id);
-    const involved =
         callDisplay !== undefined &&
-        (callDisplay.call.invitedTargets.some(target => target.client === client.id) ||
-            client.id in callDisplay.call.joinedParticipants ||
-            callDisplay.call.source.clientId === client.id);
-    const inCall = callDisplay?.type === "accepted" && involved;
-    const isRejected = callDisplay?.type === "rejected" && involved;
-    const isError = callDisplay?.type === "error" && involved;
+        callDisplay.call.invitedTargets.some(target => target.client === client.id);
+    const inCall =
+        callDisplay?.type === "accepted" &&
+        Object.keys(callDisplay.call.joinedParticipants).includes(client.id);
+    const isRejected =
+        callDisplay !== undefined && hasTarget(callDisplay.rejectedTargets, {client: client.id});
+    const isError =
+        callDisplay !== undefined && hasTarget(callDisplay.erroredTargets, {client: client.id});
 
     const handleClick = useAsyncDebounce(async () => {
         if (isCalling) {
