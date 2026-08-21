@@ -109,6 +109,21 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         return;
     }
 
+    if state
+        .calls
+        .invite_exceeds_max_conf_size(&invite.call_id, invite.targets.len())
+    {
+        tracing::debug!("Call invite would exceed max conf size, rejecting call invite");
+        send_call_error(
+            client,
+            call_id,
+            CallErrorReason::MaxConferenceSizeReached(invite.targets),
+            None,
+        )
+        .await;
+        return;
+    }
+
     match state
         .rate_limiters()
         .check_call_invite(caller_id, invite.targets.len())

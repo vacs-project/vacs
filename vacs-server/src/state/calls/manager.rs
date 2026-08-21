@@ -56,11 +56,12 @@ pub struct CallManager {
     active_calls: RwLock<HashMap<CallId, ActiveCallEntry>>,
     client_incoming_calls: RwLock<HashMap<ClientId, HashMap<CallId, CallTarget>>>,
     client_active_calls: RwLock<HashMap<ClientId, CallId>>,
+    max_conf_size: usize,
 }
 
 impl Default for CallManager {
     fn default() -> Self {
-        CallManager::new()
+        CallManager::new(8)
     }
 }
 
@@ -73,15 +74,14 @@ impl std::fmt::Debug for CallManager {
     }
 }
 
-// TODO: Limit max conf participants
-
 impl CallManager {
-    pub fn new() -> Self {
+    pub fn new(max_conf_size: usize) -> Self {
         Self {
             ringing_calls: RwLock::new(HashMap::new()),
             active_calls: RwLock::new(HashMap::new()),
             client_incoming_calls: RwLock::new(HashMap::new()),
             client_active_calls: RwLock::new(HashMap::new()),
+            max_conf_size,
         }
     }
 
@@ -94,6 +94,24 @@ impl CallManager {
 
     pub fn active_call(&self, call_id: &CallId) -> Option<ActiveCall> {
         self.active_calls.read().get(call_id).map(Into::into)
+    }
+
+    pub fn invite_exceeds_max_conf_size(&self, call_id: &CallId, targets_len: usize) -> bool {
+        let joined_len = self
+            .active_calls
+            .read()
+            .get(call_id)
+            .map(|call| call.participants.len())
+            .unwrap_or_default();
+
+        let ringing_len = self
+            .ringing_calls
+            .read()
+            .get(call_id)
+            .map(|call| call.targets.len())
+            .unwrap_or_default();
+
+        joined_len + ringing_len + targets_len > self.max_conf_size
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -1288,7 +1306,7 @@ mod tests {
     /// decide whether a target drops out of the CallUpdate snapshot.
     #[test]
     fn call_error_is_per_client_not_per_target() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee1 = ClientId::from("callee1");
@@ -1354,7 +1372,7 @@ mod tests {
     /// participant of a two party call may invite while there is no leader.
     #[test]
     fn dropping_a_ringing_target_requires_the_inviter() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee = ClientId::from("callee");
@@ -1388,7 +1406,7 @@ mod tests {
     /// so the caller must not stay busy afterwards.
     #[test]
     fn dropping_the_last_ringing_target_frees_the_caller() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee = ClientId::from("callee");
@@ -1434,7 +1452,7 @@ mod tests {
     /// remove the target from the call it just joined.
     #[test]
     fn auto_hangup_never_drops_a_joined_participant() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee = ClientId::from("callee");
@@ -1461,7 +1479,7 @@ mod tests {
 
     #[test]
     fn dropping_a_participant_requires_the_conference_leader() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee = ClientId::from("callee");
@@ -1515,7 +1533,7 @@ mod tests {
     /// call of one; leaving is [`CallManager::end_call`]'s job.
     #[test]
     fn dropping_a_participant_of_a_two_party_call_is_not_permitted() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee = ClientId::from("callee");
@@ -1538,7 +1556,7 @@ mod tests {
     /// same call are unaffected.
     #[test]
     fn call_error_leaves_other_targets_ringing() {
-        let manager = CallManager::new();
+        let manager = CallManager::default();
         let call_id = CallId::new();
         let caller = ClientId::from("caller");
         let callee1 = ClientId::from("callee1");

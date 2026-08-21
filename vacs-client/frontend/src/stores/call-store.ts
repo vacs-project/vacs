@@ -126,7 +126,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
         endCall: () => {
             tryStopBlink(null, undefined, null, null, "inactive");
-            set({callDisplay: undefined, conferenceState: "inactive"}); // TODO: conference state validate
+            set({callDisplay: undefined, conferenceState: "inactive"});
         },
         addIncomingCall: call => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== call.callId);
@@ -256,7 +256,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             rejectCallInCallListIfUnanswered(callId);
 
-            tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState); // TODO: validate conference state
+            tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState);
             set({incomingCalls, callDisplay, conferenceState});
         },
         rejectCall: (callId, targets) => {

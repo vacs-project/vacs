@@ -26,6 +26,7 @@ pub struct AppConfig {
     pub rate_limiters: RateLimitersConfig,
     pub ice: IceConfig,
     pub admin: AdminConfig,
+    pub call: CallConfig,
 }
 
 impl AppConfig {
@@ -313,5 +314,22 @@ impl Default for DatasetRepoConfig {
             credentials: None,
             deployed_tag: "deployed/production".to_string(),
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CallConfig {
+    /// Maximum amount of invited targets and participants in a conference call
+    #[serde(default = "default_max_conf_size")]
+    pub max_conf_size: usize,
+}
+
+fn default_max_conf_size() -> usize {
+    8
+}
+
+impl Default for CallConfig {
+    fn default() -> Self {
+        Self { max_conf_size: 8 }
     }
 }
