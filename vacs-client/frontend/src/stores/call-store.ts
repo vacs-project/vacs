@@ -310,9 +310,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 ...callDisplay,
                 rejectedTargets: callDisplay.rejectedTargets.filter(
                     rejectedTarget =>
-                        rejectedTarget.client !== target.client &&
-                        rejectedTarget.position !== target.position &&
-                        rejectedTarget.station !== target.station,
+                        !(
+                            rejectedTarget.client === target.client &&
+                            rejectedTarget.position === target.position &&
+                            rejectedTarget.station === target.station
+                        ),
                 ),
             };
 
@@ -393,9 +395,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 ...callDisplay,
                 erroredTargets: callDisplay.erroredTargets.filter(
                     erroredTarget =>
-                        erroredTarget.target.client !== target.client &&
-                        erroredTarget.target.position !== target.position &&
-                        erroredTarget.target.station !== target.station,
+                        !(
+                            erroredTarget.target.client === target.client &&
+                            erroredTarget.target.position === target.position &&
+                            erroredTarget.target.station === target.station
+                        ),
                 ),
             };
 
