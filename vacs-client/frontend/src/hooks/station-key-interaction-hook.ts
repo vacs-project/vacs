@@ -98,9 +98,9 @@ export function useStationKeyInteraction(
             if (
                 callDisplay.call.invitedTargets.length +
                     participantCount(callDisplay.call.joinedParticipants) >
-                2
+                    2 &&
+                callDisplay.call.isConferenceLeader
             ) {
-                // TODO: only if you are conf leader; without this led to a weird bug, where the CD was empty
                 try {
                     await invokeStrict("signaling_drop_target", {
                         callId: callDisplay.call.callId,
