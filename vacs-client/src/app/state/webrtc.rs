@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{Debug, Formatter};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::broadcast;
@@ -27,6 +27,7 @@ use vacs_webrtc::{Peer, PeerConnectionState, PeerEvent};
 
 const ENCODED_AUDIO_FRAME_BUFFER_SIZE: usize = 512;
 const ICE_CONFIG_EXPIRY_LEEWAY: Duration = Duration::from_mins(15);
+const START_SOUND_THRESHOLD: Duration = Duration::from_millis(200);
 
 /// Extra key added to the JSON-serialized session descriptions we signal, advertising that this
 /// client can replace the peer connection of an active call (relay reconnect). Older clients
@@ -155,6 +156,7 @@ pub struct WebrtcCall {
     call_id: CallId,
     cancel: CancellationToken,
     peers: HashMap<ClientId, WebrtcPeer>,
+    last_call_start_sound: Option<Instant>,
 }
 
 impl WebrtcCall {
@@ -163,6 +165,7 @@ impl WebrtcCall {
             call_id,
             cancel: shutdown_token.child_token(),
             peers: HashMap::new(),
+            last_call_start_sound: None,
         }
     }
 
@@ -553,10 +556,15 @@ impl AppStateInner {
     fn peer_joined_sound(&self, call_id: CallId, peer_id: &ClientId) -> Option<SourceType> {
         let call_config = &self.config.client.call;
 
-        if self
-            .webrtc_call(call_id)
-            .is_some_and(|call| call.has_other_connected_peer(peer_id))
+        if let Some(call) = self.webrtc_call(call_id)
+            && call.has_other_connected_peer(peer_id)
         {
+            if let Some(last_start_sound) = call.last_call_start_sound
+                && last_start_sound + START_SOUND_THRESHOLD > Instant::now()
+            {
+                return None;
+            }
+
             call_config
                 .enable_participant_joined_sound
                 .then_some(SourceType::ParticipantJoined)
@@ -707,6 +715,12 @@ impl AppStateInner {
 
             (audio_source_id, input_rx)
         };
+
+        if joined_sound == Some(SourceType::CallStart)
+            && let Some(webrtc_call) = self.webrtc_call_mut(call_id)
+        {
+            webrtc_call.last_call_start_sound = Some(Instant::now());
+        }
 
         let Some(peer) = self.webrtc_peer_mut(call_id, peer_id) else {
             {
