@@ -472,7 +472,9 @@ impl AppStateWebrtcExt for AppStateInner {
     }
 
     async fn end_call_if_no_peers(&mut self, call_id: CallId) -> bool {
-        if !self.webrtc_call(call_id).is_some_and(WebrtcCall::is_empty) {
+        if !self.current_call(call_id).is_some_and(Call::is_empty)
+            || !self.webrtc_call(call_id).is_some_and(WebrtcCall::is_empty)
+        {
             return false;
         }
 
@@ -544,7 +546,7 @@ impl AppStateInner {
 
         self.try_send_call_error(call_id, reason.clone(), None)
             .await;
-        self.emit_call_error(app, call_id, true, peer_id.clone().into(), reason);
+        self.emit_call_error(app, call_id, true, peer_id.clone().into(), reason); // TODO: This needs some attention
 
         if self.end_call_if_no_peers(call_id).await {
             app.emit("signaling:force-call-end", &call_id).ok();
