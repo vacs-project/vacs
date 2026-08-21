@@ -62,22 +62,14 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
                     updateCall({
                         callId: callDisplay.call.callId,
                         invitedTargets: callDisplay.call.invitedTargets.filter(
-                            target =>
-                                target.client !== client.id &&
-                                target.position === undefined &&
-                                target.station === undefined,
+                            target => target.client !== client.id,
                         ),
                         joinedParticipants: Object.assign(
                             {},
                             ...Object.entries(callDisplay.call.joinedParticipants)
-                                .filter(
-                                    ([_, value]) =>
-                                        value.target.client !== client.id &&
-                                        value.target.position === undefined &&
-                                        value.target.station === undefined,
-                                )
+                                .filter(([_, value]) => value.target.client !== client.id)
                                 .map(([clientId, value]) => ({
-                                    [clientId]: value,
+                                    [clientId]: value.target,
                                 })),
                         ),
                     });
