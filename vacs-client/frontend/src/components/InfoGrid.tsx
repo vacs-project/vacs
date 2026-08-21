@@ -16,7 +16,7 @@ function InfoGrid() {
             : "",
     );
     const callErrorReason = useCallStore(
-        state => state.callDisplay?.errorReason ?? state.callDisplay?.erroredTargets[0].reason,
+        state => state.callDisplay?.errorReason ?? state.callDisplay?.erroredTargets[0]?.reason,
     );
     const currentVersion = useUpdateStore(state => state.currentVersion);
     const newVersion = useUpdateStore(state => state.newVersion);
