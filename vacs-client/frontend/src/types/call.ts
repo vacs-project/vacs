@@ -50,28 +50,24 @@ export function participantCount(
     return Math.max(Object.keys(participants).length - (excludeSelf ? 1 : 0), 0);
 }
 
+export function sameTarget(a: CallTarget, b: CallTarget) {
+    return a.client === b.client && a.position === b.position && a.station === b.station;
+}
+
 export function hasTarget(
     participants:
         | CallParticipants
         | CallParticipantsWithConnectionState
         | CallTarget[]
-        | {target: CallTarget; reason: string}[],
+        | {target: CallTarget}[],
     target: CallTarget,
 ) {
     for (const value of Object.values(participants)) {
         if (typeof value.target === "object") {
-            if (
-                value.target.client === target.client &&
-                value.target.position === target.position &&
-                value.target.station === target.station
-            ) {
+            if (sameTarget(value.target, target)) {
                 return true;
             }
-        } else if (
-            value.client === target.client &&
-            value.position === target.position &&
-            value.station === target.station
-        ) {
+        } else if (sameTarget(value, target)) {
             return true;
         }
     }

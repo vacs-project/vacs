@@ -27,12 +27,11 @@ export function setupSignalingListeners() {
         addIncomingCall,
         updateCall,
         removeCall,
-        rejectCall,
+        rejectTargets,
         acceptIncomingCall,
         reset: resetCallStore,
     } = useCallStore.getState().actions;
-    const {addIncomingCall: addIncomingCallToCallList, clearCallList} =
-        useCallListStore.getState().actions;
+    const {addIncomingCallListEntry, clearCallList} = useCallListStore.getState().actions;
     const {setConnectionState, setConnectionInfo, setPositionsToSelect} =
         useConnectionStore.getState();
     const {setProfile, reset: resetProfileStore} = useProfileStore.getState();
@@ -114,10 +113,10 @@ export function setupSignalingListeners() {
                 removeCall(event.payload);
             }),
             listen<{callId: CallId; targets: CallTarget[]}>("signaling:call-reject", event => {
-                rejectCall(event.payload.callId, event.payload.targets);
+                rejectTargets(event.payload.callId, event.payload.targets);
             }),
             listen<IncomingCallListEntry>("signaling:add-incoming-to-call-list", event => {
-                addIncomingCallToCallList(event.payload);
+                addIncomingCallListEntry(event.payload);
             }),
             listen<Profile>("signaling:test-profile", event => {
                 closeErrorOverlayIfTitle("Profile error");

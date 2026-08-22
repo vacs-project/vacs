@@ -13,6 +13,8 @@ import type {RadioConfigWithLabels, TransmitConfigWithLabels} from "../types/tra
 import {invoke, isRemote, isTauri, listen} from "./index.ts";
 import {Call} from "../types/call.ts";
 
+// TODO: Update entire remote for conference calls
+
 type StationsSync = {
     defaultSource: StationId | undefined;
     temporarySource: StationId | undefined;
