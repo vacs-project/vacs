@@ -10,11 +10,12 @@ import {
     CallDisplayCall,
     participantCount,
     hasTarget,
+    sameTarget,
     callSourceToTarget,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
-import {useCallListStore} from "./call-list-store.ts";
+import {CallListTarget, useCallListStore} from "./call-list-store.ts";
 import {useStationsStore} from "./stations-store.ts";
 import {startBlink, tryStopBlink} from "./blink-store.ts";
 
@@ -45,7 +46,7 @@ type CallState = {
         updateCall: (update: CallUpdate) => void;
         removeCall: (id: CallId, callEnd?: boolean) => void;
         cancelInvitedTarget: (id: CallId, target: CallTarget) => void;
-        rejectCall: (id: CallId, targets: CallTarget[]) => void;
+        rejectTargets: (id: CallId, targets: CallTarget[]) => void;
         dismissRejectedCall: () => void;
         dismissRejectedTarget: (target: CallTarget) => void;
         errorTargets: (error: CallError) => void;
@@ -94,7 +95,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             tryStopBlink(incomingCalls.length, null, null, null, null);
 
-            answerCallInCallList(callId);
+            updateCallListEntry(callId, true, undefined);
 
             const callSize =
                 incomingCall.invitedTargets.length +
@@ -147,14 +148,19 @@ export const useCallStore = create<CallState>()((set, get) => ({
                         call.callId === update.callId ? {...incomingCall, ...update} : call,
                     ),
                 });
+
+                updateCallListEntry(
+                    update.callId,
+                    undefined,
+                    callListTargets(update, incomingCall.target),
+                );
             } else if (callDisplay?.call.callId === update.callId) {
                 const ownClientId = useAuthStore.getState().cid!;
-                const type =
-                    callDisplay.type === "outgoing"
-                        ? Object.keys(update.joinedParticipants).length > 0
-                            ? "accepted"
-                            : "outgoing"
-                        : callDisplay.type;
+
+                const isAccepted =
+                    callDisplay.type === "outgoing" &&
+                    Object.keys(update.joinedParticipants).length > 0;
+                const type = isAccepted ? "accepted" : callDisplay.type;
 
                 const oldJoinedParticipants = callDisplay.call.joinedParticipants;
                 const joinedParticipants = Object.entries(update.joinedParticipants).map(
@@ -237,6 +243,12 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
                 set({callDisplay: nextCallDisplay});
 
+                updateCallListEntry(
+                    update.callId,
+                    isAccepted ? true : undefined,
+                    callListTargets(update, undefined),
+                );
+
                 tryStopBlink(null, nextCallDisplay, null, null, null);
             }
         },
@@ -254,7 +266,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 conferenceState = "inactive";
             }
 
-            rejectCallInCallListIfUnanswered(callId);
+            rejectCallListEntryIfUnanswered(callId);
 
             tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState);
             set({incomingCalls, callDisplay, conferenceState});
@@ -284,7 +296,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({callDisplay: nextCallDisplay, conferenceState});
             tryStopBlink(null, nextCallDisplay, null, null, conferenceState);
         },
-        rejectCall: (callId, targets) => {
+        rejectTargets: (callId, targets) => {
             let callDisplay = get().callDisplay;
 
             if (callDisplay === undefined || callDisplay.call.callId !== callId) {
@@ -317,9 +329,9 @@ export const useCallStore = create<CallState>()((set, get) => ({
             } else {
                 callDisplay.type = "rejected";
                 callDisplay.rejectedTargets.push(...targets);
-            }
 
-            rejectCallInCallListIfUnanswered(callId);
+                rejectCallListEntryIfUnanswered(callId);
+            }
 
             set({callDisplay});
 
@@ -402,11 +414,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     ...targets.map(target => ({target, reason: error.reason})),
                 );
                 callDisplay.errorReason = error.reason;
+
+                rejectCallListEntryIfUnanswered(callId);
             }
 
             set({callDisplay});
-
-            rejectCallInCallListIfUnanswered(callId);
 
             startBlink();
         },
@@ -465,15 +477,50 @@ export const useCallStore = create<CallState>()((set, get) => ({
     },
 }));
 
-const answerCallInCallList = (callId: CallId, targetClientId?: ClientId) =>
-    useCallListStore
-        .getState()
-        .actions.updateCall(callId, {answered: true, clientId: targetClientId});
+const updateCallListEntry = (
+    callId: CallId,
+    answered: boolean | undefined,
+    targets: CallListTarget[] | undefined,
+) => useCallListStore.getState().actions.updateCallListEntry(callId, {answered, targets});
 
-const rejectCallInCallListIfUnanswered = (callId: CallId) =>
+/**
+ * Extends an existing entry by newly invited targets. A conference-add reuses the call id of
+ * the current call, so its entry must be extended instead of replaced by a fresh one.
+ */
+const addTargetsToCallListEntry = (callId: CallId, targets: CallTarget[]) =>
+    useCallListStore.getState().actions.updateCallListEntry(callId, entry => ({
+        targets: entry.targets.concat(
+            targets
+                .filter(target => !hasTarget(entry.targets, target))
+                .map(target => ({target, clientId: target.client})),
+        ),
+    }));
+
+const rejectCallListEntryIfUnanswered = (callId: CallId) =>
     useCallListStore
         .getState()
-        .actions.updateCall(callId, state => ({answered: state.answered || false}));
+        .actions.updateCallListEntry(callId, state => ({answered: state.answered || false}));
+
+const callListTargets = (
+    update: CallUpdate,
+    ownTarget: CallTarget | undefined,
+): CallListTarget[] => {
+    const ownClientId = useAuthStore.getState().cid;
+    const targets: CallListTarget[] = [];
+
+    for (const [clientId, target] of Object.entries(update.joinedParticipants)) {
+        if (clientId === ownClientId) continue;
+        targets.push({target, clientId: clientId as ClientId});
+    }
+
+    for (const target of update.invitedTargets) {
+        if (ownTarget !== undefined && sameTarget(target, ownTarget)) continue;
+        if (hasTarget(update.joinedParticipants, target)) continue;
+        targets.push({target, clientId: target.client});
+    }
+
+    return targets;
+};
 
 export function someConnectionState(
     callDisplay: CallDisplay | undefined,
@@ -542,6 +589,7 @@ export const startCall = async (...targets: CallTarget[]) => {
     const {info} = useConnectionStore.getState();
     const {prio} = useCallStore.getState();
     const {setOutgoingCall, setPrio} = useCallStore.getState().actions;
+    const {addOutgoingCallListEntry} = useCallListStore.getState().actions;
     const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
 
     let stationId: StationId | undefined;
@@ -575,6 +623,7 @@ export const startCall = async (...targets: CallTarget[]) => {
                 },
                 conferenceState: "active",
             });
+            addTargetsToCallListEntry(callDisplay.call.callId, targets);
         }
 
         const callId = await invokeStrict<CallId>("signaling_invite_to_call", {
@@ -594,10 +643,10 @@ export const startCall = async (...targets: CallTarget[]) => {
                 isConferenceLeader: targets.length > 1 ? true : undefined,
                 prio,
             });
+            addOutgoingCallListEntry({callId, targets});
         }
 
         setPrio(false);
-        // TODO: addOutgoingCallToCallList({callId, target});
         return {callId, source, prio};
     } catch {
         return;
