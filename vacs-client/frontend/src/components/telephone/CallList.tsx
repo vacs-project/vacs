@@ -21,13 +21,13 @@ function CallList() {
     const connected = useConnectionStore(state => state.connectionState === "connected");
 
     const handleIgnoreClick = useAsyncDebounce(async () => {
-        const peerId = calls[selectedCall]?.clientId;
+        const peerId = calls[selectedCall]?.targets[0]?.clientId;
         if (peerId === undefined || callDisplayActive) return;
         await invokeSafe<boolean>("signaling_add_ignored_client", {clientId: peerId});
     });
 
     const handleCallClick = useAsyncDebounce(async () => {
-        const target = calls[selectedCall]?.target;
+        const target = calls[selectedCall]?.targets[0]?.target;
         if (target === undefined) return;
         await startCall(target);
     });
@@ -60,7 +60,7 @@ function CallList() {
                 <div className="flex gap-2">
                     <Button
                         color="gray"
-                        disabled={calls[selectedCall]?.clientId === undefined}
+                        disabled={calls[selectedCall]?.targets.length !== 1}
                         onClick={handleIgnoreClick}
                     >
                         <p>
@@ -72,7 +72,7 @@ function CallList() {
                     <Button
                         color="gray"
                         className="w-56 text-xl"
-                        disabled={!connected || calls[selectedCall]?.target === undefined}
+                        disabled={!connected || calls[selectedCall]?.targets.length !== 1}
                         onClick={handleCallClick}
                     >
                         Call
@@ -116,7 +116,10 @@ function CallRow(props: CallRowProps) {
                 className={clsx("px-0.5 flex items-center font-semibold", color)}
                 onClick={props.onClick}
             >
-                {props.call?.clientId ?? ""}
+                {(props.call?.targets ?? [])
+                    .filter(({clientId}) => clientId !== undefined)
+                    .map(({clientId}) => clientId)
+                    .join(", ")}
             </div>
         </>
     );

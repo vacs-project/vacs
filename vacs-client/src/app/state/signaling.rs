@@ -764,7 +764,7 @@ impl AppStateInner {
                     return;
                 };
 
-                state.add_incoming_call_to_call_list(app, call_id, source); // TODO redefine call list
+                state.add_incoming_call_to_call_list(app, call_id, source);
 
                 if state.incoming_calls_len() >= INCOMING_CALLS_LIMIT {
                     if let Err(err) = state
