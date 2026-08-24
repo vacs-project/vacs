@@ -384,10 +384,13 @@ impl AppStateSignalingExt for AppStateInner {
     }
 
     fn start_call_establishment_timer(&mut self, app: &AppHandle, call_id: CallId) {
-        if self
-            .establishment_guard
-            .as_ref()
-            .is_some_and(|guard| guard.call_id == call_id)
+        // A limbo peer is a deliberately absent peer; arming the watchdog
+        // while a link retry runs would end a live conference.
+        if self.has_pending_link_retries(call_id)
+            || self
+                .establishment_guard
+                .as_ref()
+                .is_some_and(|guard| guard.call_id == call_id)
         {
             return;
         }
@@ -856,6 +859,7 @@ impl AppStateInner {
                 }
 
                 for peer_id in left {
+                    state.cancel_link_retry(&peer_id);
                     state.cleanup_call_peer(*call_id, &peer_id).await;
                 }
 
@@ -892,6 +896,7 @@ impl AppStateInner {
                                 log::warn!(
                                     "Failed to send WebRTC offer to peer {peer_id} in call {call_id}: {err:?}"
                                 );
+                                state.cancel_link_retry(&peer_id);
                                 state.cleanup_call_peer(*call_id, &peer_id).await;
                                 state
                                     .try_send_call_error(
@@ -956,6 +961,17 @@ impl AppStateInner {
                 let Ok(own_client_id) = state.require_client_id() else {
                     return;
                 };
+
+                // Retry-offer glare: when both ends of a limbo link offer,
+                // the lower client ID keeps its own attempt and ignores the
+                // inbound one; the higher side answers as usual.
+                if state.has_link_limbo(call_id, &from_client_id) && own_client_id < from_client_id
+                {
+                    log::debug!(
+                        "Ignoring retry offer from {from_client_id} for call {call_id}, own attempt is canonical"
+                    );
+                    return;
+                }
 
                 let res = state
                     .negotiate_peer(

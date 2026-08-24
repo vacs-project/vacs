@@ -10,7 +10,7 @@ pub(crate) mod webrtc;
 
 use crate::app::state::calls::Call;
 use crate::app::state::signaling::{AppStateSignalingExt, ConnectionState};
-use crate::app::state::webrtc::UnansweredCallGuard;
+use crate::app::state::webrtc::{LinkLimboGuard, UnansweredCallGuard};
 use crate::audio::manager::{AudioManager, AudioManagerHandle};
 use crate::config::AppConfig;
 use crate::error::{StartupError, StartupErrorExt};
@@ -42,6 +42,7 @@ pub struct AppStateInner {
     radio: RadioHandle,
     unanswered_call_guards: HashMap<CallTarget, UnansweredCallGuard>,
     establishment_guard: Option<UnansweredCallGuard>,
+    link_limbo_guards: HashMap<ClientId, LinkLimboGuard>,
     current_call: Option<Call>,
     incoming_calls: HashMap<CallId, Call>,
     pub test_profile_watcher: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
@@ -89,6 +90,7 @@ impl AppStateInner {
             shutdown_token,
             unanswered_call_guards: HashMap::new(),
             establishment_guard: None,
+            link_limbo_guards: HashMap::new(),
             current_call: None,
             incoming_calls: HashMap::new(),
             test_profile_watcher: None,
