@@ -250,6 +250,7 @@ pub struct UpdateParticipants {
     pub call_id: CallId,
     pub invited_participants: CallParticipants,
     pub joined_participants: CallParticipants,
+    pub conference_leader: Option<ClientId>,
 }
 
 impl UpdateParticipants {
@@ -274,6 +275,7 @@ impl From<&UpdateParticipants> for CallUpdate {
             call_id: value.call_id,
             invited_targets: value.invited_participants.values().cloned().collect(),
             joined_participants: value.joined_participants.clone(),
+            conference_leader: value.conference_leader.clone(),
         }
     }
 }

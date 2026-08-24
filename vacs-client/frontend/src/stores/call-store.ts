@@ -97,10 +97,6 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             updateCallListEntry(callId, true, undefined);
 
-            const callSize =
-                incomingCall.invitedTargets.length +
-                participantCount(incomingCall.joinedParticipants);
-
             set({
                 callDisplay: {
                     type: "accepted",
@@ -117,7 +113,10 @@ export const useCallStore = create<CallState>()((set, get) => ({
                                 }),
                             ),
                         ),
-                        isConferenceLeader: callSize > 1 ? false : undefined,
+                        isConferenceLeader: deriveIsConferenceLeader(
+                            incomingCall.conferenceLeader,
+                            useAuthStore.getState().cid,
+                        ),
                         ownInvitedTargets: [],
                     },
                     prioTargets: incomingCall.prio ? [callSourceToTarget(incomingCall.source)] : [],
@@ -184,11 +183,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 const callSize =
                     update.invitedTargets.length + participantCount(update.joinedParticipants);
 
-                let isConferenceLeader = callDisplay.call.isConferenceLeader;
-                if (callSize > 2 && callDisplay.call.isConferenceLeader === undefined) {
-                    isConferenceLeader = false;
-                } else if (callSize <= 2) {
-                    isConferenceLeader = undefined;
+                const isConferenceLeader = deriveIsConferenceLeader(
+                    update.conferenceLeader,
+                    ownClientId,
+                );
+                if (callSize <= 2) {
                     set({conferenceState: "inactive"});
                 }
 
@@ -502,6 +501,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
     },
 }));
+
+const deriveIsConferenceLeader = (
+    conferenceLeader: ClientId | null | undefined,
+    ownClientId: ClientId | undefined,
+): boolean | undefined => (conferenceLeader == null ? undefined : conferenceLeader === ownClientId);
 
 const updateCallListEntry = (
     callId: CallId,
