@@ -10,8 +10,13 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct CallInvitation {
     pub call_id: CallId,
+    /// The party that placed the call.
     pub source: CallSource,
+    /// The target this recipient is being invited as. This is the recipient's
+    /// own identity in the call and never appears in `invited_targets`.
     pub target: CallTarget,
+    /// The other targets still being invited into the call. Never contains the
+    /// recipient's own `target`.
     pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
     /// The current conference leader, if the call already is a conference.
@@ -26,6 +31,12 @@ pub struct CallInvitation {
 #[serde(rename_all = "camelCase")]
 pub struct CallUpdate {
     pub call_id: CallId,
+    /// The targets still being invited into the call. Never contains the
+    /// recipient's own target: a still-ringing recipient keeps its identity
+    /// from the invitation's `target`, a joined recipient finds itself in
+    /// `joined_participants` under its client id. An empty set together with
+    /// empty `joined_participants` does NOT mean the call ended; termination
+    /// is always signalled explicitly.
     pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
     /// The current conference leader, if the call is a conference. `None` for
