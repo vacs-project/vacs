@@ -45,6 +45,19 @@ export type CallUpdate = {
     conferenceLeader?: ClientId | null;
 };
 
+/**
+ * Number of parties in the call besides ourselves. `invitedTargets` never
+ * contains our own target, and `joinedParticipants` contains us exactly when
+ * we joined, so this is phase-independent: use it for every "is this call
+ * over" and "is this a conference" decision on a call display.
+ */
+export function otherPartyCount(call: {
+    invitedTargets: CallTarget[];
+    joinedParticipants: Record<ClientId, unknown>;
+}) {
+    return call.invitedTargets.length + participantCount(call.joinedParticipants, true);
+}
+
 export function participantCount(
     participants: Record<ClientId, unknown>,
     excludeSelf: boolean = false,
