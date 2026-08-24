@@ -233,6 +233,7 @@ fn format_signaling_error(err: &SignalingError) -> String {
             LoginFailureReason::AmbiguousVatsimPosition(_) => {
                 "Login failed: Multiple VATSIM positions matched your current position. Please select the correct position manually."
             }
+            LoginFailureReason::Unknown(_) => "Login failed.",
             LoginFailureReason::InvalidVatsimPosition => {
                 "Login failed: Selected VATSIM position is not covered by your active VATSIM connection. Wait a few seconds after connecting to VATSIM and try again."
             }
@@ -266,6 +267,7 @@ fn format_signaling_error(err: &SignalingError) -> String {
                 Some(DisconnectReason::AmbiguousVatsimPosition(_)) => {
                     "Disconnected: Multiple VATSIM positions matched your current position. Please select the correct position manually."
                 }
+                Some(DisconnectReason::Unknown(_)) => "Disconnected.",
             }.to_string(),
             _ => runtime_err.to_string(),
         },
@@ -362,6 +364,7 @@ impl CallError {
                     CallErrorReason::NotConferenceLeader(_) => "Call not lead",
                     CallErrorReason::NotParticipant => "Call not participating",
                     CallErrorReason::MaxConferenceSizeReached(_) => "Max conf size",
+                    CallErrorReason::Unknown(_) => "Unknown failure",
                 }
             ),
         }

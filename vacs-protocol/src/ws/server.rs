@@ -97,4 +97,59 @@ mod tests {
     fn missing_type_tag_fails() {
         assert!(ServerMessage::deserialize(r#"{"value":42}"#).is_err());
     }
+
+    /// A newer server adding a reason variant must not make the enclosing
+    /// message undeserializable; the reason falls back to `Unknown`.
+    #[test]
+    fn unknown_reason_variants_deserialize_to_unknown() {
+        let msg =
+            ServerMessage::deserialize(r#"{"type":"loginFailure","reason":"someFutureReason"}"#)
+                .expect("unknown unit reason must fall back");
+        let ServerMessage::LoginFailure(failure) = msg else {
+            panic!("expected a login failure");
+        };
+        assert!(matches!(
+            failure.reason,
+            crate::ws::server::LoginFailureReason::Unknown(_)
+        ));
+
+        let msg = ServerMessage::deserialize(
+            r#"{"type":"callCancelled","callId":"00000000-0000-0000-0000-000000000000","targets":[],"reason":{"someFutureReason":{"detail":1}}}"#,
+        )
+        .expect("unknown structured reason must fall back");
+        let ServerMessage::CallCancelled(cancelled) = msg else {
+            panic!("expected a call cancelled");
+        };
+        assert!(matches!(
+            cancelled.reason,
+            crate::ws::server::CallCancelReason::Unknown(_)
+        ));
+
+        let msg = ServerMessage::deserialize(
+            r#"{"type":"callError","callId":"00000000-0000-0000-0000-000000000000","reason":"someFutureReason"}"#,
+        )
+        .expect("unknown call error reason must fall back");
+        let ServerMessage::CallError(error) = msg else {
+            panic!("expected a call error");
+        };
+        assert!(matches!(
+            error.reason,
+            crate::ws::shared::CallErrorReason::Unknown(_)
+        ));
+    }
+
+    /// Known reasons must keep deserializing to their real variants, not be
+    /// swallowed by the untagged fallback.
+    #[test]
+    fn known_reason_variants_still_deserialize() {
+        let msg = ServerMessage::deserialize(r#"{"type":"loginFailure","reason":"unauthorized"}"#)
+            .expect("known reason must deserialize");
+        let ServerMessage::LoginFailure(failure) = msg else {
+            panic!("expected a login failure");
+        };
+        assert_eq!(
+            failure.reason,
+            crate::ws::server::LoginFailureReason::Unauthorized
+        );
+    }
 }
