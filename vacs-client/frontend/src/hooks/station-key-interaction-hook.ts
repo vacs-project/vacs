@@ -93,6 +93,7 @@ export function useStationKeyInteraction(
 
         if (isCalling) {
             if (callDisplay !== undefined) return;
+
             await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {
             const target: CallTarget = {station: stationId};
