@@ -916,6 +916,12 @@ impl CallManager {
                                 );
                                 ErrorMetrics::peer_not_found();
                                 entry.remove();
+                                drop(active_calls);
+
+                                actions.extend(self.cancel_pending_invitations(
+                                    &active_or_ringing_call_id,
+                                    CallAttemptOutcome::Aborted,
+                                ));
                             } else if active_call.conference_leader.as_ref() == Some(client_id)
                                 || participants_without_self.len() <= 1
                             {
