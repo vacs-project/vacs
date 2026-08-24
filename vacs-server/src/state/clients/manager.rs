@@ -635,7 +635,7 @@ impl ClientManager {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
                                     default_call_sources: Vec::new(),
-                                    max_conf_size: Some(self.max_conf_size),
+                                    max_conf_size: u32::try_from(self.max_conf_size).ok(),
                                 },
                             ));
                         }
@@ -709,7 +709,7 @@ impl ClientManager {
                                 client: session.client_info().clone(),
                                 profile: session_profile,
                                 default_call_sources: new_default_call_sources.clone(),
-                                max_conf_size: Some(self.max_conf_size),
+                                max_conf_size: u32::try_from(self.max_conf_size).ok(),
                             },
                         ));
                     }
@@ -1150,7 +1150,7 @@ impl ClientManager {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
                                     default_call_sources: new_default_call_sources.clone(),
-                                    max_conf_size: Some(self.max_conf_size),
+                                    max_conf_size: u32::try_from(self.max_conf_size).ok(),
                                 },
                             ));
                         }

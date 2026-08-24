@@ -670,6 +670,7 @@ impl AppStateInner {
                 profile,
                 default_call_sources,
                 max_conf_size,
+                ..
             } => {
                 log::debug!(
                     "Successfully connected to signaling server. Display name: {}, frequency: {}, profile: {profile}",
