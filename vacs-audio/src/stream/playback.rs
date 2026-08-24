@@ -19,7 +19,6 @@ type MixerOp = Box<dyn FnOnce(&mut Mixer) + Send>;
 
 const MIXER_OPS_CAPACITY: usize = 256;
 const MIXER_OPS_PER_DATA_CALLBACK: usize = 32;
-const GRAVEYARD_CAPACITY: usize = 64;
 
 // Process-wide so an id kept from a torn-down stream never aliases a source on its replacement.
 static NEXT_AUDIO_SOURCE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
@@ -27,7 +26,7 @@ static NEXT_AUDIO_SOURCE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 pub struct PlaybackStream {
     _stream: cpal::Stream,
     mixer_ops: Mutex<ringbuf::HeapProd<MixerOp>>,
-    graveyard: Mutex<ringbuf::HeapCons<Box<dyn AudioSource>>>,
+    removed_sources: Mutex<ringbuf::HeapCons<Box<dyn AudioSource>>>,
     deafened: Arc<AtomicBool>,
     device: StreamDevice,
 }
@@ -40,9 +39,9 @@ impl PlaybackStream {
     ) -> Result<Self, AudioError> {
         debug_assert!(matches!(device.device_type, DeviceType::Output));
 
-        let (graveyard_prod, graveyard_cons) =
-            HeapRb::<Box<dyn AudioSource>>::new(GRAVEYARD_CAPACITY).split();
-        let mut mixer = Mixer::new(graveyard_prod);
+        let (removed_prod, removed_cons) =
+            HeapRb::<Box<dyn AudioSource>>::new(MIXER_OPS_CAPACITY).split();
+        let mut mixer = Mixer::with_deferred_drop(removed_prod);
         let (ops_prod, mut ops_cons) = HeapRb::<MixerOp>::new(MIXER_OPS_CAPACITY).split();
 
         let deafened = Arc::new(AtomicBool::new(false));
@@ -78,22 +77,30 @@ impl PlaybackStream {
         Ok(Self {
             _stream: stream,
             mixer_ops: Mutex::new(ops_prod),
-            graveyard: Mutex::new(graveyard_cons),
+            removed_sources: Mutex::new(removed_cons),
             deafened: deafened_clone,
             device,
         })
     }
 
-    /// Frees sources the data callback has removed since the last call.
-    fn reap(&self) {
-        let mut graveyard = self.graveyard.lock();
-        while graveyard.try_pop().is_some() {}
-    }
-
     #[instrument(level = "debug", skip(self))]
     pub async fn stop(self) {
         tracing::info!("Stopping output playback stream");
-        drop(self._stream);
+        let Self {
+            _stream,
+            removed_sources,
+            ..
+        } = self;
+        drop(_stream);
+
+        let mut removed_sources = removed_sources.into_inner();
+        while removed_sources.try_pop().is_some() {}
+    }
+
+    /// Frees sources the audio callback handed back; see [`Mixer::with_deferred_drop`].
+    fn drain_removed_sources(&self) {
+        let mut removed_sources = self.removed_sources.lock();
+        while removed_sources.try_pop().is_some() {}
     }
 
     pub fn set_deafened(&self, muted: bool) {
@@ -106,7 +113,8 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip_all)]
     pub fn add_audio_source(&self, source: Box<dyn AudioSource>) -> AudioSourceId {
-        self.reap();
+        self.drain_removed_sources();
+
         let id = NEXT_AUDIO_SOURCE_ID.fetch_add(1, atomic::Ordering::SeqCst);
 
         if self
@@ -125,7 +133,8 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn remove_audio_source(&self, id: AudioSourceId) {
-        self.reap();
+        self.drain_removed_sources();
+
         if self
             .mixer_ops
             .lock()
@@ -138,7 +147,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn start_audio_source(&self, id: AudioSourceId) {
-        self.reap();
+        self.drain_removed_sources();
         if self
             .mixer_ops
             .lock()
@@ -153,7 +162,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn stop_audio_source(&self, id: AudioSourceId) {
-        self.reap();
+        self.drain_removed_sources();
         if self
             .mixer_ops
             .lock()
@@ -168,7 +177,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn restart_audio_source(&self, id: AudioSourceId) {
-        self.reap();
+        self.drain_removed_sources();
         if self
             .mixer_ops
             .lock()
