@@ -11,6 +11,7 @@ import {
     otherPartyCount,
     hasTarget,
     callSourceToTarget,
+    participantCount,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
@@ -37,6 +38,7 @@ type CallState = {
     incomingCalls: Call[];
     prio: boolean;
     conferenceState: ConferenceState;
+    maxConferenceSize: number | undefined;
     actions: {
         setOutgoingCall: (call: CallDisplayCall) => void;
         acceptIncomingCall: (callId: CallId) => void;
@@ -58,6 +60,7 @@ type CallState = {
         ) => void;
         setPrio: (prio: boolean) => void;
         setConferenceState: (conferenceState: ConferenceState) => void;
+        setMaxConferenceSize: (maxConferenceSize?: number) => void;
         reset: () => void;
     };
 };
@@ -70,6 +73,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
     connecting: false,
     prio: false,
     conferenceState: "inactive",
+    maxConferenceSize: undefined,
     actions: {
         setOutgoingCall: call => {
             if (call.prio) {
@@ -515,12 +519,16 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             set({conferenceState});
         },
+        setMaxConferenceSize: maxConferenceSize => {
+            set({maxConferenceSize});
+        },
         reset: () => {
             tryStopBlink(0, undefined, null, null, "inactive");
             set({
                 callDisplay: undefined,
                 incomingCalls: [],
                 conferenceState: "inactive",
+                maxConferenceSize: undefined,
             });
         },
     },
@@ -607,7 +615,7 @@ export function allConnectionStates(
 export const startCall = async (...targets: CallTarget[]) => {
     if (targets.length === 0) return;
 
-    const {callDisplay, conferenceState} = useCallStore.getState();
+    const {callDisplay, conferenceState, maxConferenceSize} = useCallStore.getState();
     const openErrorOverlay = useErrorOverlayStore.getState().open;
 
     if (callDisplay !== undefined && conferenceState !== "modify") {
@@ -616,6 +624,21 @@ export const startCall = async (...targets: CallTarget[]) => {
         openErrorOverlay(
             "Call",
             "You are not the conference leader. Can not invite target to call.",
+            false,
+            5000,
+        );
+        return;
+    }
+
+    const currentCallSize =
+        callDisplay !== undefined
+            ? participantCount(callDisplay.call.joinedParticipants) +
+              callDisplay.call.invitedTargets.length
+            : 0;
+    if (maxConferenceSize !== undefined && currentCallSize + targets.length > maxConferenceSize) {
+        openErrorOverlay(
+            "Call",
+            `Max conference size of ${maxConferenceSize} exceeded.`,
             false,
             5000,
         );

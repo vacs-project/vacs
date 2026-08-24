@@ -29,6 +29,7 @@ export function setupSignalingListeners() {
         removeCall,
         rejectTargets,
         acceptIncomingCall,
+        setMaxConferenceSize,
         reset: resetCallStore,
     } = useCallStore.getState().actions;
     const {addIncomingCallListEntry, clearCallList} = useCallListStore.getState().actions;
@@ -55,6 +56,7 @@ export function setupSignalingListeners() {
                     setProfile(event.payload.profile.activeProfile.profile);
                 }
                 setPositionDefaultSources(event.payload.defaultCallSources);
+                setMaxConferenceSize(event.payload.maxConfSize);
             }),
             listen("signaling:reconnecting", () => {
                 setConnectionState("connecting");
