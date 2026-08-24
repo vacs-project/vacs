@@ -71,6 +71,9 @@ impl AsMetricLabel for CallAttemptOutcome {
                 "error_not_conference_leader"
             }
             CallAttemptOutcome::Error(CallErrorReason::NotParticipant) => "error_not_participant",
+            CallAttemptOutcome::Error(CallErrorReason::PeerConnectionFailed(_)) => {
+                "error_peer_connection_failed"
+            }
             CallAttemptOutcome::Error(CallErrorReason::Unknown(_)) => "error_unknown",
             CallAttemptOutcome::Error(CallErrorReason::MaxConferenceSizeReached(_)) => {
                 "error_max_conference_size_reached"
@@ -178,6 +181,7 @@ impl AsMetricLabel for CallErrorReason {
             CallErrorReason::NotConferenceLeader(_) => "not_conference_leader",
             CallErrorReason::NotParticipant => "not_participant",
             CallErrorReason::MaxConferenceSizeReached(_) => "max_conference_size_reached",
+            CallErrorReason::PeerConnectionFailed(_) => "peer_connection_failed",
             CallErrorReason::Other => "other",
             CallErrorReason::Unknown(_) => "unknown",
         }

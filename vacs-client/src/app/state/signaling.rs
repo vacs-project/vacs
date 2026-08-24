@@ -1154,6 +1154,23 @@ impl AppStateInner {
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
                     }
+                    CallErrorReason::PeerConnectionFailed(_) => {
+                        // Eviction: the link to this peer is dead on both ends
+                        // and the server removed us; a CallEnd follows.
+                        let state = app.state::<AppState>();
+                        let mut state = state.lock().await;
+
+                        if !state.cleanup_current_call(call_id).await {
+                            log::debug!(
+                                "Received link eviction for call {call_id} that is not active"
+                            );
+                            return;
+                        }
+
+                        state.cancel_all_unanswered_call_timers(call_id);
+
+                        state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
+                    }
                     CallErrorReason::AutoHangup => {} // should not be sent in a CallError message
                 }
             }

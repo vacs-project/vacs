@@ -365,6 +365,7 @@ impl CallError {
                     CallErrorReason::NotConferenceLeader(_) => "Call not lead",
                     CallErrorReason::NotParticipant => "Call not participating",
                     CallErrorReason::MaxConferenceSizeReached(_) => "Max conf size",
+                    CallErrorReason::PeerConnectionFailed(_) => "No connection to participant",
                     CallErrorReason::Unknown(_) => "Unknown failure",
                 }
             ),
