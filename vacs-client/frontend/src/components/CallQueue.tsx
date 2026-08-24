@@ -1,6 +1,6 @@
 import Button from "./ui/Button.tsx";
 import {someConnectionState, useCallStore} from "../stores/call-store.ts";
-import {invokeStrict} from "../error.ts";
+import {invokeSafe, invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
 import {Call, CallDisplayCall, participantCount} from "../types/call.ts";
@@ -21,9 +21,7 @@ function CallQueue() {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedCall, dismissErrorCall, removeCall} = useCallStore(
-        state => state.actions,
-    );
+    const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
     const stationKeys = useProfileStationKeys();
     const cid = useAuthStore(state => state.cid);
     const clients = useClientsStore(state => state.clients);
@@ -46,11 +44,7 @@ function CallQueue() {
         // Can't accept someone's call if something is in your call display
         if (callDisplay !== undefined) return;
 
-        try {
-            await invokeStrict("signaling_accept_call", {callId: call.callId});
-        } catch {
-            removeCall(call.callId);
-        }
+        await invokeSafe("signaling_accept_call", {callId: call.callId});
     };
 
     const cdPrio = enablePrio && callDisplay !== undefined && callDisplay.prioTargets.length > 0;
