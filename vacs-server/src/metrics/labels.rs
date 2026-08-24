@@ -158,6 +158,7 @@ impl AsMetricLabel for ErrorReason {
             ErrorReason::UnexpectedMessage(_) => "unexpected_message",
             ErrorReason::RateLimited { .. } => "rate_limited",
             ErrorReason::ClientNotFound => "client_not_found",
+            ErrorReason::Unknown(_) => "unknown",
         }
     }
 }
