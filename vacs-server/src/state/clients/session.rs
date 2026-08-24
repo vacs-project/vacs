@@ -245,7 +245,7 @@ impl ClientSession {
                     .get_position(self.position_id())
                     .map(|p| p.default_call_sources.clone())
                     .unwrap_or_default(),
-                max_conf_size: u32::try_from(app_state.calls.max_conf_size()).ok(),
+                max_conf_size: Some(app_state.calls.max_conf_size()),
             },
         )
         .await
