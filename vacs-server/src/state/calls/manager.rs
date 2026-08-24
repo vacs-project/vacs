@@ -96,6 +96,10 @@ impl CallManager {
         }
     }
 
+    pub fn max_conf_size(&self) -> usize {
+        self.max_conf_size
+    }
+
     pub fn has_active_call(&self, call_id: &CallId, client_id: &ClientId) -> bool {
         self.active_calls
             .read()
