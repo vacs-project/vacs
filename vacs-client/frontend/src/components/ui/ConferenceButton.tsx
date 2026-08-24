@@ -1,6 +1,6 @@
 import {useBlinkStore} from "../../stores/blink-store";
 import {someConnectionState, useCallStore} from "../../stores/call-store";
-import {participantCount} from "../../types/call";
+import {otherPartyCount} from "../../types/call";
 import Button from "./Button";
 
 function ConferenceButton() {
@@ -17,8 +17,8 @@ function ConferenceButton() {
 
     const isConference = useCallStore(state => {
         const call = state.callDisplay?.call;
-        if (call === undefined) return 0;
-        return call.invitedTargets.length + participantCount(call.joinedParticipants) > 2;
+        if (call === undefined) return false;
+        return otherPartyCount(call) >= 2;
     });
     const isConferenceLeader = useCallStore(state => state.callDisplay?.call.isConferenceLeader);
 

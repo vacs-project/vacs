@@ -92,13 +92,24 @@ describe("call store", () => {
             ]);
         });
 
-        it("deactivates the conference when two members remain", () => {
+        it("keeps the conference active while two other parties remain", () => {
             useCallStore.setState({
                 callDisplay: outgoingDisplay([STATION_1, STATION_2, STATION_3]),
                 conferenceState: "active",
             });
 
             cancel(STATION_3);
+
+            expect(useCallStore.getState().conferenceState).toBe("active");
+        });
+
+        it("deactivates the conference when one other party remains", () => {
+            useCallStore.setState({
+                callDisplay: outgoingDisplay([STATION_1, STATION_2]),
+                conferenceState: "active",
+            });
+
+            cancel(STATION_2);
 
             expect(useCallStore.getState().conferenceState).toBe("inactive");
         });
@@ -186,6 +197,21 @@ describe("call store", () => {
             const next = useCallStore.getState().callDisplay;
             expect(next?.rejectedTargets).toEqual([]);
             expect(next?.erroredTargets).toEqual([]);
+        });
+
+        it("keeps an outgoing call alive when a target errors but another still rings", () => {
+            useCallStore.setState({callDisplay: outgoingDisplay([STATION_1, STATION_2])});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "targets", value: [STATION_2]},
+                reason: "callFailure",
+            });
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("outgoing");
+            expect(display?.call.invitedTargets).toEqual([STATION_1]);
+            expect(display?.erroredTargets).toEqual([{target: STATION_2, reason: "callFailure"}]);
         });
 
         it("keeps annotations for targets that were not re-invited", () => {

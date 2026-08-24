@@ -3,7 +3,7 @@ import {someConnectionState, useCallStore} from "../stores/call-store.ts";
 import {invokeSafe, invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
-import {Call, CallDisplayCall, participantCount} from "../types/call.ts";
+import {Call, CallDisplayCall, otherPartyCount, participantCount} from "../types/call.ts";
 import {useProfileStationKeys} from "../stores/profile-store.ts";
 import {DirectAccessKey} from "../types/profile.ts";
 import {ComponentChild} from "preact";
@@ -144,9 +144,7 @@ function callDisplayLabel(
     stationKeys: DirectAccessKey[],
     clients: ClientInfo[],
 ): ComponentChild {
-    const total_size = call.invitedTargets.length + participantCount(call.joinedParticipants);
-
-    if (total_size > 2) {
+    if (otherPartyCount(call) >= 2) {
         return "CONF";
     }
 

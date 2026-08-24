@@ -8,7 +8,7 @@ import {
     CallTarget,
     CallUpdate,
     CallDisplayCall,
-    participantCount,
+    otherPartyCount,
     hasTarget,
     callSourceToTarget,
 } from "../types/call.ts";
@@ -182,14 +182,11 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     },
                 );
 
-                const callSize =
-                    update.invitedTargets.length + participantCount(update.joinedParticipants);
-
                 const isConferenceLeader = deriveIsConferenceLeader(
                     update.conferenceLeader,
                     ownClientId,
                 );
-                if (callSize <= 2) {
+                if (otherPartyCount(update) < 2) {
                     set({conferenceState: "inactive"});
                 }
 
@@ -297,9 +294,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 ),
             };
 
-            const callSize =
-                invitedTargets.length + participantCount(callDisplay.call.joinedParticipants);
-            const conferenceState = callSize <= 2 ? "inactive" : get().conferenceState;
+            const conferenceState =
+                otherPartyCount(nextCallDisplay.call) < 2 ? "inactive" : get().conferenceState;
 
             set({callDisplay: nextCallDisplay, conferenceState});
             tryStopBlink(null, nextCallDisplay, null, null, conferenceState);
@@ -326,15 +322,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     hasTarget(callDisplay.call.joinedParticipants, target),
             );
 
-            const callSize =
-                callDisplay.call.invitedTargets.length +
-                participantCount(callDisplay.call.joinedParticipants);
+            const otherParties = otherPartyCount(callDisplay.call);
 
-            if (callSize <= 2) {
+            if (otherParties < 2) {
                 set({conferenceState: "inactive"});
             }
 
-            if (callSize > 0) {
+            if (otherParties > 0) {
                 callDisplay.rejectedTargets.push(...targets);
             } else {
                 callDisplay.type = "rejected";
@@ -424,15 +418,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 );
             }
 
-            const callSize =
-                callDisplay.call.invitedTargets.length +
-                participantCount(callDisplay.call.joinedParticipants);
+            const otherParties = otherPartyCount(callDisplay.call);
 
-            if (callSize <= 2) {
+            if (otherParties < 2) {
                 set({conferenceState: "inactive"});
             }
 
-            if (callSize > 1) {
+            if (otherParties > 0) {
                 callDisplay.erroredTargets.push(
                     ...targets.map(target => ({target, reason: error.reason})),
                 );
