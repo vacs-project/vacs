@@ -18,6 +18,10 @@ pub enum ErrorReason {
         retry_after_secs: u64,
     },
     ClientNotFound,
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// Treat as a generic server error.
+    #[serde(untagged)]
+    Unknown(crate::ws::shared::UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
