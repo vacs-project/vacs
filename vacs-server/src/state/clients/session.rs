@@ -245,6 +245,7 @@ impl ClientSession {
                     .get_position(self.position_id())
                     .map(|p| p.default_call_sources.clone())
                     .unwrap_or_default(),
+                max_conf_size: Some(app_state.calls.max_conf_size()),
             },
         )
         .await
@@ -662,7 +663,7 @@ mod tests {
                 assert_eq!(
                     text,
                     Utf8Bytes::from_static(
-                        r#"{"type":"sessionInfo","client":{"id":"client1","displayName":"Client 1","frequency":"100.000","positionId":"POSITION1"},"profile":{"type":"changed","activeProfile":{"type":"none"}},"defaultCallSources":[]}"#
+                        r#"{"type":"sessionInfo","client":{"id":"client1","displayName":"Client 1","frequency":"100.000","positionId":"POSITION1"},"profile":{"type":"changed","activeProfile":{"type":"none"}},"defaultCallSources":[],"maxConfSize":8}"#
                     )
                 );
             }

@@ -53,6 +53,8 @@ pub enum SignalingEvent {
         profile: ActiveProfile<Profile>,
         /// The ordered list of default call sources for the current position.
         default_call_sources: Vec<StationId>,
+        /// The maximum call size the server allows, if it advertises one.
+        max_conf_size: Option<usize>,
     },
     /// Emitted for every [`ServerMessage`] received by a connected and authenticated [`SignalingClient`].
     Message(ServerMessage),
@@ -60,6 +62,15 @@ pub enum SignalingEvent {
     /// This includes issues during transmission or other errors received from the server.
     Error(SignalingRuntimeError),
 }
+
+/// Payload of a successful login: client info, active profile, default call
+/// sources and the advertised max conference size.
+type LoginInfo = (
+    ClientInfo,
+    ActiveProfile<Profile>,
+    Vec<StationId>,
+    Option<usize>,
+);
 
 type BoxFutUnit = Pin<Box<dyn Future<Output = ()> + Send>>;
 type OnEventCb = Arc<dyn Fn(SignalingEvent) -> BoxFutUnit + Send + Sync>;
@@ -353,9 +364,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
     }
 
     #[instrument(level = "debug", skip(self), err)]
-    async fn login(
-        &self,
-    ) -> Result<(ClientInfo, ActiveProfile<Profile>, Vec<StationId>), SignalingError> {
+    async fn login(&self) -> Result<LoginInfo, SignalingError> {
         tracing::trace!("Retrieving auth token from token provider");
         let token = self.token_provider.get_token().await?;
 
@@ -378,10 +387,11 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                 client,
                 profile,
                 default_call_sources,
+                max_conf_size,
             }) => {
                 if let SessionProfile::Changed(profile) = profile {
                     tracing::info!(?client, %profile, "Login successful, received session info");
-                    Ok((client, profile, default_call_sources))
+                    Ok((client, profile, default_call_sources, max_conf_size))
                 } else {
                     tracing::error!(
                         ?client,
@@ -455,7 +465,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
         tracing::trace!("Successfully started worker tasks, logging in");
         match self.login().await {
-            Ok((client_info, profile, default_call_sources)) => {
+            Ok((client_info, profile, default_call_sources, max_conf_size)) => {
                 tracing::trace!("Successfully logged in to server");
 
                 self.set_state(State::LoggedIn);
@@ -463,6 +473,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                     client_info,
                     profile,
                     default_call_sources,
+                    max_conf_size,
                 }) {
                     tracing::warn!(?err, "Failed to broadcast connected event");
                 }
@@ -911,6 +922,7 @@ mod tests {
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
+                    max_conf_size: None,
                 }))
                 .unwrap()
                 .into(),
@@ -1652,6 +1664,7 @@ mod tests {
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
+                    max_conf_size: None,
                 }))
                 .unwrap()
                 .into(),
@@ -1743,6 +1756,7 @@ mod tests {
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
+                    max_conf_size: None,
                 }))
                 .unwrap()
                 .into(),

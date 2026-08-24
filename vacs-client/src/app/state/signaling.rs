@@ -684,6 +684,7 @@ impl AppStateInner {
                 client_info,
                 profile,
                 default_call_sources,
+                max_conf_size,
             } => {
                 log::debug!(
                     "Successfully connected to signaling server. Display name: {}, frequency: {}, profile: {profile}",
@@ -695,6 +696,7 @@ impl AppStateInner {
                     client: client_info,
                     profile: SessionProfile::Changed(profile),
                     default_call_sources: default_call_sources.clone(),
+                    max_conf_size,
                 };
 
                 {

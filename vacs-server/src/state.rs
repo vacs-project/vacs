@@ -65,6 +65,7 @@ impl AppState {
                 network,
                 data_feed.clone(),
                 config.vatsim.data_feed_position_grace_period,
+                config.call.max_conf_size,
             ),
             updates,
             ice_config_provider,
