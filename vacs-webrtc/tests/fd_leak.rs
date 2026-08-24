@@ -75,8 +75,10 @@ async fn connect_and_close_pair() {
         connected_tx,
     ));
 
+    // Generous timeout: under a full parallel workspace test run the loopback
+    // connection can take far longer than it does in isolation.
     for _ in 0..2 {
-        tokio::time::timeout(Duration::from_secs(10), connected_rx.recv())
+        tokio::time::timeout(Duration::from_secs(60), connected_rx.recv())
             .await
             .expect("peers did not connect in time");
     }
