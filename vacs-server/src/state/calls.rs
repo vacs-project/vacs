@@ -269,13 +269,23 @@ impl UpdateParticipants {
     }
 }
 
-impl From<&UpdateParticipants> for CallUpdate {
-    fn from(value: &UpdateParticipants) -> Self {
-        Self {
-            call_id: value.call_id,
-            invited_targets: value.invited_participants.values().cloned().collect(),
-            joined_participants: value.joined_participants.clone(),
-            conference_leader: value.conference_leader.clone(),
+impl UpdateParticipants {
+    /// Builds the wire update for one recipient. `invited_targets` never
+    /// contains the recipient's own target: while ringing, that identity is
+    /// carried by the invitation's `target` field, and once joined it lives in
+    /// `joined_participants` under the recipient's client id.
+    pub fn for_recipient(&self, recipient_id: &ClientId) -> CallUpdate {
+        let own_target = self.invited_participants.get(recipient_id);
+        CallUpdate {
+            call_id: self.call_id,
+            invited_targets: self
+                .invited_participants
+                .values()
+                .filter(|target| Some(*target) != own_target)
+                .cloned()
+                .collect(),
+            joined_participants: self.joined_participants.clone(),
+            conference_leader: self.conference_leader.clone(),
         }
     }
 }

@@ -135,11 +135,11 @@ describe("call list entries", () => {
 
 describe("call updates", () => {
     it("lists every participant of an incoming call except ourselves", () => {
-        ringingIncomingCall([OWN_STATION, THIRD_STATION], {[CALLER]: CALLER_STATION});
+        ringingIncomingCall([THIRD_STATION], {[CALLER]: CALLER_STATION});
 
         useCallStore.getState().actions.updateCall({
             callId: CALL_ID,
-            invitedTargets: [OWN_STATION, THIRD_STATION],
+            invitedTargets: [THIRD_STATION],
             joinedParticipants: {[CALLER]: CALLER_STATION},
         });
 
@@ -153,11 +153,11 @@ describe("call updates", () => {
     });
 
     it("lists a target that joined once, with its client id", () => {
-        ringingIncomingCall([OWN_STATION, THIRD_STATION], {[CALLER]: CALLER_STATION});
+        ringingIncomingCall([THIRD_STATION], {[CALLER]: CALLER_STATION});
 
         useCallStore.getState().actions.updateCall({
             callId: CALL_ID,
-            invitedTargets: [OWN_STATION, THIRD_STATION],
+            invitedTargets: [THIRD_STATION],
             joinedParticipants: {[CALLER]: CALLER_STATION, [THIRD]: THIRD_STATION},
         });
 

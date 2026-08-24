@@ -290,7 +290,11 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             call_id: invite.call_id,
             source: invite.source.clone(),
             target: target.clone(),
-            invited_targets: invited_targets.clone(),
+            invited_targets: invited_targets
+                .iter()
+                .filter(|invited_target| *invited_target != target)
+                .cloned()
+                .collect(),
             joined_participants: joined_participants.clone(),
             conference_leader: conference_leader.clone(),
             prio: invite.prio,
@@ -323,17 +327,12 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         }
     }
 
-    let update = server::CallUpdate {
+    let update = UpdateParticipants {
         call_id: invite.call_id,
-        invited_targets: invited_participants
-            .values()
-            .filter_map(|invited_target| {
-                if failed_targets.contains(invited_target) {
-                    None
-                } else {
-                    Some(invited_target.clone())
-                }
-            })
+        invited_participants: invited_participants
+            .iter()
+            .filter(|(_, invited_target)| !failed_targets.contains(invited_target))
+            .map(|(id, invited_target)| (id.clone(), invited_target.clone()))
             .collect(),
         joined_participants: joined_participants.clone(),
         conference_leader,
@@ -351,16 +350,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
         }
 
         tracing::trace!(?participant_id, "Sending call update to participant");
-        if let Err(err) = state
-            .send_message(participant_id, ServerMessage::CallUpdate(update.clone()))
-            .await
-        {
-            tracing::warn!(
-                ?err,
-                ?participant_id,
-                "Failed to send call update to participant"
-            );
-        }
+        send_call_update(state, participant_id, &update).await;
     }
 }
 
@@ -399,7 +389,10 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
     tracing::trace!("Sending call update to all invited participants");
     for participant_id in update.invited_participants.keys() {
         if let Err(err) = state
-            .send_message(participant_id, ServerMessage::CallUpdate((&update).into()))
+            .send_message(
+                participant_id,
+                ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+            )
             .await
         {
             tracing::warn!(
@@ -414,7 +407,10 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
 
     for participant_id in update.joined_participants.keys() {
         if let Err(err) = state
-            .send_message(participant_id, ServerMessage::CallUpdate((&update).into()))
+            .send_message(
+                participant_id,
+                ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+            )
             .await
         {
             tracing::warn!(
@@ -506,7 +502,7 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
                             if let Err(err) = state
                                 .send_message(
                                     participant_id,
-                                    ServerMessage::CallUpdate((&update).into()),
+                                    ServerMessage::CallUpdate(update.for_recipient(participant_id)),
                                 )
                                 .await
                             {
@@ -596,7 +592,10 @@ async fn handle_call_reject(state: &AppState, client: &ClientSession, reject: Ca
             tracing::trace!("Send call update to remaining participants during call reject");
             for (participant_id, _) in update.all_participants() {
                 if let Err(err) = state
-                    .send_message(participant_id, ServerMessage::CallUpdate((&update).into()))
+                    .send_message(
+                        participant_id,
+                        ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+                    )
                     .await
                 {
                     tracing::warn!(
@@ -686,7 +685,7 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
                             if let Err(err) = state
                                 .send_message(
                                     participant_id,
-                                    ServerMessage::CallUpdate((&update).into()),
+                                    ServerMessage::CallUpdate(update.for_recipient(participant_id)),
                                 )
                                 .await
                             {
@@ -774,7 +773,10 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
             tracing::trace!("Send call update to remaining participants during call error");
             for (participant_id, _) in update.all_participants_without_self(caller_id) {
                 if let Err(err) = state
-                    .send_message(participant_id, ServerMessage::CallUpdate((&update).into()))
+                    .send_message(
+                        participant_id,
+                        ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+                    )
                     .await
                 {
                     tracing::warn!(
@@ -870,7 +872,7 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
                             if let Err(err) = state
                                 .send_message(
                                     client_id,
-                                    ServerMessage::CallUpdate((&updates).into()),
+                                    ServerMessage::CallUpdate(updates.for_recipient(client_id)),
                                 )
                                 .await
                             {
@@ -1157,7 +1159,10 @@ async fn send_call_update(
     update: &UpdateParticipants,
 ) {
     if let Err(err) = state
-        .send_message(participant_id, ServerMessage::CallUpdate(update.into()))
+        .send_message(
+            participant_id,
+            ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+        )
         .await
     {
         tracing::warn!(

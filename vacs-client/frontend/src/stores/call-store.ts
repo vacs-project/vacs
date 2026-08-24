@@ -10,7 +10,6 @@ import {
     CallDisplayCall,
     participantCount,
     hasTarget,
-    sameTarget,
     callSourceToTarget,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
@@ -148,11 +147,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                     ),
                 });
 
-                updateCallListEntry(
-                    update.callId,
-                    undefined,
-                    callListTargets(update, incomingCall.target),
-                );
+                updateCallListEntry(update.callId, undefined, callListTargets(update));
             } else if (callDisplay?.call.callId === update.callId) {
                 const ownClientId = useAuthStore.getState().cid!;
 
@@ -245,7 +240,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 updateCallListEntry(
                     update.callId,
                     isAccepted ? true : undefined,
-                    callListTargets(update, undefined),
+                    callListTargets(update),
                 );
 
                 tryStopBlink(null, nextCallDisplay, null, null, null);
@@ -531,10 +526,7 @@ const rejectCallListEntryIfUnanswered = (callId: CallId) =>
         .getState()
         .actions.updateCallListEntry(callId, state => ({answered: state.answered || false}));
 
-const callListTargets = (
-    update: CallUpdate,
-    ownTarget: CallTarget | undefined,
-): CallListTarget[] => {
+const callListTargets = (update: CallUpdate): CallListTarget[] => {
     const ownClientId = useAuthStore.getState().cid;
     const targets: CallListTarget[] = [];
 
@@ -543,8 +535,8 @@ const callListTargets = (
         targets.push({target, clientId: clientId as ClientId});
     }
 
+    // invitedTargets never contains the recipient's own target.
     for (const target of update.invitedTargets) {
-        if (ownTarget !== undefined && sameTarget(target, ownTarget)) continue;
         if (hasTarget(update.joinedParticipants, target)) continue;
         targets.push({target, clientId: target.client});
     }

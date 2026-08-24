@@ -1172,7 +1172,7 @@ impl CallManager {
                         if let Err(err) = state
                             .send_message(
                                 participant_id,
-                                ServerMessage::CallUpdate((&update).into()),
+                                ServerMessage::CallUpdate(update.for_recipient(participant_id)),
                             )
                             .await
                         {
@@ -1437,6 +1437,37 @@ mod tests {
                 AcceptCallOutcome::Accepted { .. }
             ),
             "call should be accepted"
+        );
+    }
+
+    #[test]
+    fn recipient_updates_exclude_the_own_invited_target() {
+        let update = UpdateParticipants {
+            call_id: CallId::new(),
+            invited_participants: HashMap::from([
+                (ClientId::from("b"), CallTarget::Client(ClientId::from("b"))),
+                (ClientId::from("c"), CallTarget::Client(ClientId::from("c"))),
+            ]),
+            joined_participants: HashMap::from([(
+                ClientId::from("a"),
+                CallTarget::Client(ClientId::from("a")),
+            )]),
+            conference_leader: None,
+        };
+
+        let for_ringing = update.for_recipient(&ClientId::from("b"));
+        assert_eq!(
+            for_ringing.invited_targets,
+            HashSet::from([CallTarget::Client(ClientId::from("c"))])
+        );
+
+        let for_joined = update.for_recipient(&ClientId::from("a"));
+        assert_eq!(
+            for_joined.invited_targets,
+            HashSet::from([
+                CallTarget::Client(ClientId::from("b")),
+                CallTarget::Client(ClientId::from("c")),
+            ])
         );
     }
 

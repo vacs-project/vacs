@@ -737,9 +737,8 @@ mod tests {
                     station_id: None,
                 },
                 target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
-                invited_targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
-                    ClientId::from("client2"),
-                )]),
+                // The recipient's own target is carried by `target` only.
+                invited_targets: HashSet::new(),
                 joined_participants: HashMap::new(),
                 conference_leader: None,
                 prio: false,
