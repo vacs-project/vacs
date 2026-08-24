@@ -798,28 +798,20 @@ impl AppStateInner {
                 };
 
                 if let Entry::Occupied(mut entry) = state.incoming_calls.entry(*call_id) {
-                    if invited_targets.is_empty() && joined_participants.is_empty() {
-                        log::debug!(
-                            "Call {call_id} has no participants left, removing incoming call"
-                        );
+                    // Empty lists are a live state for a lone ringing recipient
+                    // (its own target is not on the wire); the invitation only
+                    // ends via an explicit CallCancelled.
+                    log::trace!("Updating incoming call");
 
-                        entry.remove();
-                        state.stop_ringing_if_no_incoming_calls();
+                    let incoming_call = entry.get_mut();
+                    incoming_call.update(
+                        &own_client_id,
+                        invited_targets.clone(),
+                        joined_participants.clone(),
+                        conference_leader.clone(),
+                    );
 
-                        app.emit("signaling:force-call-end", call_id).ok();
-                    } else {
-                        log::trace!("Updating incoming call");
-
-                        let incoming_call = entry.get_mut();
-                        incoming_call.update(
-                            &own_client_id,
-                            invited_targets.clone(),
-                            joined_participants.clone(),
-                            conference_leader.clone(),
-                        );
-
-                        app.emit("signaling:call-update", msg).ok();
-                    }
+                    app.emit("signaling:call-update", msg).ok();
 
                     return;
                 }

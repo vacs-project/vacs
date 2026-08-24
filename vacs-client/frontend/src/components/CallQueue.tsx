@@ -118,7 +118,8 @@ function CallQueue() {
                         )}
                         onClick={() => handleAnswerKeyClick(call)}
                     >
-                        {participantCount(call.joinedParticipants) + call.invitedTargets.length > 2
+                        {/* The ringing recipient itself is not in either list. */}
+                        {participantCount(call.joinedParticipants) + call.invitedTargets.length > 1
                             ? "CONF"
                             : callLabel(
                                   call.source.stationId,
