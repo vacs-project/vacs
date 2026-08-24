@@ -149,6 +149,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
                 updateCallListEntry(update.callId, undefined, callListTargets(update));
             } else if (callDisplay?.call.callId === update.callId) {
+                // A terminal display stays terminal: the call is already over
+                // for this client and only a dismiss clears it. Applying the
+                // update would resurrect it as a live-looking call.
+                if (callDisplay.type === "error" || callDisplay.type === "rejected") {
+                    return;
+                }
+
                 const ownClientId = useAuthStore.getState().cid!;
 
                 const isAccepted =
@@ -232,6 +239,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                         target =>
                             hasTarget(update.invitedTargets, target) ||
                             hasTarget(update.joinedParticipants, target),
+                    ),
+                    // A re-invited target is no longer rejected or errored.
+                    rejectedTargets: callDisplay.rejectedTargets.filter(
+                        target => !hasTarget(update.invitedTargets, target),
+                    ),
+                    erroredTargets: callDisplay.erroredTargets.filter(
+                        errored => !hasTarget(update.invitedTargets, errored.target),
                     ),
                 };
 
@@ -642,6 +656,13 @@ export const startCall = async (...targets: CallTarget[]) => {
                     prioTargets: prio
                         ? callDisplay.prioTargets.concat(targets)
                         : callDisplay.prioTargets,
+                    // A re-invited target is no longer rejected or errored.
+                    rejectedTargets: callDisplay.rejectedTargets.filter(
+                        target => !hasTarget(targets, target),
+                    ),
+                    erroredTargets: callDisplay.erroredTargets.filter(
+                        errored => !hasTarget(targets, errored.target),
+                    ),
                 },
                 conferenceState: "active",
             });
