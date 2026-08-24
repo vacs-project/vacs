@@ -191,6 +191,46 @@ describe("call store", () => {
     });
 
     describe("updateCall", () => {
+        it("clears a stale conference leader when the update omits the key", () => {
+            useCallStore.setState({
+                incomingCalls: [
+                    {
+                        callId: CALL_ID,
+                        source: {clientId: "client9" as ClientId},
+                        target: {station: "station0" as StationId},
+                        invitedTargets: [],
+                        joinedParticipants: {},
+                        conferenceLeader: "client9" as ClientId,
+                        prio: false,
+                    },
+                ],
+            });
+
+            // The wire omits conferenceLeader when there is none.
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [],
+                joinedParticipants: {["client9" as ClientId]: STATION_1},
+            });
+
+            expect(useCallStore.getState().incomingCalls[0].conferenceLeader).toBeNull();
+        });
+
+        it("keeps our own key out of whole-call error annotations", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "call"},
+                reason: "callFailure",
+            });
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("error");
+            expect(display?.erroredTargets).toEqual([{target: STATION_1, reason: "callFailure"}]);
+        });
+
         it("ignores updates for a terminal display", () => {
             const display = makeTestCallDisplay("error", {invitedTargets: []});
             useCallStore.setState({callDisplay: display});
