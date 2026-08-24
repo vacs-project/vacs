@@ -8,6 +8,14 @@ fn open_fds() -> usize {
     std::fs::read_dir("/proc/self/fd").unwrap().count()
 }
 
+/// In workspace builds, feature unification enables more than one rustls
+/// crypto provider, so rustls cannot auto-select one and the DTLS handshake
+/// panics unless a process default is installed (the binaries do the same on
+/// startup).
+fn install_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 async fn gather_and_close() {
     let (mut peer, _events) = Peer::new(
         IceConfig {
@@ -43,7 +51,10 @@ async fn pump_candidates(
                 let _ = connected_tx.send(()).await;
             }
             Ok(_) => {}
-            Err(_) => break,
+            // Lagging must not kill the pump; a loaded runner can starve this
+            // task long enough for the event channel to overflow.
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
         }
     }
 }
@@ -91,6 +102,8 @@ async fn connect_and_close_pair() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_a_connected_peer_pair_releases_its_sockets() {
+    install_crypto_provider();
+
     connect_and_close_pair().await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let baseline = open_fds();
@@ -109,6 +122,8 @@ async fn closing_a_connected_peer_pair_releases_its_sockets() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_a_peer_releases_its_sockets() {
+    install_crypto_provider();
+
     gather_and_close().await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let baseline = open_fds();
