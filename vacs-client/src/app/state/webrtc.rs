@@ -522,7 +522,11 @@ impl AppStateWebrtcExt for AppStateInner {
     }
 
     async fn end_call_if_no_peers(&mut self, call_id: CallId) -> bool {
-        if !self.current_call(call_id).is_some_and(Call::is_empty)
+        // Only invited targets keep a peerless call alive: joined_participants
+        // always contains this client itself, so it must not gate the check.
+        if !self
+            .current_call(call_id)
+            .is_some_and(|call| call.invited_targets().is_empty())
             || !self.webrtc_call(call_id).is_some_and(WebrtcCall::is_empty)
         {
             return false;
