@@ -157,6 +157,18 @@ impl WebrtcPeer {
     }
 }
 
+/// Runs `close` detached, then releases the input device: the detach only
+/// takes effect once no sender subscription remains, i.e. after the close.
+fn detach_input_after(
+    audio_manager: crate::audio::manager::AudioManagerHandle,
+    close: impl Future<Output = ()> + Send + 'static,
+) {
+    tauri::async_runtime::spawn(async move {
+        close.await;
+        audio_manager.write().detach_input_device();
+    });
+}
+
 #[derive(Debug)]
 pub struct WebrtcCall {
     call_id: CallId,
@@ -374,12 +386,12 @@ impl AppStateWebrtcExt for AppStateInner {
 
         if let Some(old_peer) = old_peer {
             let audio_source_id = old_peer.audio_source_id;
-            old_peer.shutdown_detached();
+            detach_input_after(self.audio_manager.clone(), old_peer.shutdown());
 
             if let Some(audio_source_id) = audio_source_id {
-                let mut audio_manager = self.audio_manager.write();
-                audio_manager.detach_call_output(audio_source_id);
-                audio_manager.detach_input_device();
+                self.audio_manager
+                    .write()
+                    .detach_call_output(audio_source_id);
             }
         }
 
@@ -446,7 +458,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         let audio_source_id = peer.audio_source_id;
         let connected = peer.connected;
-        peer.shutdown_detached();
+        detach_input_after(self.audio_manager.clone(), peer.shutdown());
 
         let left_sound = connected
             .then(|| self.peer_left_sound(call_id, peer_id))
@@ -462,8 +474,6 @@ impl AppStateWebrtcExt for AppStateInner {
             if let Some(left_sound) = left_sound {
                 audio_manager.restart(left_sound);
             }
-
-            audio_manager.detach_input_device();
         }
 
         true
@@ -492,7 +502,7 @@ impl AppStateWebrtcExt for AppStateInner {
         let was_connected = webrtc_call.was_connected();
         // Detached for the same reason as shutdown_detached: this runs under
         // the app state mutex, and a conference teardown joins N peer closes.
-        tauri::async_runtime::spawn(webrtc_call.shutdown());
+        detach_input_after(self.audio_manager.clone(), webrtc_call.shutdown());
 
         {
             let mut audio_manager = self.audio_manager.write();
@@ -506,7 +516,6 @@ impl AppStateWebrtcExt for AppStateInner {
             for audio_source_id in audio_source_ids {
                 audio_manager.detach_call_output(audio_source_id);
             }
-            audio_manager.detach_input_device();
         }
 
         true
