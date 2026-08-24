@@ -304,7 +304,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            callDisplay = {...callDisplay};
+            callDisplay = structuredClone(callDisplay);
 
             targets = targets.filter(target => hasTarget(callDisplay.call.invitedTargets, target));
 
@@ -371,7 +371,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            callDisplay = {...callDisplay};
+            callDisplay = structuredClone(callDisplay);
 
             let targets: CallTarget[];
             if (error.origin.type === "call") {
@@ -393,6 +393,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                             hasTarget(callDisplay.call.invitedTargets, target) ||
                             hasTarget(callDisplay.call.joinedParticipants, target),
                     );
+
+                    if (targets.length === 0) return;
                 } else if (error.origin.type === "client") {
                     const joinedParticipant =
                         callDisplay.call.joinedParticipants[error.origin.value];
@@ -470,7 +472,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            callDisplay = {...callDisplay};
+            callDisplay = structuredClone(callDisplay);
 
             const joinedParticipant = callDisplay.call.joinedParticipants[peerId];
 
