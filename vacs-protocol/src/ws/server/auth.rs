@@ -1,5 +1,6 @@
 use crate::vatsim::PositionId;
 use crate::ws::server::ServerMessage;
+use crate::ws::shared::UnknownReason;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,6 +14,10 @@ pub enum LoginFailureReason {
     InvalidVatsimPosition,
     Timeout,
     IncompatibleProtocolVersion,
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// Treat as a generic login failure.
+    #[serde(untagged)]
+    Unknown(UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,6 +26,10 @@ pub enum DisconnectReason {
     Terminated,
     NoActiveVatsimConnection,
     AmbiguousVatsimPosition(Vec<PositionId>),
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// Treat as a generic disconnect.
+    #[serde(untagged)]
+    Unknown(UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

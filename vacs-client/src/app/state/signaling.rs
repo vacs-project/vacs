@@ -1094,7 +1094,8 @@ impl AppStateInner {
                     | CallErrorReason::NotParticipant
                     | CallErrorReason::CallNotFound
                     | CallErrorReason::CallFailure
-                    | CallErrorReason::Other => {
+                    | CallErrorReason::Other
+                    | CallErrorReason::Unknown(_) => {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
@@ -1169,9 +1170,12 @@ impl AppStateInner {
                 let mut state = state.lock().await;
 
                 match reason {
+                    // Unknown reasons still cancel: honoring the message
+                    // matters more than knowing why.
                     CallCancelReason::AnsweredElsewhere(_)
                     | CallCancelReason::CallerCancelled
-                    | CallCancelReason::Errored(CallErrorReason::AutoHangup) => {
+                    | CallCancelReason::Errored(CallErrorReason::AutoHangup)
+                    | CallCancelReason::Unknown(_) => {
                         state.cleanup_current_call(call_id).await;
 
                         state.remove_incoming_call(call_id);
