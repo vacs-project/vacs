@@ -25,7 +25,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const incomingCall = incomingCalls.find(
         call =>
             call.source.clientId === client.id ||
-            hasTarget(call.joinedParticipants, {client: client.id}),
+            Object.keys(call.joinedParticipants).includes(client.id),
     );
     const isCalling = incomingCall !== undefined;
     const beingCalled =
@@ -95,8 +95,9 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
 
     const prio =
         enablePrio &&
-        callDisplay !== undefined &&
-        hasTarget(callDisplay.prioTargets, {client: client.id});
+        (callDisplay !== undefined
+            ? hasTarget(callDisplay.prioTargets, {client: client.id})
+            : (incomingCall?.prio ?? false));
 
     const {color, highlight} = getCallStateColors({
         inCall,
