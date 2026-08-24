@@ -1,5 +1,6 @@
 mod manager;
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 pub use manager::*;
 use vacs_protocol::ws::server::CallUpdate;
@@ -105,7 +106,25 @@ struct ActiveCallEntry {
     call_id: CallId,
     conference_leader: Option<ClientId>,
     participants: CallParticipants,
+    /// Monotonic join sequence per participant; decides which member of a
+    /// dead link is evicted (the later joiner).
+    join_order: HashMap<ClientId, u64>,
+    next_join_seq: u64,
+    /// Dead-link reports keyed by the normalized pair, holding which of the
+    /// two endpoints reported so far and when the pair was last reported.
+    link_reports: HashMap<(ClientId, ClientId), LinkReport>,
     guard: CallGuard,
+}
+
+/// A stale half-report must not let a later re-failure evict on a single
+/// fresh report: reports older than this are discarded when the pair is
+/// reported again. Genuine confirmations arrive within one retry interval.
+const LINK_REPORT_TTL: Duration = Duration::from_secs(90);
+
+#[derive(Debug)]
+struct LinkReport {
+    reporters: HashSet<ClientId>,
+    refreshed_at: Instant,
 }
 
 impl RingingCallEntry {
@@ -196,7 +215,70 @@ impl ActiveCallEntry {
             call_id,
             conference_leader,
             participants,
+            join_order: HashMap::new(),
+            next_join_seq: 0,
+            link_reports: HashMap::new(),
             guard: CallGuard::new(),
+        }
+    }
+
+    pub fn record_join(&mut self, client_id: &ClientId) {
+        self.join_order
+            .insert(client_id.clone(), self.next_join_seq);
+        self.next_join_seq += 1;
+    }
+
+    /// Forgets everything tied to a leaving participant: its join sequence
+    /// and every link report involving it, so half-reported links cannot
+    /// outlive an endpoint.
+    pub fn forget_participant(&mut self, client_id: &ClientId) {
+        self.join_order.remove(client_id);
+        self.link_reports
+            .retain(|(a, b), _| a != client_id && b != client_id);
+    }
+
+    fn link_key(a: &ClientId, b: &ClientId) -> (ClientId, ClientId) {
+        if a <= b {
+            (a.clone(), b.clone())
+        } else {
+            (b.clone(), a.clone())
+        }
+    }
+
+    /// Records a dead-link report and returns whether both endpoints of the
+    /// pair have now reported it.
+    pub fn record_link_report(&mut self, reporter: &ClientId, peer: &ClientId) -> bool {
+        self.record_link_report_at(reporter, peer, Instant::now())
+    }
+
+    fn record_link_report_at(
+        &mut self,
+        reporter: &ClientId,
+        peer: &ClientId,
+        now: Instant,
+    ) -> bool {
+        let key = Self::link_key(reporter, peer);
+        let report = self.link_reports.entry(key).or_insert_with(|| LinkReport {
+            reporters: HashSet::new(),
+            refreshed_at: now,
+        });
+
+        if now.duration_since(report.refreshed_at) >= LINK_REPORT_TTL {
+            report.reporters.clear();
+        }
+        report.refreshed_at = now;
+        report.reporters.insert(reporter.clone());
+
+        report.reporters.contains(peer)
+    }
+
+    /// The member of the pair that joined the call later.
+    pub fn later_joiner(&self, a: &ClientId, b: &ClientId) -> ClientId {
+        let seq = |id: &ClientId| self.join_order.get(id).copied().unwrap_or(u64::MAX);
+        if seq(a) >= seq(b) {
+            a.clone()
+        } else {
+            b.clone()
         }
     }
 

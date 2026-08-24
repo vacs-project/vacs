@@ -49,6 +49,21 @@ pub enum CallTerminationOutcome {
 }
 
 #[derive(Debug)]
+pub enum LinkReportOutcome {
+    /// Reporter or named peer is not a joined participant of the call.
+    InvalidReport,
+    /// First report of the pair; nothing happens until the peer confirms.
+    Recorded,
+    /// Both endpoints reported: the later joiner was removed from the call.
+    Evicted {
+        evicted: ClientId,
+        /// The pair member the evicted client could not reach.
+        unreachable: ClientId,
+        actions: Vec<UpdateCallAction>,
+    },
+}
+
+#[derive(Debug)]
 pub enum AcceptCallOutcome {
     Accepted {
         target: Box<RingingTarget>,
@@ -436,6 +451,7 @@ impl CallManager {
                 active_call
                     .participants
                     .insert(accepting_client_id.clone(), ringing_target.target.clone());
+                active_call.record_join(accepting_client_id);
 
                 active_call
                     .guard
@@ -473,7 +489,9 @@ impl CallManager {
                     ),
                 ]);
 
-                let active = ActiveCallEntry::new(*call_id, None, participants.clone());
+                let mut active = ActiveCallEntry::new(*call_id, None, participants.clone());
+                active.record_join(&ringing_target.caller_id);
+                active.record_join(accepting_client_id);
 
                 entry.insert(active);
 
@@ -647,6 +665,7 @@ impl CallManager {
                         }
                         Some(dropped_client_id) => {
                             active_call.participants.remove(&dropped_client_id);
+                            active_call.forget_participant(&dropped_client_id);
 
                             if active_call.participants.len() <= 2 {
                                 tracing::debug!(
@@ -807,6 +826,7 @@ impl CallManager {
                             "Tried to remove ending participant from active call, but no entry found; sending update anyway..."
                         );
                     }
+                    active_call.forget_participant(ending_client_id);
 
                     if active_call.participants.len() <= 2 {
                         active_call.conference_leader = None;
@@ -967,6 +987,7 @@ impl CallManager {
                                         "Tried to remove disconnecting participant from active call, but no entry found; sending update anyway..."
                                     );
                                 }
+                                active_call.forget_participant(client_id);
 
                                 if active_call.participants.len() <= 2 {
                                     active_call.conference_leader = None;
@@ -1197,6 +1218,58 @@ impl CallManager {
                     }
                 }
             }
+        }
+    }
+
+    /// Records a dead-link report from `reporter_id` about its connection to
+    /// `peer_id`. Once both endpoints of the pair have reported, the later
+    /// joiner is evicted through the regular leave semantics (including the
+    /// leader rule: an evicted leader ends the whole call).
+    pub fn report_link_failure(
+        &self,
+        call_id: &CallId,
+        reporter_id: &ClientId,
+        peer_id: &ClientId,
+    ) -> LinkReportOutcome {
+        if reporter_id == peer_id {
+            return LinkReportOutcome::InvalidReport;
+        }
+
+        let (evicted, unreachable) = {
+            let mut active_calls = self.active_calls.write();
+            let Some(active_call) = active_calls.get_mut(call_id) else {
+                return LinkReportOutcome::InvalidReport;
+            };
+            if !active_call.participants.contains_key(reporter_id)
+                || !active_call.participants.contains_key(peer_id)
+            {
+                return LinkReportOutcome::InvalidReport;
+            }
+
+            if !active_call.record_link_report(reporter_id, peer_id) {
+                return LinkReportOutcome::Recorded;
+            }
+
+            let evicted = active_call.later_joiner(reporter_id, peer_id);
+            let unreachable = if &evicted == reporter_id {
+                peer_id.clone()
+            } else {
+                reporter_id.clone()
+            };
+            (evicted, unreachable)
+        };
+
+        // end_call takes its own locks; a concurrent leave in between is
+        // benign for either pair member: the evictee leaving makes this a
+        // no-op, and the unreachable peer leaving already pruned the pair's
+        // reports, so the eviction decided above still stands on its own.
+        match self.end_call(call_id, &evicted) {
+            Some(actions) => LinkReportOutcome::Evicted {
+                evicted,
+                unreachable,
+                actions,
+            },
+            None => LinkReportOutcome::Recorded,
         }
     }
 
@@ -1482,6 +1555,301 @@ mod tests {
                 CallTarget::Client(ClientId::from("c")),
             ])
         );
+    }
+
+    /// Rings `target_id` for `inviter` within `call_id` and lets it accept.
+    fn grow(manager: &CallManager, call_id: &CallId, inviter: &ClientId, target_id: &ClientId) {
+        manager
+            .attempt_call(
+                call_id,
+                inviter,
+                &source(inviter),
+                &CallTarget::Client(target_id.clone()),
+                &HashSet::from([target_id.clone()]),
+            )
+            .expect("conference invite should succeed");
+        assert!(
+            matches!(
+                manager.accept_call(call_id, target_id),
+                AcceptCallOutcome::Accepted { .. }
+            ),
+            "conference accept should succeed"
+        );
+    }
+
+    #[test]
+    fn a_single_link_report_is_only_recorded() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+        grow(&manager, &call_id, &a, &c);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &b, &c),
+            LinkReportOutcome::Recorded
+        ));
+        assert!(manager.has_active_call(&call_id, &c), "nobody is evicted");
+    }
+
+    #[test]
+    fn both_reports_evict_the_later_joiner() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+        grow(&manager, &call_id, &a, &c);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &b, &c),
+            LinkReportOutcome::Recorded
+        ));
+        match manager.report_link_failure(&call_id, &c, &b) {
+            LinkReportOutcome::Evicted {
+                evicted,
+                unreachable,
+                actions,
+            } => {
+                assert_eq!(evicted, c);
+                assert_eq!(unreachable, b);
+                let update = actions
+                    .iter()
+                    .find_map(|action| match action {
+                        UpdateCallAction::UpdateParticipants(update) => Some(update),
+                        _ => None,
+                    })
+                    .expect("survivors should receive an update");
+                assert!(!update.joined_participants.contains_key(&c));
+                assert!(update.joined_participants.contains_key(&a));
+                assert!(update.joined_participants.contains_key(&b));
+            }
+            outcome => panic!("expected eviction, got {outcome:?}"),
+        }
+        assert!(!manager.has_active_call(&call_id, &c));
+        assert!(manager.has_active_call(&call_id, &a));
+    }
+
+    /// An evicted leader ends the whole call, exactly as if it had left.
+    #[test]
+    fn evicting_the_leader_ends_the_call() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+        // B grows the call and becomes the leader; B joined after A.
+        grow(&manager, &call_id, &b, &c);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &a, &b),
+            LinkReportOutcome::Recorded
+        ));
+        match manager.report_link_failure(&call_id, &b, &a) {
+            LinkReportOutcome::Evicted { evicted, .. } => {
+                assert_eq!(evicted, b, "the later joiner of the pair is the leader");
+            }
+            outcome => panic!("expected eviction, got {outcome:?}"),
+        }
+        assert!(
+            manager.active_call(&call_id).is_none(),
+            "an evicted leader ends the whole call"
+        );
+    }
+
+    /// A leave prunes half-reported links, so a rejoin needs a fresh pair of
+    /// reports.
+    #[test]
+    fn leaving_prunes_half_reported_links() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+        grow(&manager, &call_id, &a, &c);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &b, &c),
+            LinkReportOutcome::Recorded
+        ));
+
+        // C leaves and rejoins; the old half-report must not count.
+        manager.end_call(&call_id, &c).expect("leave should work");
+        grow(&manager, &call_id, &a, &c);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &c, &b),
+            LinkReportOutcome::Recorded
+        ));
+        assert!(manager.has_active_call(&call_id, &c));
+
+        // Completing the fresh pair evicts the rejoiner: it holds the
+        // highest join sequence.
+        match manager.report_link_failure(&call_id, &b, &c) {
+            LinkReportOutcome::Evicted { evicted, .. } => assert_eq!(evicted, c),
+            outcome => panic!("expected eviction, got {outcome:?}"),
+        }
+    }
+
+    /// The evictee is chosen by join order, not by client id ordering.
+    #[test]
+    fn eviction_follows_join_order_not_client_id_order() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        // b and c join first; a joins last but sorts first.
+        join(&manager, &call_id, &b, &c);
+        grow(&manager, &call_id, &b, &a);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &a, &b),
+            LinkReportOutcome::Recorded
+        ));
+        match manager.report_link_failure(&call_id, &b, &a) {
+            LinkReportOutcome::Evicted { evicted, .. } => assert_eq!(evicted, a),
+            outcome => panic!("expected eviction, got {outcome:?}"),
+        }
+    }
+
+    /// Dropping a participant prunes its half-reports, so a re-invited
+    /// participant cannot be evicted by a single fresh report.
+    #[test]
+    fn dropping_a_participant_prunes_its_link_reports() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c, d) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+            ClientId::from("d"),
+        );
+        join(&manager, &call_id, &a, &b);
+        grow(&manager, &call_id, &a, &c);
+        grow(&manager, &call_id, &a, &d);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &c, &d),
+            LinkReportOutcome::Recorded
+        ));
+
+        assert!(matches!(
+            manager.drop_target(
+                &call_id,
+                &a,
+                &CallTarget::Client(d.clone()),
+                CallDropReason::Requested,
+            ),
+            DropTargetOutcome::ParticipantDropped(..)
+        ));
+        grow(&manager, &call_id, &a, &d);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &d, &c),
+            LinkReportOutcome::Recorded
+        ));
+        assert!(manager.has_active_call(&call_id, &d));
+    }
+
+    /// A stale half-report expires instead of confirming a much later report.
+    #[test]
+    fn stale_half_reports_expire() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+        grow(&manager, &call_id, &a, &c);
+
+        let start = std::time::Instant::now();
+        let mut active_calls = manager.active_calls.write();
+        let active_call = active_calls.get_mut(&call_id).expect("call exists");
+
+        assert!(!active_call.record_link_report_at(&b, &c, start));
+        assert!(
+            !active_call.record_link_report_at(&c, &b, start + std::time::Duration::from_secs(120)),
+            "an expired half-report must not confirm"
+        );
+        assert!(
+            active_call.record_link_report_at(&b, &c, start + std::time::Duration::from_secs(125)),
+            "fresh reports from both endpoints still confirm"
+        );
+    }
+
+    #[test]
+    fn expired_half_report_yields_recorded_not_evicted() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+        grow(&manager, &call_id, &a, &c);
+
+        // Seed a half-report from c that is already past the TTL.
+        {
+            let mut active_calls = manager.active_calls.write();
+            let active_call = active_calls.get_mut(&call_id).expect("call exists");
+            let stale = std::time::Instant::now()
+                .checked_sub(crate::state::calls::LINK_REPORT_TTL)
+                .expect("test host uptime exceeds the report TTL");
+            assert!(!active_call.record_link_report_at(&c, &b, stale));
+        }
+
+        assert!(
+            matches!(
+                manager.report_link_failure(&call_id, &b, &c),
+                LinkReportOutcome::Recorded
+            ),
+            "a confirming report against an expired half-report must not evict"
+        );
+        assert!(manager.has_active_call(&call_id, &c), "nobody is evicted");
+    }
+
+    #[test]
+    fn link_reports_require_joined_participants() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let (a, b, c) = (
+            ClientId::from("a"),
+            ClientId::from("b"),
+            ClientId::from("c"),
+        );
+        join(&manager, &call_id, &a, &b);
+
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &a, &c),
+            LinkReportOutcome::InvalidReport
+        ));
+        assert!(matches!(
+            manager.report_link_failure(&call_id, &a, &a),
+            LinkReportOutcome::InvalidReport
+        ));
+        assert!(matches!(
+            manager.report_link_failure(&CallId::new(), &a, &b),
+            LinkReportOutcome::InvalidReport
+        ));
     }
 
     /// Leadership goes to the inviter of the participant that made the call a
