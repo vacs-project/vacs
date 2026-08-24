@@ -95,6 +95,13 @@ pub struct WebrtcPeer {
     /// Whether this link ever carried media. Replacement peers inherit it, the call was live before
     /// the swap. Decides whether ending the call plays the call end sound.
     connected: bool,
+    /// Whether this peer object is currently connected. Never inherited and
+    /// cleared when the connection drops: the link retry loop uses it to tell
+    /// a live link from a stale or still-establishing one.
+    established: bool,
+    /// When this peer object was created; a young attempt is still
+    /// establishing and must not be torn down by a retry tick.
+    created: Instant,
     /// Whether this peer connection is a replacement established by an in-call reconnect.
     /// Prevents reconnect loops and suppresses the call start sound when it connects.
     reconnected: bool,
@@ -128,6 +135,8 @@ impl WebrtcPeer {
             audio_source_id: None,
             events_cancel: call_cancel.child_token(),
             connected: false,
+            established: false,
+            created: Instant::now(),
             reconnected: false,
             peer_supports_reconnect,
         }
@@ -249,13 +258,21 @@ impl WebrtcCall {
 /// app state mutex: the HTTP fetch must not freeze every other command while
 /// an unreachable backend times out.
 pub async fn refresh_expired_ice_config(app: &AppHandle) {
-    let expired = {
-        let state = app.state::<AppState>();
-        let state = state.lock().await;
-        state.is_ice_config_expired()
-    };
-    if !expired {
-        return;
+    refresh_ice_config(app, false).await;
+}
+
+/// Like [`refresh_expired_ice_config`], but `force` fetches regardless of
+/// expiry: a dead relay path is refreshed on suspicion, not on schedule.
+pub async fn refresh_ice_config(app: &AppHandle, force: bool) {
+    if !force {
+        let expired = {
+            let state = app.state::<AppState>();
+            let state = state.lock().await;
+            state.is_ice_config_expired()
+        };
+        if !expired {
+            return;
+        }
     }
 
     match app
@@ -274,7 +291,23 @@ pub async fn refresh_expired_ice_config(app: &AppHandle) {
     }
 }
 
+/// One immediate forced-relay retry gets this long to establish before the
+/// link is reported dead (ADR 0001).
+const LINK_RETRY_ESTABLISH_TIMEOUT: Duration = Duration::from_secs(10);
+/// Cadence of the silent re-attempts while a reported link waits for the
+/// peer's confirming report.
+const LINK_RETRY_INTERVAL: Duration = Duration::from_secs(30);
+
+pub struct LinkLimboGuard {
+    call_id: CallId,
+    cancel: CancellationToken,
+    handle: JoinHandle<()>,
+}
+
 pub trait AppStateWebrtcExt: sealed::Sealed {
+    fn cancel_link_retry(&mut self, peer_id: &ClientId);
+    fn has_link_limbo(&self, call_id: CallId, peer_id: &ClientId) -> bool;
+    fn has_pending_link_retries(&self, call_id: CallId) -> bool;
     fn webrtc_call(&self, call_id: CallId) -> Option<&WebrtcCall>;
     fn webrtc_call_mut(&mut self, call_id: CallId) -> Option<&mut WebrtcCall>;
     fn webrtc_peer(&self, call_id: CallId, peer_id: &ClientId) -> Option<&WebrtcPeer>;
@@ -315,6 +348,25 @@ pub trait AppStateWebrtcExt: sealed::Sealed {
 }
 
 impl AppStateWebrtcExt for AppStateInner {
+    fn cancel_link_retry(&mut self, peer_id: &ClientId) {
+        if let Some(guard) = self.link_limbo_guards.remove(peer_id) {
+            guard.cancel.cancel();
+            guard.handle.abort();
+        }
+    }
+
+    fn has_link_limbo(&self, call_id: CallId, peer_id: &ClientId) -> bool {
+        self.link_limbo_guards
+            .get(peer_id)
+            .is_some_and(|guard| guard.call_id == call_id)
+    }
+
+    fn has_pending_link_retries(&self, call_id: CallId) -> bool {
+        self.link_limbo_guards
+            .values()
+            .any(|guard| guard.call_id == call_id)
+    }
+
     fn webrtc_call(&self, call_id: CallId) -> Option<&WebrtcCall> {
         self.current_call(call_id).map(Call::webrtc)
     }
@@ -346,7 +398,9 @@ impl AppStateWebrtcExt for AppStateInner {
         let replacing = call.has_peer(&peer_id);
         let call_cancel = call.cancel.clone();
 
-        let force_relay = self.config.client.call.force_relay || (replacing && offer_sdp.is_none());
+        let force_relay = self.config.client.call.force_relay
+            || (replacing && offer_sdp.is_none())
+            || self.has_link_limbo(call_id, &peer_id);
 
         if replacing {
             log::info!("Replacing peer connection with peer {peer_id} in call {call_id}");
@@ -355,7 +409,12 @@ impl AppStateWebrtcExt for AppStateInner {
             log::debug!("Negotiating peer connection with peer {peer_id} in call {call_id}");
         }
 
-        let (peer, sdp) = match self
+        // A limbo retry resumes an interrupted link even when the previous
+        // peer object is already gone; treat it like a reconnect so healing
+        // does not announce a fresh join.
+        let reconnect = replacing || self.has_link_limbo(call_id, &peer_id);
+
+        let (mut peer, sdp) = match self
             .create_peer(
                 app,
                 call_id,
@@ -363,7 +422,7 @@ impl AppStateWebrtcExt for AppStateInner {
                 own_client_id,
                 &call_cancel,
                 offer_sdp,
-                replacing,
+                reconnect,
                 force_relay,
             )
             .await
@@ -373,6 +432,12 @@ impl AppStateWebrtcExt for AppStateInner {
                 return Err(err);
             }
         };
+
+        // A limbo retry resumes a link that may never have carried media;
+        // only an actual heal marks it connected.
+        if reconnect && !replacing {
+            peer.connected = false;
+        }
 
         let Some(call) = self.webrtc_call_mut(call_id) else {
             // unreachable, defensive guard
@@ -488,6 +553,7 @@ impl AppStateWebrtcExt for AppStateInner {
         log::debug!("Cleaning up call {call_id}");
 
         self.cancel_call_establishment_timer();
+        self.cancel_all_link_retries(call_id);
 
         let webrtc_call = call.into_webrtc();
 
@@ -524,9 +590,11 @@ impl AppStateWebrtcExt for AppStateInner {
     async fn end_call_if_no_peers(&mut self, call_id: CallId) -> bool {
         // Only invited targets keep a peerless call alive: joined_participants
         // always contains this client itself, so it must not gate the check.
-        if !self
-            .current_call(call_id)
-            .is_some_and(|call| call.invited_targets().is_empty())
+        // A limbo peer is a deliberately absent peer, not a dead call.
+        if self.has_pending_link_retries(call_id)
+            || !self
+                .current_call(call_id)
+                .is_some_and(|call| call.invited_targets().is_empty())
             || !self.webrtc_call(call_id).is_some_and(WebrtcCall::is_empty)
         {
             return false;
@@ -589,6 +657,68 @@ impl AppStateWebrtcExt for AppStateInner {
 }
 
 impl AppStateInner {
+    /// Starts the relay-assisted retry loop for a failed conference link.
+    pub(crate) fn start_link_retry(
+        &mut self,
+        app: &AppHandle,
+        call_id: CallId,
+        peer_id: ClientId,
+        own_client_id: &ClientId,
+    ) {
+        let cancel = self.shutdown_token.child_token();
+        let handle = tauri::async_runtime::spawn(link_retry_task(
+            app.clone(),
+            call_id,
+            peer_id.clone(),
+            own_client_id.clone(),
+            cancel.clone(),
+        ));
+
+        if let Some(previous) = self.link_limbo_guards.insert(
+            peer_id,
+            LinkLimboGuard {
+                call_id,
+                cancel,
+                handle,
+            },
+        ) {
+            previous.cancel.cancel();
+            previous.handle.abort();
+        }
+    }
+
+    /// Drops the guard entry without aborting: used by the retry task itself
+    /// on its exit paths.
+    pub(crate) fn remove_link_limbo(&mut self, peer_id: &ClientId) {
+        self.link_limbo_guards.remove(peer_id);
+    }
+
+    pub(crate) fn cancel_all_link_retries(&mut self, call_id: CallId) {
+        self.link_limbo_guards.retain(|_, guard| {
+            if guard.call_id == call_id {
+                guard.cancel.cancel();
+                guard.handle.abort();
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    /// Tears a limbo peer down without teardown side effects (sounds, keybind
+    /// call state): the call continues and the retry loop owns the lifecycle.
+    async fn remove_link_peer_quiet(&mut self, call_id: CallId, peer_id: &ClientId) {
+        let Some((peer, _)) = self.take_webrtc_peer(call_id, peer_id) else {
+            return;
+        };
+        if let Some(audio_source_id) = peer.audio_source_id {
+            self.audio_manager
+                .write()
+                .detach_call_output(audio_source_id);
+        }
+        detach_input_after(self.audio_manager.clone(), peer.shutdown());
+    }
+
     async fn fail_peer(
         &mut self,
         app: &AppHandle,
@@ -610,10 +740,16 @@ impl AppStateInner {
     fn peer_joined_sound(&self, call_id: CallId, peer_id: &ClientId) -> Option<SourceType> {
         let call_config = &self.config.client.call;
 
-        if let Some(call) = self.webrtc_call(call_id)
-            && call.has_other_connected_peer(peer_id)
+        // A peer pending a link retry still counts as part of an ongoing
+        // call: joins and leaves during limbo are roster changes, not call
+        // starts or ends.
+        if self.has_pending_link_retries(call_id)
+            || self
+                .webrtc_call(call_id)
+                .is_some_and(|call| call.has_other_connected_peer(peer_id))
         {
-            if let Some(last_start_sound) = call.last_call_start_sound
+            if let Some(call) = self.webrtc_call(call_id)
+                && let Some(last_start_sound) = call.last_call_start_sound
                 && last_start_sound + START_SOUND_THRESHOLD > Instant::now()
             {
                 return None;
@@ -632,9 +768,10 @@ impl AppStateInner {
     fn peer_left_sound(&self, call_id: CallId, peer_id: &ClientId) -> Option<SourceType> {
         let call_config = &self.config.client.call;
 
-        if self
-            .webrtc_call(call_id)
-            .is_some_and(|call| call.has_other_connected_peer(peer_id))
+        if self.has_pending_link_retries(call_id)
+            || self
+                .webrtc_call(call_id)
+                .is_some_and(|call| call.has_other_connected_peer(peer_id))
         {
             call_config
                 .enable_participant_left_sound
@@ -714,10 +851,12 @@ impl AppStateInner {
         peer_id: &ClientId,
     ) -> Result<(), Error> {
         let Some(peer) = self.webrtc_peer(call_id, peer_id) else {
+            // Stale event: the peer raced a teardown (e.g. a retry tick).
+            // Benign; escalating would report a failure for a live call.
             log::warn!(
                 "Peer {peer_id} connected for call {call_id}, but no WebRTC peer exists, ignoring"
             );
-            return Err(WebrtcError::NoCallActive.into());
+            return Ok(());
         };
         let reconnected = peer.reconnected;
 
@@ -800,10 +939,13 @@ impl AppStateInner {
 
         if let Some(peer) = self.webrtc_peer_mut(call_id, peer_id) {
             peer.connected = true;
+            peer.established = true;
             peer.audio_source_id = Some(audio_source_id);
         }
 
         log::info!("Successfully established connection to peer {peer_id} in call {call_id}");
+        self.cancel_link_retry(peer_id);
+
         emit_webrtc_update(app, "webrtc:call-connected", call_id, peer_id);
 
         Ok(())
@@ -850,6 +992,152 @@ impl AppStateInner {
         self.negotiate_peer(app.clone(), call_id, peer_id, own_client_id, None)
             .await
             .map(Some)
+    }
+}
+
+/// Drives the relay-assisted retry for one failed conference link (ADR 0001):
+/// one immediate forced-relay attempt bounded by LINK_RETRY_ESTABLISH_TIMEOUT,
+/// then the dead-link report, then silent re-attempts every
+/// LINK_RETRY_INTERVAL until the link heals or the server resolves the pair.
+async fn link_retry_task(
+    app: AppHandle,
+    call_id: CallId,
+    peer_id: ClientId,
+    own_client_id: ClientId,
+    cancel: CancellationToken,
+) {
+    let mut reported = false;
+
+    // First attempt immediately, evaluated after the establish bound; later
+    // attempts run on the retry interval.
+    tokio::select! {
+        _ = cancel.cancelled() => return,
+        _ = attempt_link_retry(&app, call_id, &peer_id, &own_client_id, true) => {}
+    }
+
+    loop {
+        let wait = if reported {
+            LINK_RETRY_INTERVAL
+        } else {
+            LINK_RETRY_ESTABLISH_TIMEOUT
+        };
+        tokio::select! {
+            _ = cancel.cancelled() => return,
+            _ = tokio::time::sleep(wait) => {}
+        }
+
+        {
+            let app_state = app.state::<AppState>();
+            let mut state = app_state.lock().await;
+
+            // `established` is set on this very peer object when it connects;
+            // the inherited `connected` flag must not count as healed.
+            let peer_healed = state
+                .webrtc_peer(call_id, &peer_id)
+                .is_some_and(|peer| peer.established);
+            let peer_joined = state
+                .current_call(call_id)
+                .is_some_and(|call| call.joined_participants().contains_key(&peer_id));
+            if peer_healed || !peer_joined {
+                state.remove_link_limbo(&peer_id);
+                return;
+            }
+
+            // A young peer object (e.g. created by the other side's retry
+            // offer moments ago) is still establishing; give it a full
+            // establish window instead of sawing it down mid-handshake.
+            if state
+                .webrtc_peer(call_id, &peer_id)
+                .is_some_and(|peer| peer.created.elapsed() < LINK_RETRY_ESTABLISH_TIMEOUT)
+            {
+                continue;
+            }
+
+            state.remove_link_peer_quiet(call_id, &peer_id).await;
+
+            // Reported every cycle, not just once: the server expires stale
+            // half-reports, so a long limbo must keep its report fresh for a
+            // late confirming report from the other side to still evict.
+            state
+                .try_send_call_error(
+                    call_id,
+                    CallErrorReason::PeerConnectionFailed(peer_id.clone()),
+                    None,
+                )
+                .await;
+
+            if !reported {
+                reported = true;
+                log::warn!(
+                    "Link to peer {peer_id} in call {call_id} is dead after a relay retry, reporting"
+                );
+                // Skip straight into the interval instead of re-attempting
+                // back to back with the report.
+                continue;
+            }
+        }
+
+        attempt_link_retry(&app, call_id, &peer_id, &own_client_id, false).await;
+    }
+}
+
+/// One retry attempt: renegotiates the limbo peer (forced to relay) and sends
+/// the offer. Skips silently when the call is gone, the peer left, or a
+/// still-establishing attempt is in flight.
+async fn attempt_link_retry(
+    app: &AppHandle,
+    call_id: CallId,
+    peer_id: &ClientId,
+    own_client_id: &ClientId,
+    force_ice_refresh: bool,
+) {
+    // Stale TURN credentials are a prime suspect for a dead relay path, so
+    // the first attempt refreshes unconditionally. Outside the lock.
+    refresh_ice_config(app, force_ice_refresh).await;
+
+    let app_state = app.state::<AppState>();
+    let mut state = app_state.lock().await;
+
+    let peer_joined = state
+        .current_call(call_id)
+        .is_some_and(|call| call.joined_participants().contains_key(peer_id));
+    if !peer_joined
+        || state.webrtc_peer(call_id, peer_id).is_some_and(|peer| {
+            peer.established || peer.created.elapsed() < LINK_RETRY_ESTABLISH_TIMEOUT
+        })
+    {
+        return;
+    }
+
+    // The reporter offers regardless of client ID ordering: the other side
+    // may not have noticed the failure at all, and dragging it through the
+    // renegotiation is what makes one-sided detection converge (ADR 0001).
+    // A genuine collision (both sides in limbo) is resolved in the offer
+    // handler, where the lower client ID keeps its own attempt.
+    if state.webrtc_peer(call_id, peer_id).is_none() {
+        emit_webrtc_update(app, "webrtc:call-reconnecting", call_id, peer_id);
+    }
+
+    match state
+        .negotiate_peer(app.clone(), call_id, peer_id.clone(), own_client_id, None)
+        .await
+    {
+        Ok(sdp) => {
+            if let Err(err) = state
+                .send_signaling_message(shared::WebrtcOffer {
+                    call_id,
+                    from_client_id: own_client_id.clone(),
+                    to_client_id: peer_id.clone(),
+                    sdp,
+                })
+                .await
+            {
+                log::warn!("Failed to send link retry offer to {peer_id}: {err:?}");
+            }
+        }
+        Err(err) => {
+            log::debug!("Link retry negotiation with {peer_id} in call {call_id} failed: {err:?}");
+        }
     }
 }
 
@@ -902,6 +1190,7 @@ fn spawn_peer_events_task(
 
                                 was_connected = peer.connected;
                                 peer.connected = false;
+                                peer.established = false;
 
                                 if let Some(audio_source_id) = audio_source_id {
                                     state
@@ -937,8 +1226,50 @@ fn spawn_peer_events_task(
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
 
-                            let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
-                            state.fail_peer(&app, call_id, &peer_id, reason).await;
+                            if let Some(peer) = state.webrtc_peer_mut(call_id, &peer_id) {
+                                peer.established = false;
+                            }
+
+                            let is_conference = state.current_call(call_id).is_some_and(|call| {
+                                call.joined_participants()
+                                    .keys()
+                                    .any(|id| id != &own_client_id && id != &peer_id)
+                                    || !call.invited_targets().is_empty()
+                            });
+
+                            if is_conference {
+                                // A single dead link does not escalate; the
+                                // retry loop reports it once relay fails too.
+                                emit_webrtc_update(
+                                    &app,
+                                    "webrtc:call-disconnected",
+                                    call_id,
+                                    &peer_id,
+                                );
+
+                                if state.has_link_limbo(call_id, &peer_id) {
+                                    // A stale Failed event can race a young
+                                    // replacement created by the other side's
+                                    // retry offer; leave it establishing.
+                                    let young =
+                                        state.webrtc_peer(call_id, &peer_id).is_some_and(|peer| {
+                                            peer.created.elapsed() < LINK_RETRY_ESTABLISH_TIMEOUT
+                                        });
+                                    if !young {
+                                        state.remove_link_peer_quiet(call_id, &peer_id).await;
+                                    }
+                                } else {
+                                    state.start_link_retry(
+                                        &app,
+                                        call_id,
+                                        peer_id.clone(),
+                                        &own_client_id,
+                                    );
+                                }
+                            } else {
+                                let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
+                                state.fail_peer(&app, call_id, &peer_id, reason).await;
+                            }
                         }
                         PeerConnectionState::Closed => {
                             // Graceful close
@@ -1002,8 +1333,29 @@ fn spawn_peer_events_task(
                                     "Failed to reconnect to peer {peer_id} in call {call_id} via relay: {err:?}"
                                 );
 
-                                let reason = CallErrorReason::WebrtcFailure(own_client_id.clone());
-                                state.fail_peer(&app, call_id, &peer_id, reason).await;
+                                let is_conference =
+                                    state.current_call(call_id).is_some_and(|call| {
+                                        call.joined_participants()
+                                            .keys()
+                                            .any(|id| id != &own_client_id && id != &peer_id)
+                                            || !call.invited_targets().is_empty()
+                                    });
+                                if is_conference {
+                                    // Single-link trouble never escalates in a
+                                    // conference; the link stays degraded until
+                                    // ICE reports Failed or a participant
+                                    // leaves.
+                                    emit_webrtc_update(
+                                        &app,
+                                        "webrtc:call-degraded",
+                                        call_id,
+                                        &peer_id,
+                                    );
+                                } else {
+                                    let reason =
+                                        CallErrorReason::WebrtcFailure(own_client_id.clone());
+                                    state.fail_peer(&app, call_id, &peer_id, reason).await;
+                                }
                             }
                         }
                     }
