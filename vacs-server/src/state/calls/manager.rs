@@ -348,10 +348,8 @@ impl CallManager {
         call_id: &CallId,
         accepting_client_id: &ClientId,
     ) -> AcceptCallOutcome {
-        // Held across the whole accept: every teardown path acquires
-        // `ringing_calls` before `active_calls`, so this guard keeps a
-        // concurrent teardown from interleaving between the ringing and
-        // active updates below.
+        // Held across the whole accept; teardown holds this lock across its
+        // active-call removal, so neither can interleave the other.
         let mut ringing_calls = self.ringing_calls.write();
 
         // Under the same guard, so concurrent accepts serialize.
@@ -703,14 +701,15 @@ impl CallManager {
         call_id: &CallId,
         ending_client_id: &ClientId,
     ) -> Option<Vec<UpdateCallAction>> {
-        let ringing = {
-            let mut ringing_calls = self.ringing_calls.write();
-            match ringing_calls.entry(*call_id) {
-                Entry::Occupied(entry) if entry.get().caller_id == *ending_client_id => {
-                    Some(entry.remove())
-                }
-                _ => None,
+        // Held across the whole teardown so a concurrent accept (which also
+        // holds this lock throughout) cannot resurrect the call mid-removal.
+        let mut ringing_calls = self.ringing_calls.write();
+
+        let ringing = match ringing_calls.entry(*call_id) {
+            Entry::Occupied(entry) if entry.get().caller_id == *ending_client_id => {
+                Some(entry.remove())
             }
+            _ => None,
         };
 
         let ringing_actions: Option<Vec<UpdateCallAction>> = ringing.map(|ringing| {
@@ -740,8 +739,11 @@ impl CallManager {
                     entry.remove();
                     drop(active_calls);
 
-                    let actions =
-                        self.cancel_pending_invitations(call_id, CallAttemptOutcome::Cancelled);
+                    let actions = self.cancel_pending_invitations(
+                        &mut ringing_calls,
+                        call_id,
+                        CallAttemptOutcome::Cancelled,
+                    );
 
                     {
                         let mut client_active_calls = self.client_active_calls.write();
@@ -785,9 +787,11 @@ impl CallManager {
                             UpdateCallAction::DropParticipant(*call_id, participant_id)
                         })
                         .collect();
-                    actions.extend(
-                        self.cancel_pending_invitations(call_id, CallAttemptOutcome::Cancelled),
-                    );
+                    actions.extend(self.cancel_pending_invitations(
+                        &mut ringing_calls,
+                        call_id,
+                        CallAttemptOutcome::Cancelled,
+                    ));
 
                     Some(actions)
                 } else {
@@ -816,9 +820,7 @@ impl CallManager {
                         }
                     }
 
-                    let invited_participants = self
-                        .ringing_calls
-                        .read()
+                    let invited_participants = ringing_calls
                         .get(call_id)
                         .map(|ringing_call| ringing_call.invited_participants())
                         .unwrap_or_default();
@@ -855,14 +857,15 @@ impl CallManager {
         if let Some(active_or_ringing_call_id) = active_or_outgoing_call_id {
             let mut has_active_or_outgoing_call = false;
 
+            // Held across the ringing and active handling below; see end_call.
+            let mut ringing_calls = self.ringing_calls.write();
+
             {
-                let mut ringing_calls = self.ringing_calls.write();
                 match ringing_calls.entry(active_or_ringing_call_id) {
                     Entry::Occupied(entry) if entry.get().caller_id == *client_id => {
                         has_active_or_outgoing_call = true;
 
                         let ringing_call = entry.remove();
-                        drop(ringing_calls);
 
                         {
                             let mut client_incoming_calls = self.client_incoming_calls.write();
@@ -916,6 +919,7 @@ impl CallManager {
                                 drop(active_calls);
 
                                 actions.extend(self.cancel_pending_invitations(
+                                    &mut ringing_calls,
                                     &active_or_ringing_call_id,
                                     CallAttemptOutcome::Aborted,
                                 ));
@@ -946,6 +950,7 @@ impl CallManager {
                                     },
                                 ));
                                 actions.extend(self.cancel_pending_invitations(
+                                    &mut ringing_calls,
                                     &active_or_ringing_call_id,
                                     CallAttemptOutcome::Aborted,
                                 ));
@@ -967,9 +972,7 @@ impl CallManager {
 
                                 self.client_active_calls.write().remove(client_id);
 
-                                let invited_participants = self
-                                    .ringing_calls
-                                    .read()
+                                let invited_participants = ringing_calls
                                     .get(&active_or_ringing_call_id)
                                     .map(|ringing_call| ringing_call.invited_participants())
                                     .unwrap_or_default();
@@ -992,6 +995,8 @@ impl CallManager {
                     Entry::Vacant(_) => {}
                 }
             }
+
+            drop(ringing_calls);
 
             if !has_active_or_outgoing_call {
                 tracing::error!(
@@ -1188,9 +1193,6 @@ impl CallManager {
         }
     }
 
-    /// Removes the call's ringing entry regardless of who created it and returns
-    /// cancellation actions for all still pending targets, so that pending
-    /// invitations cannot outlive a fully torn down call.
     fn active_call_snapshot(&self, call_id: &CallId) -> (CallParticipants, Option<ClientId>) {
         self.active_calls
             .read()
@@ -1204,12 +1206,17 @@ impl CallManager {
             .unwrap_or_default()
     }
 
+    /// Removes the call's ringing entry regardless of who created it and returns
+    /// cancellation actions for all still pending targets, so that pending
+    /// invitations cannot outlive a fully torn down call. Takes the held
+    /// `ringing_calls` guard to stay serialized with accept_call.
     fn cancel_pending_invitations(
         &self,
+        ringing_calls: &mut HashMap<CallId, RingingCallEntry>,
         call_id: &CallId,
         outcome: CallAttemptOutcome,
     ) -> Vec<UpdateCallAction> {
-        let Some(ringing) = self.ringing_calls.write().remove(call_id) else {
+        let Some(ringing) = ringing_calls.remove(call_id) else {
             return Vec::new();
         };
 
