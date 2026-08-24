@@ -1175,6 +1175,15 @@ impl AppStateInner {
                         app.emit("signaling:call-end", &call_id).ok();
                     }
                     CallCancelReason::Disconnected => {
+                        // A ringing recipient receives this when its own
+                        // invitation was cancelled by a disconnect; nothing
+                        // else will end that invitation.
+                        if state.remove_incoming_call(call_id) {
+                            state.stop_ringing_if_no_incoming_calls();
+                            app.emit("signaling:call-end", &call_id).ok();
+                            return;
+                        }
+
                         let Some(current_call) = state.current_call_mut(call_id) else {
                             log::debug!(
                                 "Received call cancelled for unknown call {call_id}, ignoring"
