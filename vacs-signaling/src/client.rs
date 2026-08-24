@@ -46,6 +46,7 @@ pub enum State {
 pub enum SignalingEvent {
     /// Emitted after the [`SignalingClient`] successfully connected to the server, including authentication.
     /// The client is ready to send and receive messages.
+    #[non_exhaustive]
     Connected {
         /// Information about the connected client.
         client_info: ClientInfo,
@@ -54,7 +55,7 @@ pub enum SignalingEvent {
         /// The ordered list of default call sources for the current position.
         default_call_sources: Vec<StationId>,
         /// The maximum call size the server allows, if it advertises one.
-        max_conf_size: Option<usize>,
+        max_conf_size: Option<u32>,
     },
     /// Emitted for every [`ServerMessage`] received by a connected and authenticated [`SignalingClient`].
     Message(ServerMessage),
@@ -69,7 +70,7 @@ type LoginInfo = (
     ClientInfo,
     ActiveProfile<Profile>,
     Vec<StationId>,
-    Option<usize>,
+    Option<u32>,
 );
 
 type BoxFutUnit = Pin<Box<dyn Future<Output = ()> + Send>>;

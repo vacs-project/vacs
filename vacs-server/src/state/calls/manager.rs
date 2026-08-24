@@ -443,8 +443,10 @@ impl CallManager {
                     }
 
                     // Deliberate: leadership goes to whoever invited the participant that
-                    // turned the call into a conference, not to the original caller
-                    active_call.conference_leader = Some(ringing_target.caller_id.clone());
+                    // turned the call into a conference, not to the original caller.
+                    // The target's source records that inviter; the entry's caller_id is
+                    // always the call's original caller.
+                    active_call.conference_leader = Some(ringing_target.source.client_id.clone());
                 }
 
                 let participants = active_call.participants.clone();
