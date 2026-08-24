@@ -680,7 +680,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                             }
                             Ok(message) => {
                                 tracing::trace!(message_type = message.variant(), "Received message from transport");
-                                matcher.try_match(&message);
+                                matcher.try_match(&message).await;
                                 if broadcast_tx.receiver_count() > 0 {
                                     if let Err(err) = broadcast_tx.send(SignalingEvent::Message(message.clone())) {
                                         tracing::warn!(message_type = message.variant(), ?err, "Failed to broadcast message");
