@@ -278,6 +278,10 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
     let mut failed_targets: HashSet<&CallTarget> = HashSet::new();
 
     let invited_targets: HashSet<CallTarget> = invited_participants.values().cloned().collect();
+    let conference_leader = state
+        .calls
+        .active_call(call_id)
+        .and_then(|active_call| active_call.conference_leader);
 
     for (callee_id, target) in &all_target_participants {
         tracing::trace!(?callee_id, "Sending call invite to target");
@@ -288,6 +292,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             target: target.clone(),
             invited_targets: invited_targets.clone(),
             joined_participants: joined_participants.clone(),
+            conference_leader: conference_leader.clone(),
             prio: invite.prio,
         };
 
@@ -331,6 +336,7 @@ async fn handle_call_invite(state: &AppState, client: &ClientSession, invite: Ca
             })
             .collect(),
         joined_participants: joined_participants.clone(),
+        conference_leader,
     };
 
     // Newly invited clients already received the full state via the invitation; on a fresh
