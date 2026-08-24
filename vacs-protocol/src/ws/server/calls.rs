@@ -14,6 +14,11 @@ pub struct CallInvitation {
     pub target: CallTarget,
     pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
+    /// The current conference leader, if the call already is a conference.
+    /// Only the leader may invite further targets into a conference or drop
+    /// joined participants from it.
+    #[serde(default)]
+    pub conference_leader: Option<ClientId>,
     pub prio: bool,
 }
 
@@ -23,6 +28,11 @@ pub struct CallUpdate {
     pub call_id: CallId,
     pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
+    /// The current conference leader, if the call is a conference. `None` for
+    /// regular calls, including a conference that shrank back to two
+    /// participants.
+    #[serde(default)]
+    pub conference_leader: Option<ClientId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

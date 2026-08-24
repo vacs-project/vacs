@@ -1216,6 +1216,7 @@ mod tests {
             target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
             invited_targets: HashSet::new(),
             joined_participants: HashMap::new(),
+            conference_leader: None,
             prio: false,
         });
 
@@ -1272,6 +1273,7 @@ mod tests {
             target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
             invited_targets: HashSet::new(),
             joined_participants: HashMap::new(),
+            conference_leader: None,
             prio: false,
         });
 
@@ -1303,6 +1305,7 @@ mod tests {
             target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
             invited_targets: HashSet::new(),
             joined_participants: HashMap::new(),
+            conference_leader: None,
             prio: false,
         });
 

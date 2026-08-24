@@ -751,6 +751,7 @@ impl AppStateInner {
                     ref invited_targets,
                     ref joined_participants,
                     ref prio,
+                    ..
                 },
             ) => {
                 let caller_id = &source.client_id;
@@ -802,6 +803,7 @@ impl AppStateInner {
                     ref call_id,
                     ref invited_targets,
                     ref joined_participants,
+                    ref conference_leader,
                 },
             ) => {
                 log::trace!(
@@ -833,6 +835,7 @@ impl AppStateInner {
                             &own_client_id,
                             invited_targets.clone(),
                             joined_participants.clone(),
+                            conference_leader.clone(),
                         );
 
                         app.emit("signaling:call-update", msg).ok();
@@ -853,6 +856,7 @@ impl AppStateInner {
                     &own_client_id,
                     invited_targets.clone(),
                     joined_participants.clone(),
+                    conference_leader.clone(),
                 );
                 let is_active = current_call.is_active(&own_client_id);
 
