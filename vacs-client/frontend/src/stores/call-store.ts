@@ -155,7 +155,15 @@ export const useCallStore = create<CallState>()((set, get) => ({
             if (incomingCall !== undefined) {
                 set({
                     incomingCalls: get().incomingCalls.map(call =>
-                        call.callId === update.callId ? {...incomingCall, ...update} : call,
+                        call.callId === update.callId
+                            ? {
+                                  ...incomingCall,
+                                  ...update,
+                                  // The wire omits an absent leader, so the spread
+                                  // would keep a stale one.
+                                  conferenceLeader: update.conferenceLeader ?? null,
+                              }
+                            : call,
                     ),
                 });
 

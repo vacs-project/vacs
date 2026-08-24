@@ -27,7 +27,7 @@ pub struct CallInvitation {
     /// participants. Leadership goes to whoever invited the participant that
     /// turned the call into a conference and never transfers: when the leader
     /// leaves or disconnects, the whole call ends for everyone.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conference_leader: Option<ClientId>,
     pub prio: bool,
 }
@@ -54,7 +54,7 @@ pub struct CallUpdate {
     /// regular calls, including a conference that shrank back to two
     /// participants. See [`CallInvitation::conference_leader`] for the
     /// authorization rules leadership implies.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conference_leader: Option<ClientId>,
 }
 
