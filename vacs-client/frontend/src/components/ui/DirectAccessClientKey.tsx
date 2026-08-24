@@ -1,7 +1,7 @@
 import {ClientInfo, ClientPageConfig, splitDisplayName} from "../../types/client.ts";
 import Button from "./Button.tsx";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
-import {invokeStrict} from "../../error.ts";
+import {invokeSafe, invokeStrict} from "../../error.ts";
 import {startCall, useCallStore} from "../../stores/call-store.ts";
 import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
@@ -44,9 +44,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
         if (isCalling) {
             if (callDisplay !== undefined) return;
 
-            try {
-                await invokeStrict("signaling_accept_call", {callId: incomingCall.callId});
-            } catch {}
+            await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {
             const target: CallTarget = {client: client.id};
             const callSize =
