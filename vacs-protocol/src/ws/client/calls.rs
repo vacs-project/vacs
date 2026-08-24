@@ -13,10 +13,11 @@ use serde::{Deserialize, Serialize};
 /// authorization rules on
 /// [`CallInvitation::conference_leader`](crate::ws::server::CallInvitation::conference_leader).
 ///
-/// A successful invite is not acknowledged directly: the caller of a fresh
-/// call learns of progress through `CallUpdate`/`CallCancelled`/`CallError`
-/// messages, a conference-grow invite additionally through the update fanned
-/// out after each acceptance. Failures always come back as `CallError`.
+/// A successful fresh-call invite is not acknowledged directly: the caller
+/// learns of progress through `CallUpdate`/`CallCancelled`/`CallError`
+/// messages. A conference-grow invite is followed immediately by a
+/// `CallUpdate` to the existing participants, the inviter included. Failures
+/// always come back as `CallError`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallInvite {
@@ -27,8 +28,10 @@ pub struct CallInvite {
     /// The targets to invite. Must not be empty; targets already ringing or
     /// joined in the call are rejected.
     pub targets: HashSet<CallTarget>,
-    /// Marks the call as a priority call. Ignored when inviting into an
-    /// existing call.
+    /// Marks this invite's targets as priority: their invitations ring as
+    /// priority calls. The server keeps no per-call priority, so inviting
+    /// with `prio` does not change how the call is presented to participants
+    /// already in it.
     pub prio: bool,
 }
 

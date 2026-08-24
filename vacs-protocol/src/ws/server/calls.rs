@@ -21,12 +21,14 @@ pub struct CallInvitation {
     pub joined_participants: CallParticipants,
     /// The current conference leader, if the call already is a conference.
     ///
-    /// Invite authorization: while any target of the call is still ringing,
-    /// only the original caller may invite further targets; once the call is
-    /// a conference, only the leader may. Only the leader may drop joined
-    /// participants. Leadership goes to whoever invited the participant that
-    /// turned the call into a conference and never transfers: when the leader
-    /// leaves or disconnects, the whole call ends for everyone.
+    /// Invite authorization: once the call is a conference, only the leader
+    /// may invite; in addition, while any target is still ringing, only the
+    /// client that opened the currently ringing invite batch may add to it.
+    /// Before the call becomes a conference both rules collapse to the
+    /// original caller. Only the leader may drop joined participants.
+    /// Leadership goes to whoever invited the participant that turned the
+    /// call into a conference and never transfers: when the leader leaves or
+    /// disconnects, the whole call ends for everyone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conference_leader: Option<ClientId>,
     pub prio: bool,
