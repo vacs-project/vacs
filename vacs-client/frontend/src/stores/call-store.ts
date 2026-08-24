@@ -373,23 +373,37 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             callDisplay = {...callDisplay};
 
-            let targets: CallTarget[] = [];
-            if (error.origin.type === "targets") {
-                targets = error.origin.value.filter(
-                    target =>
-                        hasTarget(callDisplay.call.invitedTargets, target) ||
-                        hasTarget(callDisplay.call.joinedParticipants, target),
-                );
-            } else if (error.origin.type === "client") {
-                targets = [{client: error.origin.value}];
-                delete callDisplay.call.joinedParticipants[error.origin.value];
-            }
-
-            if (targets.length === 0) {
+            let targets: CallTarget[];
+            if (error.origin.type === "call") {
+                targets = callDisplay.call.invitedTargets;
                 callDisplay.call.invitedTargets = [];
+
+                targets.push(
+                    ...Object.values(callDisplay.call.joinedParticipants).map(
+                        value => value.target,
+                    ),
+                );
                 callDisplay.call.joinedParticipants = {};
+
                 callDisplay.prioTargets = [];
             } else {
+                if (error.origin.type === "targets") {
+                    targets = error.origin.value.filter(
+                        target =>
+                            hasTarget(callDisplay.call.invitedTargets, target) ||
+                            hasTarget(callDisplay.call.joinedParticipants, target),
+                    );
+                } else if (error.origin.type === "client") {
+                    const joinedParticipant =
+                        callDisplay.call.joinedParticipants[error.origin.value];
+
+                    if (joinedParticipant === undefined) return;
+                    targets = [joinedParticipant.target];
+                    delete callDisplay.call.joinedParticipants[error.origin.value];
+                } else {
+                    return;
+                }
+
                 callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
                     target => !hasTarget(targets, target),
                 );
