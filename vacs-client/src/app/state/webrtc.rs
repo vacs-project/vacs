@@ -145,6 +145,12 @@ impl WebrtcPeer {
         }
     }
 
+    /// Closes the peer in a detached task: callers hold the app state mutex,
+    /// and joining the close there would block every command for its duration.
+    pub fn shutdown_detached(self) {
+        tauri::async_runtime::spawn(self.shutdown());
+    }
+
     pub async fn accept_answer(&mut self, answer_sdp: String) -> Result<(), WebrtcError> {
         self.peer_supports_reconnect = has_reconnect_capability(&answer_sdp);
         self.peer.accept_answer(answer_sdp).await
@@ -224,6 +230,35 @@ impl WebrtcCall {
             closing.spawn(peer.shutdown());
         }
         closing.join_all().await;
+    }
+}
+
+/// Refreshes an expired ICE config before a call is accepted. Runs outside the
+/// app state mutex: the HTTP fetch must not freeze every other command while
+/// an unreachable backend times out.
+pub async fn refresh_expired_ice_config(app: &AppHandle) {
+    let expired = {
+        let state = app.state::<AppState>();
+        let state = state.lock().await;
+        state.is_ice_config_expired()
+    };
+    if !expired {
+        return;
+    }
+
+    match app
+        .state::<crate::app::state::http::HttpState>()
+        .http_get::<IceConfig>(crate::config::BackendEndpoint::IceConfig, None)
+        .await
+    {
+        Ok(config) => {
+            let state = app.state::<AppState>();
+            let mut state = state.lock().await;
+            state.set_ice_config(config);
+        }
+        Err(err) => {
+            log::warn!("Failed to refresh ICE config, using cached one: {err:?}");
+        }
     }
 }
 
@@ -330,7 +365,7 @@ impl AppStateWebrtcExt for AppStateInner {
         let Some(call) = self.webrtc_call_mut(call_id) else {
             // unreachable, defensive guard
             log::error!("Call {call_id} ended while negotiating with peer {peer_id}");
-            peer.shutdown().await;
+            peer.shutdown_detached();
             return Err(WebrtcError::NoCallActive.into());
         };
 
@@ -339,7 +374,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         if let Some(old_peer) = old_peer {
             let audio_source_id = old_peer.audio_source_id;
-            old_peer.shutdown().await;
+            old_peer.shutdown_detached();
 
             if let Some(audio_source_id) = audio_source_id {
                 let mut audio_manager = self.audio_manager.write();
@@ -351,7 +386,7 @@ impl AppStateWebrtcExt for AppStateInner {
         if let Err(peer) = added {
             // unreachable, defensive guard
             log::error!("Peer {peer_id} already exists for call {call_id}");
-            peer.shutdown().await;
+            peer.shutdown_detached();
 
             return Err(WebrtcError::CallActive.into());
         }
@@ -411,7 +446,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         let audio_source_id = peer.audio_source_id;
         let connected = peer.connected;
-        peer.shutdown().await;
+        peer.shutdown_detached();
 
         let left_sound = connected
             .then(|| self.peer_left_sound(call_id, peer_id))
@@ -455,7 +490,9 @@ impl AppStateWebrtcExt for AppStateInner {
         self.keybind_engine.read().await.set_call_active(false);
 
         let was_connected = webrtc_call.was_connected();
-        webrtc_call.shutdown().await;
+        // Detached for the same reason as shutdown_detached: this runs under
+        // the app state mutex, and a conference teardown joins N peer closes.
+        tauri::async_runtime::spawn(webrtc_call.shutdown());
 
         {
             let mut audio_manager = self.audio_manager.write();
