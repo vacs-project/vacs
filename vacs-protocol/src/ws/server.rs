@@ -34,7 +34,8 @@ pub enum ServerMessage {
     ///
     /// Never sent by a server; any unrecognized `type` tag deserializes to this variant so
     /// clients can skip additive messages from newer servers instead of failing the
-    /// connection. Malformed payloads of known message types still fail deserialization.
+    /// connection. Malformed payloads of known message types still fail deserialization,
+    /// except for reason fields, which fall back to their own `Unknown` variants.
     #[serde(other)]
     Unknown,
 }
@@ -135,6 +136,26 @@ mod tests {
         assert!(matches!(
             error.reason,
             crate::ws::shared::CallErrorReason::Unknown(_)
+        ));
+    }
+
+    /// An unknown reason nested inside a known wrapper stays at the inner
+    /// level: the enclosing variant still matches, so consumers keep the
+    /// wrapper's semantics.
+    #[test]
+    fn nested_unknown_reasons_stay_inside_the_wrapper() {
+        let msg = ServerMessage::deserialize(
+            r#"{"type":"callCancelled","callId":"00000000-0000-0000-0000-000000000000","targets":[],"reason":{"errored":"someFutureReason"}}"#,
+        )
+        .expect("nested unknown reason must deserialize");
+        let ServerMessage::CallCancelled(cancelled) = msg else {
+            panic!("expected a call cancelled");
+        };
+        assert!(matches!(
+            cancelled.reason,
+            crate::ws::server::CallCancelReason::Errored(
+                crate::ws::shared::CallErrorReason::Unknown(_)
+            )
         ));
     }
 
