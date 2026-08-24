@@ -320,6 +320,7 @@ impl Peer {
     /// Returns the taken [`Sender`] so the caller can await the sender task's shutdown
     /// outside of any lock; the input subscription is only released once that join
     /// completes.
+    #[must_use = "join the returned Sender's task; dropping it keeps the input subscription alive"]
     #[instrument(level = "debug", skip_all)]
     pub fn pause(&mut self) -> Option<crate::Sender> {
         tracing::debug!("Pausing peer");

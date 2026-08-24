@@ -24,6 +24,10 @@ impl Sender {
         let (shutdown_tx, mut shutdown_rx) = watch::channel(());
 
         let task = tokio::runtime::Handle::current().spawn(async move {
+            // Frames lost to lag or failed writes are reported on the next
+            // sample so the RTP timeline advances past the gap instead of
+            // compressing it.
+            let mut dropped_frames: u64 = 0;
             loop {
                 tokio::select! {
                     biased;
@@ -37,17 +41,22 @@ impl Sender {
                                 let sample = Sample {
                                     data: frame,
                                     duration: std::time::Duration::from_millis(FRAME_DURATION_MS),
+                                    prev_dropped_packets: u16::try_from(dropped_frames)
+                                        .unwrap_or(u16::MAX),
                                     ..Default::default()
                                 };
 
                                 if let Err(err) = track.write_sample(&sample).await {
                                     tracing::warn!(?err, "Failed to write sample to track");
+                                    dropped_frames = dropped_frames.saturating_add(1);
                                 } else {
                                     sent_frames.fetch_add(1, Ordering::Relaxed);
+                                    dropped_frames = 0;
                                 }
                             }
                             Err(broadcast::error::RecvError::Lagged(skipped)) =>{
                                 tracing::warn!(?skipped, "Input receiver lagged");
+                                dropped_frames = dropped_frames.saturating_add(skipped);
                             },
                             Err(_) => {
                                 break;
