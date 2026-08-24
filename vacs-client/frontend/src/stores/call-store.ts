@@ -397,13 +397,16 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             let targets: CallTarget[];
             if (error.origin.type === "call") {
+                const ownClientId = useAuthStore.getState().cid;
+
                 targets = callDisplay.call.invitedTargets;
                 callDisplay.call.invitedTargets = [];
 
+                // Annotate the other parties only, never our own key.
                 targets.push(
-                    ...Object.values(callDisplay.call.joinedParticipants).map(
-                        value => value.target,
-                    ),
+                    ...Object.entries(callDisplay.call.joinedParticipants)
+                        .filter(([clientId]) => clientId !== ownClientId)
+                        .map(([, value]) => value.target),
                 );
                 callDisplay.call.joinedParticipants = {};
 
