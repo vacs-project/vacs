@@ -148,6 +148,62 @@ describe("call store", () => {
         });
     });
 
+    describe("updateCall", () => {
+        it("ignores updates for a terminal display", () => {
+            const display = makeTestCallDisplay("error", {invitedTargets: []});
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [STATION_1],
+                joinedParticipants: {},
+            });
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        const JOINED = {
+            ["client0" as ClientId]: {station: "station0" as StationId},
+            ["client1" as ClientId]: STATION_1,
+        };
+
+        it("clears rejected and errored annotations for re-invited targets", () => {
+            const display = acceptedDisplay([]);
+            useCallStore.setState({
+                callDisplay: {
+                    ...display,
+                    rejectedTargets: [STATION_2],
+                    erroredTargets: [{target: STATION_3, reason: "callFailure"}],
+                },
+            });
+
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [STATION_2, STATION_3],
+                joinedParticipants: JOINED,
+            });
+
+            const next = useCallStore.getState().callDisplay;
+            expect(next?.rejectedTargets).toEqual([]);
+            expect(next?.erroredTargets).toEqual([]);
+        });
+
+        it("keeps annotations for targets that were not re-invited", () => {
+            const display = acceptedDisplay([]);
+            useCallStore.setState({
+                callDisplay: {...display, rejectedTargets: [STATION_2]},
+            });
+
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [STATION_3],
+                joinedParticipants: JOINED,
+            });
+
+            expect(useCallStore.getState().callDisplay?.rejectedTargets).toEqual([STATION_2]);
+        });
+    });
+
     describe("updateCall conference leader", () => {
         function update(conferenceLeader: ClientId | null) {
             useCallStore.getState().actions.updateCall({
