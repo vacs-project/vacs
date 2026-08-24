@@ -158,6 +158,8 @@ impl AudioManager {
         if let Some(input_device) = self.input.as_ref() {
             if !input_device.is_level_meter() {
                 log::debug!("Input device already attached, subscribing to capture stream");
+                // The stream may have been left unmuted by a previous call.
+                input_device.set_muted(muted);
                 return Ok(input_device.subscribe());
             }
 
