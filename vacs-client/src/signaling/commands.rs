@@ -1,7 +1,7 @@
 use crate::app::PersistedClientConfig;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::webrtc::{AppStateWebrtcExt, refresh_expired_ice_config};
 use crate::app::state::{AppState, AppStateInner};
 use crate::config::{BackendEndpoint, CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::{Error, HandleUnauthorizedExt};
@@ -96,6 +96,8 @@ pub async fn signaling_accept_call(
     call_id: CallId,
 ) -> Result<(), Error> {
     log::debug!("Accepting call {call_id:?}");
+
+    refresh_expired_ice_config(&app).await;
 
     let mut state = app_state.lock().await;
     state.accept_call(&app, Some(call_id)).await?;

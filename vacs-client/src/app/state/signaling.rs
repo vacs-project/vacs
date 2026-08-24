@@ -16,7 +16,6 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::{SignalingClient, SignalingEvent, State};
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
-use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId, StationChange};
 use vacs_signaling::protocol::ws::client::{
     CallDropReason, CallInvite, CallRejectReason, ClientMessage,
@@ -478,21 +477,6 @@ impl AppStateSignalingExt for AppStateInner {
         };
 
         log::debug!("Accepting call {call_id:?}");
-
-        if !self.config.ice.is_default() && self.is_ice_config_expired() {
-            match app
-                .state::<HttpState>()
-                .http_get::<IceConfig>(BackendEndpoint::IceConfig, None)
-                .await
-            {
-                Ok(config) => {
-                    self.config.ice = config;
-                }
-                Err(err) => {
-                    log::warn!("Failed to refresh ICE config, using cached one: {err:?}");
-                }
-            };
-        }
 
         if let Err(err) = self
             .send_signaling_message(client::CallAccept {
