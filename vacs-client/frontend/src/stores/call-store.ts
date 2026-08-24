@@ -304,6 +304,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
+            callDisplay = {...callDisplay};
+
             targets = targets.filter(target => hasTarget(callDisplay.call.invitedTargets, target));
 
             callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
@@ -368,6 +370,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 get().actions.removeCall(callId);
                 return;
             }
+
+            callDisplay = {...callDisplay};
 
             let targets: CallTarget[] = [];
             if (error.origin.type === "targets") {
@@ -452,7 +456,13 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            callDisplay.call.joinedParticipants[peerId].state = connectionState;
+            callDisplay = {...callDisplay};
+
+            const joinedParticipant = callDisplay.call.joinedParticipants[peerId];
+
+            if (joinedParticipant === undefined) return;
+
+            joinedParticipant.state = connectionState;
 
             set({callDisplay});
         },
