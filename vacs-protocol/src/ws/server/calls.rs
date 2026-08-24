@@ -23,12 +23,12 @@ pub struct CallInvitation {
     ///
     /// Invite authorization: once the call is a conference, only the leader
     /// may invite; in addition, while any target is still ringing, only the
-    /// client that opened the currently ringing invite batch may add to it.
-    /// Before the call becomes a conference both rules collapse to the
-    /// original caller. Only the leader may drop joined participants.
-    /// Leadership goes to whoever invited the participant that turned the
-    /// call into a conference and never transfers: when the leader leaves or
-    /// disconnects, the whole call ends for everyone.
+    /// client that opened the currently ringing invite batch may add to it
+    /// (for the first batch that is the original caller). With nothing
+    /// ringing and no leader yet, any participant may invite, and whoever
+    /// grows the call into a conference becomes its leader. Only the leader
+    /// may drop joined participants. Leadership never transfers: when the
+    /// leader leaves or disconnects, the whole call ends for everyone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conference_leader: Option<ClientId>,
     pub prio: bool,
@@ -69,7 +69,7 @@ pub enum CallCancelReason {
     Errored(CallErrorReason),
     Rejected(CallRejectReason),
     /// Forward compatibility: a reason this protocol version does not know.
-    /// The cancellation itself must still be honored.
+    /// The cancellation of the listed `targets` must still be honored.
     #[serde(untagged)]
     Unknown(crate::ws::shared::UnknownReason),
 }
@@ -78,6 +78,9 @@ pub enum CallCancelReason {
 #[serde(rename_all = "camelCase")]
 pub struct CallCancelled {
     pub call_id: CallId,
+    /// The invitations this cancellation affects. Cancellations only ever
+    /// concern ringing invitations; joined participants are torn down via
+    /// `CallEnd`.
     pub targets: HashSet<CallTarget>,
     pub reason: CallCancelReason,
 }

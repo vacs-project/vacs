@@ -259,6 +259,7 @@ fn format_signaling_error(err: &SignalingError) -> String {
                 ErrorReason::ClientNotFound => {
                     "Server error: Client not found.".to_string()
                 }
+                ErrorReason::Unknown(_) => "Server error.".to_string(),
             },
             SignalingRuntimeError::Disconnected(reason) => match reason {
                 None => "Disconnected",

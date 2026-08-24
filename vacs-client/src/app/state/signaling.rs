@@ -1511,6 +1511,18 @@ impl AppStateInner {
 
                     app.emit("signaling:client-not-found", client_id).ok();
                 }
+                ErrorReason::Unknown(_) => {
+                    log::warn!("Received unknown error reason from signaling server: {reason:?}");
+
+                    app.emit::<FrontendError>(
+                        "error",
+                        FrontendError::from(Error::from(SignalingRuntimeError::ServerError(
+                            reason,
+                        )))
+                        .timeout(5000),
+                    )
+                    .ok();
+                }
             },
             ServerMessage::Disconnected(_)
             | ServerMessage::LoginFailure(_)
