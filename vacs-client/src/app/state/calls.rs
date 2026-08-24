@@ -11,6 +11,7 @@ pub struct Call {
     webrtc: WebrtcCall,
     invited_targets: HashSet<CallTarget>,
     joined_participants: CallParticipants,
+    conference_leader: Option<ClientId>,
 }
 
 impl Call {
@@ -20,6 +21,7 @@ impl Call {
             webrtc: WebrtcCall::new(invite.call_id, shutdown_token),
             invited_targets: invite.targets.clone(),
             joined_participants: HashMap::new(),
+            conference_leader: None,
         }
     }
 
@@ -32,6 +34,7 @@ impl Call {
             webrtc: WebrtcCall::new(invitation.call_id, shutdown_token),
             invited_targets: invitation.invited_targets.clone(),
             joined_participants: invitation.joined_participants.clone(),
+            conference_leader: invitation.conference_leader.clone(),
         }
     }
 
@@ -76,8 +79,10 @@ impl Call {
         own_client_id: &ClientId,
         invited_targets: HashSet<CallTarget>,
         joined_participants: CallParticipants,
+        conference_leader: Option<ClientId>,
     ) -> (CallParticipants, HashSet<ClientId>) {
         self.invited_targets = invited_targets;
+        self.conference_leader = conference_leader;
 
         let (added, removed) = if joined_participants.contains_key(own_client_id) {
             if self.is_active(own_client_id) {
@@ -123,6 +128,7 @@ impl From<&Call> for CallUpdate {
             call_id: call.call_id,
             invited_targets: call.invited_targets.clone(),
             joined_participants: call.joined_participants.clone(),
+            conference_leader: call.conference_leader.clone(),
         }
     }
 }
@@ -133,6 +139,7 @@ impl From<&mut Call> for CallUpdate {
             call_id: call.call_id,
             invited_targets: call.invited_targets.clone(),
             joined_participants: call.joined_participants.clone(),
+            conference_leader: call.conference_leader.clone(),
         }
     }
 }
@@ -177,6 +184,7 @@ mod tests {
             &client("a"),
             HashSet::from([target("c")]),
             participants(&["a", "b"]),
+            None,
         );
 
         assert_eq!(added, participants(&["b"]));
@@ -191,9 +199,15 @@ mod tests {
             &client("a"),
             HashSet::from([target("c")]),
             participants(&["a", "b"]),
+            None,
         );
 
-        let (added, removed) = call.update(&client("a"), HashSet::new(), participants(&["a", "c"]));
+        let (added, removed) = call.update(
+            &client("a"),
+            HashSet::new(),
+            participants(&["a", "c"]),
+            None,
+        );
 
         assert_eq!(added, participants(&["c"]));
         assert_eq!(removed, HashSet::from([client("b")]));
@@ -209,14 +223,21 @@ mod tests {
             &client("a"),
             HashSet::from([target("c")]),
             participants(&["b"]),
+            None,
         );
         assert!(added.is_empty());
         assert!(removed.is_empty());
         assert!(!call.is_active(&client("a")));
 
         // Joined, then dropped from the call
-        call.update(&client("a"), HashSet::new(), participants(&["a", "b"]));
-        let (added, removed) = call.update(&client("a"), HashSet::new(), participants(&["b"]));
+        call.update(
+            &client("a"),
+            HashSet::new(),
+            participants(&["a", "b"]),
+            None,
+        );
+        let (added, removed) =
+            call.update(&client("a"), HashSet::new(), participants(&["b"]), None);
         assert!(added.is_empty());
         assert!(removed.is_empty());
         assert!(!call.is_active(&client("a")));
@@ -234,13 +255,14 @@ mod tests {
             &client("a"),
             HashSet::from([target("c")]),
             participants(&["b"]),
+            None,
         );
 
         assert_eq!(call.invited_targets(), &HashSet::from([target("c")]));
         assert_eq!(call.joined_participants(), &participants(&["b"]));
         assert!(!call.is_empty());
 
-        call.update(&client("a"), HashSet::new(), CallParticipants::new());
+        call.update(&client("a"), HashSet::new(), CallParticipants::new(), None);
         assert!(call.is_empty());
     }
 }

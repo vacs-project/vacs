@@ -21,6 +21,7 @@ export type Call = {
     target: CallTarget;
     invitedTargets: CallTarget[];
     joinedParticipants: CallParticipants;
+    conferenceLeader?: ClientId | null;
     prio: boolean;
 };
 
@@ -41,6 +42,7 @@ export type CallUpdate = {
     callId: CallId;
     invitedTargets: CallTarget[];
     joinedParticipants: CallParticipants;
+    conferenceLeader?: ClientId | null;
 };
 
 export function participantCount(

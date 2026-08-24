@@ -283,17 +283,14 @@ impl CallManager {
                         tracing::error!("Rejecting call has multiple targets within the same call");
                     }
 
-                    let joined_participants = self
-                        .active_calls
-                        .read()
-                        .get(call_id)
-                        .map(|active_call| active_call.participants.clone())
-                        .unwrap_or_default();
+                    let (joined_participants, conference_leader) =
+                        self.active_call_snapshot(call_id);
 
                     let update = UpdateParticipants {
                         call_id: *call_id,
                         invited_participants,
                         joined_participants,
+                        conference_leader,
                     };
 
                     return CallTerminationOutcome::TargetFailed(terminated_targets, update);
@@ -424,7 +421,7 @@ impl CallManager {
         }
 
         let mut active_calls = self.active_calls.write();
-        let joined_participants: CallParticipants = match active_calls.entry(*call_id) {
+        let (joined_participants, conference_leader) = match active_calls.entry(*call_id) {
             Entry::Occupied(mut entry) => {
                 let active_call = entry.get_mut();
 
@@ -449,6 +446,7 @@ impl CallManager {
                 }
 
                 let participants = active_call.participants.clone();
+                let conference_leader = active_call.conference_leader.clone();
 
                 drop(active_calls);
 
@@ -456,7 +454,7 @@ impl CallManager {
                     .write()
                     .insert(accepting_client_id.clone(), *call_id);
 
-                participants
+                (participants, conference_leader)
             }
             Entry::Vacant(entry) => {
                 let participants = HashMap::from([
@@ -479,7 +477,7 @@ impl CallManager {
                     .write()
                     .insert(accepting_client_id.clone(), *call_id);
 
-                participants
+                (participants, None)
             }
         };
 
@@ -487,6 +485,7 @@ impl CallManager {
             call_id: *call_id,
             invited_participants,
             joined_participants,
+            conference_leader,
         };
 
         AcceptCallOutcome::Accepted {
@@ -556,12 +555,7 @@ impl CallManager {
             self.remove_client_incoming_call(call_id, callee_id);
         }
 
-        let joined_participants = self
-            .active_calls
-            .read()
-            .get(call_id)
-            .map(|active_call| active_call.participants.clone())
-            .unwrap_or_default();
+        let (joined_participants, conference_leader) = self.active_call_snapshot(call_id);
 
         if ringing_ended && !joined_participants.contains_key(&caller_id) {
             let mut client_active_calls = self.client_active_calls.write();
@@ -579,6 +573,7 @@ impl CallManager {
                 call_id: *call_id,
                 invited_participants,
                 joined_participants,
+                conference_leader,
             },
         ))
     }
@@ -664,17 +659,13 @@ impl CallManager {
             .map(RingingCallEntry::invited_participants)
             .unwrap_or_default();
 
-        let joined_participants = self
-            .active_calls
-            .read()
-            .get(call_id)
-            .map(|active_call| active_call.participants.clone())
-            .unwrap_or_default();
+        let (joined_participants, conference_leader) = self.active_call_snapshot(call_id);
 
         let update = UpdateParticipants {
             call_id: *call_id,
             invited_participants,
             joined_participants,
+            conference_leader,
         };
 
         let Some(dropped_client_id) = dropped_client_id else {
@@ -807,6 +798,7 @@ impl CallManager {
                     }
 
                     let joined_participants = active_call.participants.clone();
+                    let conference_leader = active_call.conference_leader.clone();
 
                     drop(active_calls);
 
@@ -831,6 +823,7 @@ impl CallManager {
                         call_id: *call_id,
                         invited_participants,
                         joined_participants,
+                        conference_leader,
                     };
 
                     Some(Vec::from([UpdateCallAction::UpdateParticipants(update)]))
@@ -964,6 +957,7 @@ impl CallManager {
                                 }
 
                                 let joined_participants = active_call.participants.clone();
+                                let conference_leader = active_call.conference_leader.clone();
 
                                 drop(active_calls);
 
@@ -980,6 +974,7 @@ impl CallManager {
                                     call_id: active_or_ringing_call_id,
                                     invited_participants,
                                     joined_participants,
+                                    conference_leader,
                                 };
 
                                 actions.push(UpdateCallAction::UpdateParticipants(update));
@@ -1042,6 +1037,9 @@ impl CallManager {
                                                     .invited_participants(),
                                                 joined_participants: active_call
                                                     .participants
+                                                    .clone(),
+                                                conference_leader: active_call
+                                                    .conference_leader
                                                     .clone(),
                                             },
                                         ));
@@ -1189,6 +1187,19 @@ impl CallManager {
     /// Removes the call's ringing entry regardless of who created it and returns
     /// cancellation actions for all still pending targets, so that pending
     /// invitations cannot outlive a fully torn down call.
+    fn active_call_snapshot(&self, call_id: &CallId) -> (CallParticipants, Option<ClientId>) {
+        self.active_calls
+            .read()
+            .get(call_id)
+            .map(|active_call| {
+                (
+                    active_call.participants.clone(),
+                    active_call.conference_leader.clone(),
+                )
+            })
+            .unwrap_or_default()
+    }
+
     fn cancel_pending_invitations(
         &self,
         call_id: &CallId,
@@ -1423,6 +1434,46 @@ mod tests {
             ),
             "call should be accepted"
         );
+    }
+
+    #[test]
+    fn updates_carry_the_conference_leader_until_the_call_shrinks() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let third = ClientId::from("third");
+
+        join(&manager, &call_id, &caller, &callee);
+
+        manager
+            .attempt_call(
+                &call_id,
+                &caller,
+                &source(&caller),
+                &CallTarget::Client(third.clone()),
+                &HashSet::from([third.clone()]),
+            )
+            .expect("conference invite should succeed");
+
+        match manager.accept_call(&call_id, &third) {
+            AcceptCallOutcome::Accepted { update, .. } => {
+                assert_eq!(update.conference_leader, Some(caller.clone()));
+            }
+            outcome => panic!("expected accepted call, got {outcome:?}"),
+        }
+
+        let actions = manager
+            .end_call(&call_id, &third)
+            .expect("leaving should produce actions");
+        let update = actions
+            .iter()
+            .find_map(|action| match action {
+                UpdateCallAction::UpdateParticipants(update) => Some(update),
+                _ => None,
+            })
+            .expect("shrinking to two participants should produce an update");
+        assert_eq!(update.conference_leader, None);
     }
 
     /// The size check counts the caller, joined participants, ringing targets

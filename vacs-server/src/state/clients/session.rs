@@ -740,6 +740,7 @@ mod tests {
                     ClientId::from("client2"),
                 )]),
                 joined_participants: HashMap::new(),
+                conference_leader: None,
                 prio: false,
             })
         );
