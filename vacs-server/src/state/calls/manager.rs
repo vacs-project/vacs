@@ -151,51 +151,56 @@ impl CallManager {
         target: &CallTarget,
         notified_clients: &HashSet<ClientId>,
     ) -> Result<(CallParticipants, CallParticipants), StartCallError> /* (invited, joined) */ {
-        self.validate_call_attempt(call_id, caller_id, target, notified_clients)?;
+        // Held across validation and registration so a teardown cannot
+        // complete in between and leave a stale invite re-creating state.
+        let mut ringing_calls = self.ringing_calls.write();
 
-        let ringing_participants: CallParticipants =
-            match self.ringing_calls.write().entry(*call_id) {
-                Entry::Occupied(mut e) => {
-                    let ringing_call_entry = e.get_mut();
+        self.validate_call_attempt(&ringing_calls, call_id, caller_id, target, notified_clients)?;
 
-                    ringing_call_entry.add_target(
-                        source.clone(),
-                        target.clone(),
-                        notified_clients.clone(),
-                    );
+        let ringing_participants: CallParticipants = match ringing_calls.entry(*call_id) {
+            Entry::Occupied(mut e) => {
+                let ringing_call_entry = e.get_mut();
 
-                    ringing_call_entry.invited_participants()
-                }
-                Entry::Vacant(e) => {
-                    e.insert_entry(RingingCallEntry::new(
-                        *call_id,
-                        caller_id.clone(),
-                        source.clone(),
-                        target.clone(),
-                        notified_clients.clone(),
-                    ));
-                    notified_clients
-                        .iter()
-                        .map(|client| (client.clone(), target.clone()))
-                        .collect()
-                }
-            };
+                ringing_call_entry.add_target(
+                    source.clone(),
+                    target.clone(),
+                    notified_clients.clone(),
+                );
+
+                ringing_call_entry.invited_participants()
+            }
+            Entry::Vacant(e) => {
+                e.insert_entry(RingingCallEntry::new(
+                    *call_id,
+                    caller_id.clone(),
+                    source.clone(),
+                    target.clone(),
+                    notified_clients.clone(),
+                ));
+                notified_clients
+                    .iter()
+                    .map(|client| (client.clone(), target.clone()))
+                    .collect()
+            }
+        };
         self.client_active_calls
             .write()
             .insert(caller_id.clone(), *call_id);
 
-        let mut client_incoming_calls = self.client_incoming_calls.write();
-        for client_id in notified_clients {
-            if let Some(old_target) = client_incoming_calls
-                .entry(client_id.clone())
-                .or_default()
-                .insert(*call_id, target.clone())
-            {
-                tracing::error!(
-                    ?client_id,
-                    ?old_target,
-                    "Callee already has an incoming call for this call id, but with a different target"
-                );
+        {
+            let mut client_incoming_calls = self.client_incoming_calls.write();
+            for client_id in notified_clients {
+                if let Some(old_target) = client_incoming_calls
+                    .entry(client_id.clone())
+                    .or_default()
+                    .insert(*call_id, target.clone())
+                {
+                    tracing::error!(
+                        ?client_id,
+                        ?old_target,
+                        "Callee already has an incoming call for this call id, but with a different target"
+                    );
+                }
             }
         }
 
@@ -442,10 +447,8 @@ impl CallManager {
                         );
                     }
 
-                    // Deliberate: leadership goes to whoever invited the participant that
-                    // turned the call into a conference, not to the original caller.
-                    // The target's source records that inviter; the entry's caller_id is
-                    // always the call's original caller.
+                    // Deliberate: leadership goes to this participant's inviter (its
+                    // source), not to the original caller or ringing batch owner.
                     active_call.conference_leader = Some(ringing_target.source.client_id.clone());
                 }
 
@@ -1258,6 +1261,7 @@ impl CallManager {
 
     fn validate_call_attempt(
         &self,
+        ringing_calls: &HashMap<CallId, RingingCallEntry>,
         call_id: &CallId,
         caller_id: &ClientId,
         target: &CallTarget,
@@ -1325,8 +1329,6 @@ impl CallManager {
             }
 
             {
-                let ringing_calls = self.ringing_calls.read();
-
                 if let Some(ringing_call) = ringing_calls.get(call_id) {
                     if &ringing_call.caller_id != caller_id {
                         tracing::warn!("Caller is not previous caller of that call");
@@ -1354,7 +1356,7 @@ impl CallManager {
                 return Err(StartCallError::NotParticipant);
             }
 
-            if self.ringing_calls.read().contains_key(call_id) {
+            if ringing_calls.contains_key(call_id) {
                 tracing::warn!("Caller has no reference to ringing call id from the invite");
                 return Err(StartCallError::NotParticipant);
             }
@@ -1478,6 +1480,37 @@ mod tests {
                 CallTarget::Client(ClientId::from("c")),
             ])
         );
+    }
+
+    /// Leadership goes to the inviter of the participant that made the call a
+    /// conference, which is not necessarily the call's original caller.
+    #[test]
+    fn leadership_goes_to_the_growing_inviter_not_the_original_caller() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let third = ClientId::from("third");
+
+        join(&manager, &call_id, &caller, &callee);
+
+        // The callee grows the 1:1 call.
+        manager
+            .attempt_call(
+                &call_id,
+                &callee,
+                &source(&callee),
+                &CallTarget::Client(third.clone()),
+                &HashSet::from([third.clone()]),
+            )
+            .expect("conference invite should succeed");
+
+        match manager.accept_call(&call_id, &third) {
+            AcceptCallOutcome::Accepted { update, .. } => {
+                assert_eq!(update.conference_leader, Some(callee.clone()));
+            }
+            outcome => panic!("expected accepted call, got {outcome:?}"),
+        }
     }
 
     #[test]
