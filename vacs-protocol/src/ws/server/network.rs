@@ -31,7 +31,7 @@ pub struct SessionInfo {
     /// caller, joined participants and ringing targets. `None` when the server
     /// does not advertise a limit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_conf_size: Option<usize>,
+    pub max_conf_size: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
