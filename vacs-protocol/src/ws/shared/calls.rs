@@ -73,6 +73,19 @@ impl From<CallSource> for CallTarget {
 
 pub type CallParticipants = HashMap<ClientId, CallTarget>;
 
+/// The raw payload of a reason variant this protocol version does not know.
+///
+/// Newer servers may add reason variants; the enclosing message must still
+/// deserialize so the client can react to the message itself instead of
+/// silently dropping it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UnknownReason(pub serde_json::Value);
+
+// Sound: `serde_json::Value` only breaks `Eq` through non-finite floats,
+// which JSON itself cannot encode, so parsed values are always reflexive.
+impl Eq for UnknownReason {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CallErrorReason {
@@ -89,6 +102,10 @@ pub enum CallErrorReason {
     NotParticipant,
     MaxConferenceSizeReached(HashSet<CallTarget>),
     Other,
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// Treat like [`CallErrorReason::Other`].
+    #[serde(untagged)]
+    Unknown(UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
