@@ -321,10 +321,10 @@ impl Default for DatasetRepoConfig {
 pub struct CallConfig {
     /// Maximum amount of invited targets and participants in a conference call
     #[serde(default = "default_max_conf_size")]
-    pub max_conf_size: usize,
+    pub max_conf_size: u32,
 }
 
-fn default_max_conf_size() -> usize {
+fn default_max_conf_size() -> u32 {
     8
 }
 

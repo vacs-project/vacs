@@ -34,7 +34,7 @@ use vacs_vatsim::{ControllerInfo, FacilityType};
 /// apply if a lock is dropped immediately again.
 pub struct ClientManager {
     position_grace_period: Duration,
-    max_conf_size: usize,
+    max_conf_size: u32,
     data_feed: Arc<dyn DataFeed>,
     broadcast_tx: broadcast::Sender<ServerMessage>,
     network: parking_lot::RwLock<Network>,
@@ -70,7 +70,7 @@ impl ClientManager {
         network: Network,
         data_feed: Arc<dyn DataFeed>,
         position_grace_period: Duration,
-        max_conf_size: usize,
+        max_conf_size: u32,
     ) -> Self {
         Self {
             position_grace_period,
@@ -635,7 +635,7 @@ impl ClientManager {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
                                     default_call_sources: Vec::new(),
-                                    max_conf_size: u32::try_from(self.max_conf_size).ok(),
+                                    max_conf_size: Some(self.max_conf_size),
                                 },
                             ));
                         }
@@ -709,7 +709,7 @@ impl ClientManager {
                                 client: session.client_info().clone(),
                                 profile: session_profile,
                                 default_call_sources: new_default_call_sources.clone(),
-                                max_conf_size: u32::try_from(self.max_conf_size).ok(),
+                                max_conf_size: Some(self.max_conf_size),
                             },
                         ));
                     }
@@ -1150,7 +1150,7 @@ impl ClientManager {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
                                     default_call_sources: new_default_call_sources.clone(),
-                                    max_conf_size: u32::try_from(self.max_conf_size).ok(),
+                                    max_conf_size: Some(self.max_conf_size),
                                 },
                             ));
                         }

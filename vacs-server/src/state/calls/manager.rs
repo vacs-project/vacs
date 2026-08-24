@@ -67,7 +67,7 @@ pub struct CallManager {
     active_calls: RwLock<HashMap<CallId, ActiveCallEntry>>,
     client_incoming_calls: RwLock<HashMap<ClientId, HashMap<CallId, CallTarget>>>,
     client_active_calls: RwLock<HashMap<ClientId, CallId>>,
-    max_conf_size: usize,
+    max_conf_size: u32,
 }
 
 impl Default for CallManager {
@@ -86,7 +86,7 @@ impl std::fmt::Debug for CallManager {
 }
 
 impl CallManager {
-    pub fn new(max_conf_size: usize) -> Self {
+    pub fn new(max_conf_size: u32) -> Self {
         Self {
             ringing_calls: RwLock::new(HashMap::new()),
             active_calls: RwLock::new(HashMap::new()),
@@ -96,7 +96,7 @@ impl CallManager {
         }
     }
 
-    pub fn max_conf_size(&self) -> usize {
+    pub fn max_conf_size(&self) -> u32 {
         self.max_conf_size
     }
 
@@ -139,7 +139,8 @@ impl CallManager {
             })
             .count();
 
-        joined_len + ringing_len + new_targets + usize::from(!caller_joined) > self.max_conf_size
+        joined_len + ringing_len + new_targets + usize::from(!caller_joined)
+            > self.max_conf_size as usize
     }
 
     #[instrument(level = "trace", skip(self))]
