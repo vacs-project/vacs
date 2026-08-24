@@ -159,6 +159,37 @@ describe("call store", () => {
         });
     });
 
+    describe("acceptIncomingCall", () => {
+        it("seeds the accepting client into the joined roster", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({
+                incomingCalls: [
+                    {
+                        callId: CALL_ID,
+                        source: {clientId: "client9" as ClientId},
+                        target: {station: "station0" as StationId},
+                        invitedTargets: [],
+                        joinedParticipants: {
+                            ["client9" as ClientId]: STATION_1,
+                            ["client8" as ClientId]: STATION_2,
+                        },
+                        prio: false,
+                    },
+                ],
+            });
+
+            useCallStore.getState().actions.acceptIncomingCall(CALL_ID);
+
+            const call = useCallStore.getState().callDisplay?.call;
+            expect(call?.joinedParticipants["client0" as ClientId]).toEqual({
+                target: {station: "station0" as StationId},
+                state: "connected",
+            });
+            // Two other parties, so the display counts as a conference.
+            expect(Object.keys(call?.joinedParticipants ?? {})).toHaveLength(3);
+        });
+    });
+
     describe("updateCall", () => {
         it("ignores updates for a terminal display", () => {
             const display = makeTestCallDisplay("error", {invitedTargets: []});

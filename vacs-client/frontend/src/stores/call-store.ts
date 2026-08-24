@@ -96,6 +96,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             updateCallListEntry(callId, true, undefined);
 
+            const ownClientId = useAuthStore.getState().cid;
+
             set({
                 callDisplay: {
                     type: "accepted",
@@ -111,10 +113,20 @@ export const useCallStore = create<CallState>()((set, get) => ({
                                     },
                                 }),
                             ),
+                            // The invitation's roster predates our accept;
+                            // seed ourselves so otherPartyCount is right.
+                            ownClientId !== undefined
+                                ? {
+                                      [ownClientId]: {
+                                          target: incomingCall.target,
+                                          state: "connected",
+                                      },
+                                  }
+                                : {},
                         ),
                         isConferenceLeader: deriveIsConferenceLeader(
                             incomingCall.conferenceLeader,
-                            useAuthStore.getState().cid,
+                            ownClientId,
                         ),
                         ownInvitedTargets: [],
                     },
