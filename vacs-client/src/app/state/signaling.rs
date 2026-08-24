@@ -717,6 +717,9 @@ impl AppStateInner {
                         app.emit::<FrontendError>("error", Error::from(error).into())
                             .ok();
                     }
+                } else {
+                    // Non-fatal, e.g. a skipped undecodable server message.
+                    log::warn!("Non-fatal signaling error: {error:?}");
                 }
             }
         }
@@ -1165,12 +1168,9 @@ impl AppStateInner {
                 let mut state = state.lock().await;
 
                 match reason {
-                    // Unknown reasons still cancel: honoring the message
-                    // matters more than knowing why.
                     CallCancelReason::AnsweredElsewhere(_)
                     | CallCancelReason::CallerCancelled
-                    | CallCancelReason::Errored(CallErrorReason::AutoHangup)
-                    | CallCancelReason::Unknown(_) => {
+                    | CallCancelReason::Errored(CallErrorReason::AutoHangup) => {
                         state.cleanup_current_call(call_id).await;
 
                         state.remove_incoming_call(call_id);
@@ -1179,12 +1179,12 @@ impl AppStateInner {
 
                         app.emit("signaling:call-end", &call_id).ok();
                     }
-                    CallCancelReason::Disconnected => {
-                        // A ringing recipient receives this when its own
-                        // invitation was cancelled by a disconnect; nothing
-                        // else will end that invitation.
+                    // Unknown reasons only remove the listed targets; nothing
+                    // guarantees the whole call ended.
+                    CallCancelReason::Disconnected | CallCancelReason::Unknown(_) => {
+                        // Nothing else ends a ringing recipient's cancelled
+                        // invitation.
                         if state.remove_incoming_call(call_id) {
-                            state.stop_ringing_if_no_incoming_calls();
                             app.emit("signaling:call-end", &call_id).ok();
                             return;
                         }
