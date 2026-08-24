@@ -690,9 +690,12 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                                 }
                             }
                             Err(SignalingRuntimeError::SerializationError(err)) => {
-                                // The connection itself is healthy; skip the message
-                                // instead of tearing the session down.
+                                // The connection is healthy: skip the message and
+                                // surface the skip as a non-fatal event.
                                 tracing::warn!(?err, "Failed to deserialize server message, skipping");
+                                let _ = broadcast_tx.send(SignalingEvent::Error(
+                                    SignalingRuntimeError::SerializationError(err),
+                                ));
                             }
                             Err(err) => {
                                 Self::emit_task_error(&state_rx, &broadcast_tx, err);
@@ -1035,11 +1038,20 @@ mod tests {
 
         let received = events
             .recv_with_timeout(Duration::from_millis(500), |event| {
-                matches!(
-                    event,
-                    SignalingEvent::Message(ServerMessage::ClientList(_))
-                        | SignalingEvent::Error(_)
-                )
+                matches!(event, SignalingEvent::Error(_))
+            })
+            .await;
+        assert_matches!(
+            received,
+            Ok(SignalingEvent::Error(
+                SignalingRuntimeError::SerializationError(_)
+            )),
+            "the skipped message must surface as a non-fatal error event"
+        );
+
+        let received = events
+            .recv_with_timeout(Duration::from_millis(500), |event| {
+                matches!(event, SignalingEvent::Message(ServerMessage::ClientList(_)))
             })
             .await;
         assert_matches!(

@@ -15,6 +15,7 @@ impl AsMetricLabel for DisconnectReason {
             DisconnectReason::Terminated => "terminated",
             DisconnectReason::NoActiveVatsimConnection => "no_active_vatsim_connection",
             DisconnectReason::AmbiguousVatsimPosition(_) => "ambiguous_vatsim_position",
+            DisconnectReason::Unknown(_) => "unknown",
         }
     }
 }
@@ -39,6 +40,7 @@ impl AsMetricLabel for LoginFailureReason {
             LoginFailureReason::InvalidVatsimPosition => "invalid_vatsim_position",
             LoginFailureReason::Timeout => "timeout",
             LoginFailureReason::IncompatibleProtocolVersion => "incompatible_protocol_version",
+            LoginFailureReason::Unknown(_) => "unknown",
         }
     }
 }
@@ -69,6 +71,7 @@ impl AsMetricLabel for CallAttemptOutcome {
                 "error_not_conference_leader"
             }
             CallAttemptOutcome::Error(CallErrorReason::NotParticipant) => "error_not_participant",
+            CallAttemptOutcome::Error(CallErrorReason::Unknown(_)) => "error_unknown",
             CallAttemptOutcome::Error(CallErrorReason::MaxConferenceSizeReached(_)) => {
                 "error_max_conference_size_reached"
             }
@@ -175,6 +178,7 @@ impl AsMetricLabel for CallErrorReason {
             CallErrorReason::NotParticipant => "not_participant",
             CallErrorReason::MaxConferenceSizeReached(_) => "max_conference_size_reached",
             CallErrorReason::Other => "other",
+            CallErrorReason::Unknown(_) => "unknown",
         }
     }
 }

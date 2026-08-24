@@ -54,6 +54,10 @@ pub enum CallCancelReason {
     Disconnected,
     Errored(CallErrorReason),
     Rejected(CallRejectReason),
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// The cancellation itself must still be honored.
+    #[serde(untagged)]
+    Unknown(crate::ws::shared::UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

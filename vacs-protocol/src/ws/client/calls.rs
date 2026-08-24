@@ -21,10 +21,14 @@ pub struct CallAccept {
     pub accepting_client_id: ClientId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CallRejectReason {
     Busy,
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// The rejection itself must still be honored.
+    #[serde(untagged)]
+    Unknown(crate::ws::shared::UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
