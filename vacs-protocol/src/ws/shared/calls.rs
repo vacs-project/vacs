@@ -99,6 +99,14 @@ pub enum CallErrorReason {
     CallFailure,
     SignalingFailure(ClientId),
     AutoHangup,
+    /// A single conference link is dead after a relay-assisted retry. Used
+    /// symmetrically: sent by a client it reports "my link to this peer is
+    /// dead"; sent by the server to a client it means "your link to this peer
+    /// is dead, you are removed from the call" and is followed by `CallEnd`.
+    /// The server only evicts once both endpoints of the pair have reported
+    /// the link; the evicted participant is the pair member that joined the
+    /// call later.
+    PeerConnectionFailed(ClientId),
     /// The sender lacked the authorization for a conference operation. Sent
     /// for three distinct failures: adding to a ringing invite batch one did
     /// not open, inviting into a conference without being its leader, and
