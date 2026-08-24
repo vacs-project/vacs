@@ -327,7 +327,9 @@ impl KeybindEngine {
         let radio_prio = self.radio_prio.load(Ordering::Relaxed);
         let separate_keys = self.radio_trigger.is_some() && !self.radio_shares_call_trigger();
         match self.call_mic_mode {
-            CallMicMode::VoiceActivation => false,
+            // Radio prio mutes the call mic in these modes (see set_radio_prio);
+            // an attach while prio is active must not lift that mute.
+            CallMicMode::VoiceActivation => radio_prio,
             CallMicMode::PushToTalk => {
                 if separate_keys {
                     // PTT-Diff: call PTT alone determines MIC state; prio has no effect (§8.4)
@@ -337,7 +339,7 @@ impl KeybindEngine {
                     !call_pressed || (radio_pressed && radio_prio)
                 }
             }
-            CallMicMode::PushToMute => call_pressed,
+            CallMicMode::PushToMute => call_pressed || radio_prio,
         }
     }
 
