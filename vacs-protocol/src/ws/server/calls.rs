@@ -20,8 +20,13 @@ pub struct CallInvitation {
     pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
     /// The current conference leader, if the call already is a conference.
-    /// Only the leader may invite further targets into a conference or drop
-    /// joined participants from it.
+    ///
+    /// Invite authorization: while any target of the call is still ringing,
+    /// only the original caller may invite further targets; once the call is
+    /// a conference, only the leader may. Only the leader may drop joined
+    /// participants. Leadership goes to whoever invited the participant that
+    /// turned the call into a conference and never transfers: when the leader
+    /// leaves or disconnects, the whole call ends for everyone.
     #[serde(default)]
     pub conference_leader: Option<ClientId>,
     pub prio: bool,
@@ -34,14 +39,21 @@ pub struct CallUpdate {
     /// The targets still being invited into the call. Never contains the
     /// recipient's own target: a still-ringing recipient keeps its identity
     /// from the invitation's `target`, a joined recipient finds itself in
-    /// `joined_participants` under its client id. An empty set together with
-    /// empty `joined_participants` does NOT mean the call ended; termination
-    /// is always signalled explicitly.
+    /// `joined_participants` under its client id.
+    ///
+    /// Empty-update semantics depend on the recipient's phase. For a
+    /// still-ringing recipient, an empty set together with empty
+    /// `joined_participants` is a live state (it may be the only party still
+    /// being rung) and its invitation only ends via an explicit
+    /// [`CallCancelled`]. For a caller that has not joined the call, the same
+    /// empty update is the call-over signal: the caller is listed in neither
+    /// half and would otherwise never learn its call ended.
     pub invited_targets: HashSet<CallTarget>,
     pub joined_participants: CallParticipants,
     /// The current conference leader, if the call is a conference. `None` for
     /// regular calls, including a conference that shrank back to two
-    /// participants.
+    /// participants. See [`CallInvitation::conference_leader`] for the
+    /// authorization rules leadership implies.
     #[serde(default)]
     pub conference_leader: Option<ClientId>,
 }

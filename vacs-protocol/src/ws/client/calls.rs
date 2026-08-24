@@ -5,12 +5,30 @@ use crate::ws::shared::{CallId, CallTarget};
 use crate::{vatsim::ClientId, ws::shared::CallSource};
 use serde::{Deserialize, Serialize};
 
+/// Starts a new call or invites further targets into an existing one.
+///
+/// Both operations use the same message: a `call_id` the server does not know
+/// starts a fresh call, while the id of a call the sender participates in
+/// grows that call into (or within) a conference, subject to the
+/// authorization rules on
+/// [`CallInvitation::conference_leader`](crate::ws::server::CallInvitation::conference_leader).
+///
+/// A successful invite is not acknowledged directly: the caller of a fresh
+/// call learns of progress through `CallUpdate`/`CallCancelled`/`CallError`
+/// messages, a conference-grow invite additionally through the update fanned
+/// out after each acceptance. Failures always come back as `CallError`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallInvite {
     pub call_id: CallId,
+    /// The identity the sender places the call as. Its `client_id` must be
+    /// the sender's own.
     pub source: CallSource,
+    /// The targets to invite. Must not be empty; targets already ringing or
+    /// joined in the call are rejected.
     pub targets: HashSet<CallTarget>,
+    /// Marks the call as a priority call. Ignored when inviting into an
+    /// existing call.
     pub prio: bool,
 }
 
