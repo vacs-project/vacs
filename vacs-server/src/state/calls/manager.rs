@@ -592,9 +592,12 @@ impl CallManager {
         target: &CallTarget,
         reason: CallDropReason,
     ) -> DropTargetOutcome {
-        // Decided while the active call is locked. The resulting snapshot has to be
-        // taken afterwards, because reading the ringing calls while holding the active
-        // calls lock inverts the lock order.
+        // The read guard is held across the whole drop: attempt, accept and
+        // teardown all take the write lock throughout, so none of them can
+        // observe the leaderless window between the removal and the busy
+        // marker cleanup below.
+        let ringing_calls = self.ringing_calls.read();
+
         let dropped_client_id = {
             let mut active_calls = self.active_calls.write();
 
@@ -659,9 +662,7 @@ impl CallManager {
             }
         };
 
-        let invited_participants = self
-            .ringing_calls
-            .read()
+        let invited_participants = ringing_calls
             .get(call_id)
             .map(RingingCallEntry::invited_participants)
             .unwrap_or_default();
