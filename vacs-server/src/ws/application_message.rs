@@ -2,8 +2,8 @@ use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::ratelimit::CallInviteRejection;
 use crate::state::AppState;
 use crate::state::calls::{
-    AcceptCallOutcome, CallTerminationOutcome, DropTargetOutcome, RingingTarget, StartCallError,
-    UpdateCallAction, UpdateParticipants,
+    AcceptCallOutcome, CallTerminationOutcome, DropTargetOutcome, LinkReportOutcome, RingingTarget,
+    StartCallError, UpdateCallAction, UpdateParticipants,
 };
 use crate::state::clients::session::ClientSession;
 use std::collections::{HashMap, HashSet};
@@ -708,6 +708,124 @@ async fn handle_call_end(state: &AppState, client: &ClientSession, end: CallEnd)
     }
 }
 
+/// Handles a dead-link report. A single report is only recorded; once both
+/// endpoints of the pair have reported, the later joiner is evicted: it
+/// receives the reason naming the peer it could not reach followed by a
+/// `CallEnd`, while the remaining participants get the regular leave fan-out.
+#[tracing::instrument(level = "trace", skip(state, client))]
+async fn handle_link_failure_report(
+    state: &AppState,
+    client: &ClientSession,
+    call_id: &CallId,
+    peer_id: ClientId,
+) {
+    match state
+        .calls
+        .report_link_failure(call_id, client.id(), &peer_id)
+    {
+        LinkReportOutcome::InvalidReport => {
+            // No error reply: reports routinely race the reported peer's own
+            // leave, and an error would make the reporter tear down a healthy
+            // call. The reporter learns the roster changed via CallUpdate.
+            tracing::debug!(
+                ?peer_id,
+                "Ignoring link failure report for a non-participant pair"
+            );
+        }
+        LinkReportOutcome::Recorded => {
+            tracing::debug!(
+                ?peer_id,
+                "Link failure recorded or already resolved, no eviction"
+            );
+        }
+        LinkReportOutcome::Evicted {
+            evicted,
+            unreachable,
+            actions,
+        } => {
+            tracing::info!(
+                ?evicted,
+                ?unreachable,
+                "Both endpoints reported the link dead, evicting the later joiner"
+            );
+
+            if let Err(err) = state
+                .send_message(
+                    &evicted,
+                    CallError {
+                        call_id: *call_id,
+                        reason: CallErrorReason::PeerConnectionFailed(unreachable.clone()),
+                        message: None,
+                    },
+                )
+                .await
+            {
+                tracing::warn!(?err, ?evicted, "Failed to send link eviction error");
+            }
+            if let Err(err) = state
+                .send_message(&evicted, CallEnd::new(*call_id, evicted.clone()))
+                .await
+            {
+                tracing::warn!(?err, ?evicted, "Failed to send link eviction call end");
+            }
+
+            for action in actions {
+                match action {
+                    UpdateCallAction::CancelRingingTarget(ringing_target) => {
+                        let cancelled = server::CallCancelled::new(
+                            *call_id,
+                            HashSet::from([ringing_target.target]),
+                            CallCancelReason::CallerCancelled,
+                        );
+
+                        for notified_client in ringing_target.notified_clients {
+                            if let Err(err) = state
+                                .send_message(&notified_client, cancelled.clone())
+                                .await
+                            {
+                                tracing::warn!(
+                                    ?err,
+                                    ?notified_client,
+                                    "Failed to send call cancelled to notified client"
+                                );
+                            }
+                        }
+                    }
+                    UpdateCallAction::DropParticipant(_, participant_id) => {
+                        if let Err(err) = state
+                            .send_message(&participant_id, CallEnd::new(*call_id, evicted.clone()))
+                            .await
+                        {
+                            tracing::warn!(
+                                ?err,
+                                ?participant_id,
+                                "Failed to send call end to participant"
+                            );
+                        }
+                    }
+                    UpdateCallAction::UpdateParticipants(update) => {
+                        for (participant_id, _) in update.all_participants() {
+                            if let Err(err) = state
+                                .send_message(
+                                    participant_id,
+                                    ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    ?err,
+                                    ?participant_id,
+                                    "Failed to send call update to participant"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[tracing::instrument(level = "trace", skip(state, client))]
 async fn handle_call_error(state: &AppState, client: &ClientSession, error: CallError) {
     tracing::trace!("Handling call error");
@@ -732,6 +850,10 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
             error.reason
         }
         CallErrorReason::CallFailure | CallErrorReason::Other => error.reason,
+        CallErrorReason::PeerConnectionFailed(peer_id) => {
+            handle_link_failure_report(state, client, call_id, peer_id.clone()).await;
+            return;
+        }
         other => {
             tracing::error!(?other, "Receiving invalid call error reason, rejecting");
             return;
@@ -742,12 +864,10 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
         CallTerminationOutcome::CallNotFound => {
             tracing::warn!("No ringing call found, returning call error");
             send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
-            return;
         }
         CallTerminationOutcome::ClientNotNotified => {
             tracing::warn!("Client was not notified of this call, returning call error");
             send_call_error(client, call_id, CallErrorReason::CallFailure, None).await;
-            return;
         }
         CallTerminationOutcome::Continued => {}
         CallTerminationOutcome::TargetFailed(ringing_targets, update) => {
