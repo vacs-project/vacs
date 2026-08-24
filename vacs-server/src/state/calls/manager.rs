@@ -743,6 +743,10 @@ impl CallManager {
                     ErrorMetrics::peer_not_found();
 
                     entry.remove();
+                    drop(active_calls);
+
+                    let actions =
+                        self.cancel_pending_invitations(call_id, CallAttemptOutcome::Cancelled);
 
                     {
                         let mut client_active_calls = self.client_active_calls.write();
@@ -754,7 +758,7 @@ impl CallManager {
                         }
                     }
 
-                    Some(Vec::new())
+                    Some(actions)
                 } else if active_call.conference_leader.as_ref() == Some(ending_client_id)
                     || participants_without_self.len() <= 1
                 {
