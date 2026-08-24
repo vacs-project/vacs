@@ -83,7 +83,8 @@ pub type CallParticipants = HashMap<ClientId, CallTarget>;
 pub struct UnknownReason(pub serde_json::Value);
 
 // Sound: `serde_json::Value` only breaks `Eq` through non-finite floats,
-// which JSON itself cannot encode, so parsed values are always reflexive.
+// which JSON cannot encode and `serde_json::Number` cannot construct
+// (`from_f64` rejects them), so every reachable value is reflexive.
 impl Eq for UnknownReason {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
