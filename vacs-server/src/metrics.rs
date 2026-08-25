@@ -79,6 +79,11 @@ pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, Prome
                 )
                 .unwrap()
                 .set_buckets_for_metric(
+                    Matcher::Full("vacs_calls_link_confirmation_seconds".to_string()),
+                    &[0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 45.0, 60.0, 90.0],
+                )
+                .unwrap()
+                .set_buckets_for_metric(
                     Matcher::Full("vacs_calls_participants_max".to_string()),
                     &[2.0, 3.0, 4.0, 5.0, 6.0, 8.0],
                 )
@@ -169,6 +174,27 @@ impl CallMetrics {
         counter!("vacs_calls_errors_total", "reason" => reason.as_metric_label()).increment(1);
     }
 
+    pub fn link_report(outcome: &'static str) {
+        counter!("vacs_calls_link_reports_total", "outcome" => outcome).increment(1);
+    }
+
+    pub fn link_report_expired() {
+        counter!("vacs_calls_link_reports_expired_total").increment(1);
+    }
+
+    pub fn link_confirmation_delay(seconds: f64) {
+        histogram!("vacs_calls_link_confirmation_seconds").record(seconds);
+    }
+
+    pub fn link_eviction(whole_call: bool) {
+        let scope = if whole_call {
+            "whole_call"
+        } else {
+            "participant"
+        };
+        counter!("vacs_calls_link_evictions_total", "scope" => scope).increment(1);
+    }
+
     fn register() {
         describe_gauge!(
             "vacs_calls_active",
@@ -219,6 +245,26 @@ impl CallMetrics {
             "vacs_calls_conferences_total",
             Unit::Count,
             "Total number of calls that grew beyond two joined participants"
+        );
+        describe_counter!(
+            "vacs_calls_link_reports_total",
+            Unit::Count,
+            "Dead-link reports, labeled by outcome (recorded, refreshed, confirmed, self_report, unknown_call, non_participant)"
+        );
+        describe_counter!(
+            "vacs_calls_link_reports_expired_total",
+            Unit::Count,
+            "Half-reported dead links whose stale report expired when the pair was reported again"
+        );
+        describe_histogram!(
+            "vacs_calls_link_confirmation_seconds",
+            Unit::Seconds,
+            "Time from the first fresh report of a dead link to the confirming report by the other endpoint"
+        );
+        describe_counter!(
+            "vacs_calls_link_evictions_total",
+            Unit::Count,
+            "Participants evicted over confirmed dead links, labeled by scope (whole_call when the evictee led the conference)"
         );
     }
 }
