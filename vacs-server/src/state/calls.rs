@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 pub use manager::*;
 use vacs_protocol::ws::server::CallUpdate;
 
+use crate::metrics::CallMetrics;
 use crate::metrics::guards::{CallAttemptGuard, CallAttemptOutcome, CallGuard};
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::shared::{CallId, CallParticipants, CallSource, CallTarget};
@@ -125,6 +126,9 @@ const LINK_REPORT_TTL: Duration = Duration::from_secs(90);
 struct LinkReport {
     reporters: HashSet<ClientId>,
     refreshed_at: Instant,
+    /// Start of the current report window; reset when an expired report is
+    /// discarded. Measures how long a pair stays half-reported.
+    first_reported_at: Instant,
 }
 
 impl RingingCallEntry {
@@ -261,15 +265,29 @@ impl ActiveCallEntry {
         let report = self.link_reports.entry(key).or_insert_with(|| LinkReport {
             reporters: HashSet::new(),
             refreshed_at: now,
+            first_reported_at: now,
         });
 
         if now.duration_since(report.refreshed_at) >= LINK_REPORT_TTL {
             report.reporters.clear();
+            report.first_reported_at = now;
+            CallMetrics::link_report_expired();
         }
         report.refreshed_at = now;
-        report.reporters.insert(reporter.clone());
+        let repeat = !report.reporters.insert(reporter.clone());
 
-        report.reporters.contains(peer)
+        let confirmed = report.reporters.contains(peer);
+        if confirmed {
+            CallMetrics::link_confirmation_delay(
+                now.duration_since(report.first_reported_at).as_secs_f64(),
+            );
+            CallMetrics::link_report("confirmed");
+        } else if repeat {
+            CallMetrics::link_report("refreshed");
+        } else {
+            CallMetrics::link_report("recorded");
+        }
+        confirmed
     }
 
     /// The member of the pair that joined the call later.

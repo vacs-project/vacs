@@ -1,5 +1,5 @@
-use crate::metrics::ErrorMetrics;
 use crate::metrics::guards::CallAttemptOutcome;
+use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::state::AppState;
 use crate::state::calls::{
     ActiveCall, ActiveCallEntry, RingingCallEntry, RingingTarget, RingingTargetEntry,
@@ -1232,17 +1232,20 @@ impl CallManager {
         peer_id: &ClientId,
     ) -> LinkReportOutcome {
         if reporter_id == peer_id {
+            CallMetrics::link_report("self_report");
             return LinkReportOutcome::InvalidReport;
         }
 
-        let (evicted, unreachable) = {
+        let (evicted, unreachable, evicted_leader) = {
             let mut active_calls = self.active_calls.write();
             let Some(active_call) = active_calls.get_mut(call_id) else {
+                CallMetrics::link_report("unknown_call");
                 return LinkReportOutcome::InvalidReport;
             };
             if !active_call.participants.contains_key(reporter_id)
                 || !active_call.participants.contains_key(peer_id)
             {
+                CallMetrics::link_report("non_participant");
                 return LinkReportOutcome::InvalidReport;
             }
 
@@ -1256,7 +1259,8 @@ impl CallManager {
             } else {
                 reporter_id.clone()
             };
-            (evicted, unreachable)
+            let evicted_leader = active_call.conference_leader.as_ref() == Some(&evicted);
+            (evicted, unreachable, evicted_leader)
         };
 
         // end_call takes its own locks; a concurrent leave in between is
@@ -1264,11 +1268,14 @@ impl CallManager {
         // no-op, and the unreachable peer leaving already pruned the pair's
         // reports, so the eviction decided above still stands on its own.
         match self.end_call(call_id, &evicted) {
-            Some(actions) => LinkReportOutcome::Evicted {
-                evicted,
-                unreachable,
-                actions,
-            },
+            Some(actions) => {
+                CallMetrics::link_eviction(evicted_leader);
+                LinkReportOutcome::Evicted {
+                    evicted,
+                    unreachable,
+                    actions,
+                }
+            }
             None => LinkReportOutcome::Recorded,
         }
     }
