@@ -6,7 +6,7 @@
   "repository": "https://github.com/vacs-project/vacs",
   "type": "module",
   "scripts": {
-    "test": "wdio run wdio.conf.ts && wdio run wdio.remote.conf.ts",
+    "test": "wdio run wdio.conf.ts && wdio run wdio.remote.conf.ts && wdio run wdio.conference.conf.ts",
     "screenshots": "wdio run wdio.docs.ts"
   },
   "devDependencies": {
