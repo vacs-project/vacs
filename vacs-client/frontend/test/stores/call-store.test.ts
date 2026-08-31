@@ -301,6 +301,59 @@ describe("call store", () => {
         });
     });
 
+    describe("terminal display freeze", () => {
+        it("ignores target rejections for a terminal display", () => {
+            const display = makeTestCallDisplay("error", {invitedTargets: [STATION_1]});
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.rejectTargets(CALL_ID, [STATION_1]);
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        it("ignores target errors for a terminal display", () => {
+            const display = makeTestCallDisplay("rejected", {invitedTargets: [STATION_1]});
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "targets", value: [STATION_1]},
+                reason: "callFailure",
+            });
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        it("ignores connection state changes for a terminal display", () => {
+            const display = makeTestCallDisplay("error", {invitedTargets: []});
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore
+                .getState()
+                .actions.setConnectionState(CALL_ID, "client1" as ClientId, "connected");
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        it("ignores invited-target cancellations for a terminal display", () => {
+            const display = makeTestCallDisplay("rejected", {invitedTargets: [STATION_1]});
+            useCallStore.setState({callDisplay: display});
+
+            cancel(STATION_1);
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        it("ignores a rejection for targets that are not invited", () => {
+            const display = outgoingDisplay([STATION_1]);
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.rejectTargets(CALL_ID, [STATION_2]);
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+    });
+
     describe("updateCall conference leader", () => {
         function update(conferenceLeader: ClientId | null) {
             useCallStore.getState().actions.updateCall({

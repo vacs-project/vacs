@@ -176,7 +176,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 // A terminal display stays terminal: the call is already over
                 // for this client and only a dismiss clears it. Applying the
                 // update would resurrect it as a live-looking call.
-                if (callDisplay.type === "error" || callDisplay.type === "rejected") {
+                if (isTerminalCallDisplay(callDisplay)) {
                     return;
                 }
 
@@ -303,6 +303,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
         cancelInvitedTarget: (callId, target) => {
             const callDisplay = get().callDisplay;
             if (callDisplay === undefined || callDisplay.call.callId !== callId) return;
+            if (isTerminalCallDisplay(callDisplay)) return;
 
             const invitedTargets = callDisplay.call.invitedTargets.filter(
                 invited => !hasTarget([target], invited),
@@ -332,9 +333,16 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            callDisplay = structuredClone(callDisplay);
+            if (isTerminalCallDisplay(callDisplay)) {
+                return;
+            }
 
-            targets = targets.filter(target => hasTarget(callDisplay.call.invitedTargets, target));
+            const invitedTargets = callDisplay.call.invitedTargets;
+            targets = targets.filter(target => hasTarget(invitedTargets, target));
+
+            if (targets.length === 0) return;
+
+            callDisplay = structuredClone(callDisplay);
 
             callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
                 target => !hasTarget(targets, target),
@@ -394,6 +402,10 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 get().actions.removeCall(callId);
+                return;
+            }
+
+            if (isTerminalCallDisplay(callDisplay)) {
                 return;
             }
 
@@ -499,6 +511,10 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
+            if (isTerminalCallDisplay(callDisplay)) {
+                return;
+            }
+
             callDisplay = structuredClone(callDisplay);
 
             const joinedParticipant = callDisplay.call.joinedParticipants[peerId];
@@ -533,6 +549,9 @@ export const useCallStore = create<CallState>()((set, get) => ({
         },
     },
 }));
+
+const isTerminalCallDisplay = (callDisplay: CallDisplay) =>
+    callDisplay.type === "error" || callDisplay.type === "rejected";
 
 const deriveIsConferenceLeader = (
     conferenceLeader: ClientId | null | undefined,
