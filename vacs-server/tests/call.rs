@@ -679,6 +679,179 @@ async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
 }
 
 #[test(tokio::test)]
+async fn ringing_conference_target_disconnect_notifies_the_inviter() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    // client1 invites client2 and client3
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([
+                    CallTarget::Client(client2.id().clone()),
+                    CallTarget::Client(client3.id().clone()),
+                ]),
+                prio: false,
+            },
+        ))
+        .await?;
+    for client in [&mut client2, &mut client3] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(_))
+            })
+            .await;
+        assert_eq!(invitations.len(), 1, "callee should receive CallInvitation");
+    }
+
+    // client2 accepts, making the call active while client3 keeps ringing
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    let client2_id = client2.id().clone();
+    for client in [&mut client1, &mut client2] {
+        let _ = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && update.joined_participants.contains_key(&client2_id))
+            })
+            .await;
+    }
+
+    // client3 disconnects while still ringing
+    let client3_target = CallTarget::Client(client3.id().clone());
+    client3.close().await;
+
+    // The inviter gets explicit feedback about the lost target plus the shrunk roster
+    let messages = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(500), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled) if cancelled.call_id == call_id)
+                || matches!(m, ServerMessage::CallUpdate(update) if update.call_id == call_id)
+        })
+        .await;
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CallCancelled(cancelled)
+            if cancelled.reason == vacs_protocol::ws::server::CallCancelReason::Disconnected
+                && cancelled.targets.contains(&client3_target))),
+        "client1 should receive CallCancelled for the disconnected ringing target"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CallUpdate(update)
+            if update.invited_targets.is_empty())),
+        "client1 should receive a CallUpdate without the lost target"
+    );
+
+    // The joined callee sees the shrunk roster
+    let updates = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(500), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id && update.invited_targets.is_empty())
+        })
+        .await;
+    assert_eq!(
+        updates.len(),
+        1,
+        "the joined callee should receive a CallUpdate without the lost target"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn unanswered_target_disconnect_updates_remaining_ringing_targets() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    // client1 invites client2 and client3, nobody accepts
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([
+                    CallTarget::Client(client2.id().clone()),
+                    CallTarget::Client(client3.id().clone()),
+                ]),
+                prio: false,
+            },
+        ))
+        .await?;
+    for client in [&mut client2, &mut client3] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(_))
+            })
+            .await;
+        assert_eq!(invitations.len(), 1, "callee should receive CallInvitation");
+    }
+
+    // client3 disconnects while everything still rings
+    let client3_target = CallTarget::Client(client3.id().clone());
+    client3.close().await;
+
+    // The other ringing recipient sees the shrunk invited list; empty lists are
+    // a live state for a ringing recipient
+    let updates = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(500), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id && update.invited_targets.is_empty())
+        })
+        .await;
+    assert_eq!(
+        updates.len(),
+        1,
+        "the remaining ringing recipient should receive a CallUpdate without the lost target"
+    );
+
+    // The caller gets explicit feedback about the lost target
+    let cancelled = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(500), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled)
+                if cancelled.call_id == call_id
+                    && cancelled.reason == vacs_protocol::ws::server::CallCancelReason::Disconnected
+                    && cancelled.targets.contains(&client3_target))
+        })
+        .await;
+    assert_eq!(
+        cancelled.len(),
+        1,
+        "the caller should receive CallCancelled for the disconnected ringing target"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
 async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
     let test_app = TestApp::new().await;
     let mut clients = setup_n_test_clients(test_app.addr(), 3).await;

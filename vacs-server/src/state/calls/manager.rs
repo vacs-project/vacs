@@ -1062,37 +1062,29 @@ impl CallManager {
                                         "Aborting incoming ringing call target"
                                     );
 
-                                    if let Some(active_call) =
-                                        self.active_calls.read().get(&call_id)
-                                    {
-                                        entry.remove();
+                                    actions.push(UpdateCallAction::CancelRingingTarget(
+                                        ringing_target.complete(
+                                            CallAttemptOutcome::Aborted,
+                                            &ringing_call.call_id,
+                                            &ringing_call.caller_id,
+                                            ringing_target.source.clone(),
+                                            &call_target,
+                                        ),
+                                    ));
 
-                                        actions.push(UpdateCallAction::UpdateParticipants(
-                                            UpdateParticipants {
-                                                call_id,
-                                                invited_participants: ringing_call
-                                                    .invited_participants(),
-                                                joined_participants: active_call
-                                                    .participants
-                                                    .clone(),
-                                                conference_leader: active_call
-                                                    .conference_leader
-                                                    .clone(),
-                                            },
-                                        ));
-                                    } else {
-                                        actions.push(UpdateCallAction::CancelRingingTarget(
-                                            ringing_target.complete(
-                                                CallAttemptOutcome::Aborted,
-                                                &ringing_call.call_id,
-                                                &ringing_call.caller_id,
-                                                ringing_target.source.clone(),
-                                                &call_target,
-                                            ),
-                                        ));
+                                    entry.remove();
 
-                                        entry.remove();
-                                    }
+                                    let (joined_participants, conference_leader) =
+                                        self.active_call_snapshot(&call_id);
+                                    actions.push(UpdateCallAction::UpdateParticipants(
+                                        UpdateParticipants {
+                                            call_id,
+                                            invited_participants: ringing_call
+                                                .invited_participants(),
+                                            joined_participants,
+                                            conference_leader,
+                                        },
+                                    ));
                                 }
                             }
                             Entry::Vacant(_) => {
