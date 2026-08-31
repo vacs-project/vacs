@@ -58,6 +58,24 @@ export function otherPartyCount(call: {
     return call.invitedTargets.length + participantCount(call.joinedParticipants, true);
 }
 
+/**
+ * Number of parties in a ringing incoming call besides ourselves. The
+ * recipient is in neither list, and the caller only appears in
+ * `joinedParticipants` once someone accepts, so a still-ringing caller counts
+ * as one extra party.
+ */
+export function incomingOtherPartyCount(call: {
+    source: CallSource;
+    invitedTargets: CallTarget[];
+    joinedParticipants: Record<ClientId, unknown>;
+}) {
+    return (
+        call.invitedTargets.length +
+        participantCount(call.joinedParticipants) +
+        (call.source.clientId in call.joinedParticipants ? 0 : 1)
+    );
+}
+
 export function participantCount(
     participants: Record<ClientId, unknown>,
     excludeSelf: boolean = false,
