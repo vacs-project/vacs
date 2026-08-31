@@ -1307,6 +1307,8 @@ fn spawn_peer_events_task(
                         }
                     }
                     PeerEvent::NoInboundMedia => {
+                        refresh_expired_ice_config(&app).await;
+
                         let app_state = app.state::<AppState>();
                         let mut state = app_state.lock().await;
 
