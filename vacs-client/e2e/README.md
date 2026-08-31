@@ -25,13 +25,17 @@ cd vacs-client
 npm test -w e2e
 ```
 
-This runs two WebdriverIO configs in sequence:
+This runs three WebdriverIO configs in sequence:
 
 - `wdio.conf.ts`: two app instances (`clientA`/`clientB`, embedded WebDriver
   on ports 4450/4451), covering login, calls, stations/coverage, settings and
   reconnect behavior. Specs live in `specs/`.
 - `wdio.remote.conf.ts`: one app instance (port 4460) plus a managed headless
   Chromium acting as a remote-control browser. Specs live in `specs-remote/`.
+- `wdio.conference.conf.ts`: three app instances (`clientA`/`clientB`/`clientC`,
+  ports 4450-4452), covering conference calls. Specs live in
+  `specs-conference/`. It inherits everything but the instance count from
+  `wdio.conf.ts`, which keeps the two-instance suite's lifecycle untouched.
 
 Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 (optionally `--mochaOpts.grep "<test name>"`).
