@@ -3,7 +3,7 @@ import {someConnectionState, useCallStore} from "../stores/call-store.ts";
 import {invokeSafe, invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
-import {Call, CallDisplayCall, otherPartyCount, participantCount} from "../types/call.ts";
+import {Call, CallDisplayCall, incomingOtherPartyCount, otherPartyCount} from "../types/call.ts";
 import {useProfileStationKeys} from "../stores/profile-store.ts";
 import {DirectAccessKey} from "../types/profile.ts";
 import {ComponentChild} from "preact";
@@ -118,8 +118,7 @@ function CallQueue() {
                         )}
                         onClick={() => handleAnswerKeyClick(call)}
                     >
-                        {/* The ringing recipient itself is not in either list. */}
-                        {participantCount(call.joinedParticipants) + call.invitedTargets.length > 1
+                        {incomingOtherPartyCount(call) > 1
                             ? "CONF"
                             : callLabel(
                                   call.source.stationId,
