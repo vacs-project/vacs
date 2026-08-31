@@ -5,6 +5,8 @@ use std::time::Duration;
 
 pub type RemovedSourceProducer = ringbuf::HeapProd<Box<dyn AudioSource>>;
 
+const SOURCE_CAPACITY: usize = 256;
+
 #[derive(Default)]
 pub struct Mixer {
     sources: HashMap<AudioSourceId, Box<dyn AudioSource>>,
@@ -16,7 +18,7 @@ impl Mixer {
     /// of freeing them on the audio thread; the owner must drain that queue.
     pub fn with_deferred_drop(removed_sources: RemovedSourceProducer) -> Self {
         Self {
-            sources: HashMap::new(),
+            sources: HashMap::with_capacity(SOURCE_CAPACITY),
             removed_sources: Some(removed_sources),
         }
     }
