@@ -37,6 +37,7 @@ pub struct KeybindEngine {
     app: AppHandle,
     listener: RwLock<Option<DynKeybindListener>>,
     rx_task: Option<JoinHandle<()>>,
+    control_task: Option<JoinHandle<()>>,
     shutdown_token: CancellationToken,
     stop_token: Option<CancellationToken>,
     /// Whether this configuration lets radio TX fall back to the call trigger
@@ -76,6 +77,7 @@ impl KeybindEngine {
             app,
             listener: RwLock::new(None),
             rx_task: None,
+            control_task: None,
             shutdown_token,
             stop_token: None,
             radio_portal_fallback,
@@ -220,6 +222,10 @@ impl KeybindEngine {
 
         if let Some(rx_task) = self.rx_task.take() {
             rx_task.abort();
+        }
+
+        if let Some(control_task) = self.control_task.take() {
+            control_task.abort();
         }
 
         if was_running {
@@ -521,6 +527,26 @@ impl KeybindEngine {
         let implicit_radio_prio = self.implicit_radio_prio.clone();
         let radio_transmitting = self.radio_transmitting.clone();
 
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::channel::<Trigger>(3);
+        self.control_task = Some({
+            let app = app.clone();
+            let accept_call = accept_call.clone();
+            let end_call = end_call.clone();
+            let toggle_radio_prio = toggle_radio_prio.clone();
+            tauri::async_runtime::spawn(async move {
+                while let Some(trigger) = control_rx.recv().await {
+                    Self::handle_call_control_event(
+                        &app,
+                        &trigger,
+                        accept_call.as_ref(),
+                        end_call.as_ref(),
+                        toggle_radio_prio.as_ref(),
+                    )
+                    .await;
+                }
+            })
+        });
+
         let handle = tauri::async_runtime::spawn(async move {
             log::debug!(
                 "Keybind engine starting: mode={mode:?}, transmit={call_trigger:?}, radio={radio_trigger:?}, accept_call={accept_call:?}, end_call={end_call:?}",
@@ -533,8 +559,12 @@ impl KeybindEngine {
                     res = rx.recv() => {
                         let Some(event) = res else { break; };
 
-                        if event.state == KeyState::Down {
-                            Self::handle_call_control_event(&app, &event.trigger, accept_call.as_ref(), end_call.as_ref(), toggle_radio_prio.as_ref()).await;
+                        let is_control_press = event.state == KeyState::Down
+                            && [&accept_call, &end_call, &toggle_radio_prio]
+                                .iter()
+                                .any(|t| t.as_ref() == Some(&event.trigger));
+                        if is_control_press && control_tx.try_send(event.trigger.clone()).is_err() {
+                            log::trace!("Call control handler busy, dropping key press");
                         }
 
                         refresh_radio_follows_call(
