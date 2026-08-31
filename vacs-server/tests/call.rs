@@ -654,10 +654,14 @@ async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
     let end_messages = client1
         .recv_until_timeout_with_filter(
             Duration::from_millis(500),
-            |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id),
+            |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id && end.ending_client_id == client2_id),
         )
         .await;
-    assert_eq!(end_messages.len(), 1, "client1 should receive CallEnd");
+    assert_eq!(
+        end_messages.len(),
+        1,
+        "client1 should receive CallEnd attributed to the disconnecting client"
+    );
 
     // The still ringing invitation must be cancelled with the call
     let cancelled_messages = client3

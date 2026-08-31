@@ -1186,10 +1186,7 @@ impl CallManager {
                 UpdateCallAction::DropParticipant(call_id, participant_id) => {
                     tracing::trace!(?participant_id, "Sending call end to participant");
                     if let Err(err) = state
-                        .send_message(
-                            &participant_id,
-                            CallEnd::new(call_id, participant_id.clone()),
-                        )
+                        .send_message(&participant_id, CallEnd::new(call_id, client_id.clone()))
                         .await
                     {
                         tracing::warn!(
