@@ -100,6 +100,29 @@ export function callQueueSlot(
 }
 
 /**
+ * Returns the call display: the topmost call queue slot, which shows the
+ * client's own current call. Matched structurally rather than by label,
+ * because a conference call display is labeled "CONF" and carries no title
+ * attribute for callQueueSlot to key off. The element exists exactly while
+ * the client has a call display, so its absence means "no call".
+ */
+export function callDisplaySlot(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$(
+        '//div[contains(@class, "scrollbar-none")]' +
+            '/div[contains(@class, "relative")]/button[contains(@class, "h-16")]',
+    );
+}
+
+/**
+ * Returns the CONF function key, which opens and closes conference modify
+ * mode. Matched by its title attribute: a conference call display and a
+ * conference answer key carry the same "CONF" text.
+ */
+export function conferenceKey(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//button[@title="Conference Call"]');
+}
+
+/**
  * Selects an option of a native select element by value. Uses a JS-dispatched
  * change event since WebKitWebDriver does not support native option clicks.
  */
