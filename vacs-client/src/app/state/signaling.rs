@@ -337,10 +337,6 @@ impl AppStateSignalingExt for AppStateInner {
                             };
 
                             current_call.remove_invited_targets(&HashSet::from([target]));
-                            if current_call.is_empty() {
-                                state.cancel_all_unanswered_call_timers(call_id);
-                                state.cleanup_current_call(call_id).await;
-                            }
                         }
                     }
                 }
@@ -562,8 +558,6 @@ impl AppStateSignalingExt for AppStateInner {
         .await?;
 
         if is_invited {
-            // Applied locally: the server does not echo a call update to a
-            // caller whose call has no joined participants yet.
             self.cancel_unanswered_call_timers_for_targets(&call_id, [&target].into_iter());
 
             let Some(current_call) = self.current_call_mut(call_id) else {
@@ -572,14 +566,10 @@ impl AppStateSignalingExt for AppStateInner {
             current_call.remove_invited_targets(&HashSet::from([target]));
 
             self.stop_ringback_if_no_invited_targets(call_id);
-
-            if self.current_call(call_id).is_some_and(Call::is_empty) {
-                self.cancel_all_unanswered_call_timers(call_id);
-                self.cleanup_current_call(call_id).await;
-            }
         }
-        // A joined participant is only removed once the server confirms the
-        // drop via a call update.
+        // The call itself is only ended by the server's echoed call update: the
+        // target may have answered in the meantime, in which case the drop is
+        // refused and the update carries it as joined.
 
         Ok(())
     }
