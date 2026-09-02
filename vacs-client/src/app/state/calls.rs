@@ -6,6 +6,19 @@ use vacs_signaling::protocol::ws::client::CallInvite;
 use vacs_signaling::protocol::ws::server::{CallInvitation, CallUpdate};
 use vacs_signaling::protocol::ws::shared::{CallId, CallParticipants, CallTarget};
 
+/// A link is a conference link when another participant has joined besides this client and
+/// the peer. Ringing invitees do not count: until they join, losing the only established peer
+/// is a 1:1 failure.
+pub fn is_conference_link(
+    own_client_id: &ClientId,
+    joined_participants: &CallParticipants,
+    peer_id: &ClientId,
+) -> bool {
+    joined_participants
+        .keys()
+        .any(|id| id != own_client_id && id != peer_id)
+}
+
 pub struct Call {
     call_id: CallId,
     webrtc: WebrtcCall,
@@ -148,6 +161,40 @@ impl From<&mut Call> for CallUpdate {
 mod tests {
     use super::*;
     use vacs_signaling::protocol::ws::shared::CallSource;
+
+    #[test]
+    fn a_1_to_1_call_has_no_conference_link() {
+        let joined = participants(&["a", "b"]);
+        assert!(!is_conference_link(&client("a"), &joined, &client("b")));
+    }
+
+    /// Ringing invitees are not part of `joined_participants`, so the only
+    /// established peer of a 1:1 call stays a 1:1 link however many ring.
+    #[test]
+    fn the_only_joined_peer_is_a_1_to_1_link() {
+        let joined = participants(&["a", "b"]);
+        assert!(!is_conference_link(&client("a"), &joined, &client("b")));
+        assert!(!is_conference_link(&client("b"), &joined, &client("a")));
+    }
+
+    #[test]
+    fn a_link_to_a_new_peer_beside_a_joined_one_is_a_conference_link() {
+        let joined = participants(&["a", "b"]);
+        assert!(is_conference_link(&client("a"), &joined, &client("c")));
+    }
+
+    #[test]
+    fn a_third_joined_participant_makes_a_conference_link() {
+        let joined = participants(&["a", "b", "c"]);
+        assert!(is_conference_link(&client("a"), &joined, &client("b")));
+        assert!(is_conference_link(&client("a"), &joined, &client("c")));
+    }
+
+    #[test]
+    fn self_never_counts_as_the_other_participant() {
+        let joined = participants(&["a"]);
+        assert!(!is_conference_link(&client("a"), &joined, &client("b")));
+    }
 
     fn client(id: &str) -> ClientId {
         ClientId::from(id)
