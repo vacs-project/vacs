@@ -853,7 +853,7 @@ impl AppStateInner {
                 }
 
                 for peer_id in left {
-                    state.cancel_link_retry(&peer_id);
+                    state.cancel_link_retry(*call_id, &peer_id);
                     state.cleanup_call_peer(*call_id, &peer_id).await;
                 }
 
@@ -890,7 +890,7 @@ impl AppStateInner {
                                 log::warn!(
                                     "Failed to send WebRTC offer to peer {peer_id} in call {call_id}: {err:?}"
                                 );
-                                state.cancel_link_retry(&peer_id);
+                                state.cancel_link_retry(*call_id, &peer_id);
                                 state.cleanup_call_peer(*call_id, &peer_id).await;
                                 state
                                     .try_send_call_error(
@@ -907,6 +907,19 @@ impl AppStateInner {
                             );
 
                             let reason = err.into_call_error_reason(own_client_id.clone());
+                            if state
+                                .handle_conference_peer_failure(
+                                    app,
+                                    *call_id,
+                                    &peer_id,
+                                    &own_client_id,
+                                    &reason,
+                                )
+                                .await
+                            {
+                                continue;
+                            }
+
                             state
                                 .try_send_call_error(*call_id, reason.clone(), None)
                                 .await;
@@ -993,22 +1006,36 @@ impl AppStateInner {
                     Err(err) => {
                         log::warn!("Failed to accept call offer: {err:?}");
 
-                        let reason: CallErrorReason = err.into_call_error_reason(own_client_id);
-                        state.emit_call_error(
-                            app,
-                            call_id,
-                            true,
-                            from_client_id.into(),
-                            reason.clone(),
-                        );
-
-                        state
-                            .send_signaling_message(shared::CallError {
+                        let reason: CallErrorReason =
+                            err.into_call_error_reason(own_client_id.clone());
+                        if state
+                            .handle_conference_peer_failure(
+                                app,
                                 call_id,
-                                reason,
-                                message: None,
-                            })
+                                &from_client_id,
+                                &own_client_id,
+                                &reason,
+                            )
                             .await
+                        {
+                            Ok(())
+                        } else {
+                            state.emit_call_error(
+                                app,
+                                call_id,
+                                true,
+                                from_client_id.into(),
+                                reason.clone(),
+                            );
+
+                            state
+                                .send_signaling_message(shared::CallError {
+                                    call_id,
+                                    reason,
+                                    message: None,
+                                })
+                                .await
+                        }
                     }
                 };
 
@@ -1031,15 +1058,33 @@ impl AppStateInner {
                     return;
                 };
 
+                if state.webrtc_peer(call_id, &from_client_id).is_none() {
+                    log::debug!(
+                        "Received WebRTC answer from {from_client_id} for call {call_id} without a peer, ignoring"
+                    );
+                    return;
+                }
+
                 if let Err(err) = state
                     .accept_call_answer(call_id, &from_client_id, sdp)
                     .await
                 {
                     log::warn!("Failed to accept answer: {err:?}");
-                    if let Err(err) = state
+                    let reason = err.into_call_error_reason(own_client_id.clone());
+                    if state
+                        .handle_conference_peer_failure(
+                            app,
+                            call_id,
+                            &from_client_id,
+                            &own_client_id,
+                            &reason,
+                        )
+                        .await
+                    {
+                    } else if let Err(err) = state
                         .send_signaling_message(shared::CallError {
                             call_id,
-                            reason: err.into_call_error_reason(own_client_id),
+                            reason,
                             message: None,
                         })
                         .await
