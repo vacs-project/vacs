@@ -1768,6 +1768,93 @@ async fn conference_member_call_failure_only_updates_survivors() -> anyhow::Resu
     Ok(())
 }
 
+/// A busy callee accepting counts as that callee failing the target, so a
+/// target it was the only client of fails out for the caller.
+#[test(tokio::test)]
+async fn busy_accept_fails_the_ringing_target() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let busy_call_id = CallId::new();
+    join_call(&mut client2, &mut client3, busy_call_id).await?;
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    let invitations = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+    assert_eq!(
+        invitations.len(),
+        1,
+        "busy client still receives the invitation"
+    );
+
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+
+    let errors = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+                if error.call_id == call_id
+                    && error.reason == vacs_protocol::ws::shared::CallErrorReason::CallActive)
+        })
+        .await;
+    assert_eq!(
+        errors.len(),
+        1,
+        "busy client is told its accept was refused"
+    );
+
+    let cancelled = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled)
+            if cancelled.call_id == call_id
+                && cancelled.reason
+                    == vacs_protocol::ws::server::CallCancelReason::Errored(
+                        vacs_protocol::ws::shared::CallErrorReason::CallActive
+                    ))
+        })
+        .await;
+    assert_eq!(cancelled.len(), 1, "caller learns the busy target failed");
+
+    let busy_participants = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(_) | ServerMessage::CallEnd(_))
+        })
+        .await;
+    assert!(
+        busy_participants.is_empty(),
+        "the busy client's own call is untouched"
+    );
+
+    Ok(())
+}
+
 /// A refused drop is answered with the reason and the authoritative call state,
 /// so a client that applied the drop locally converges back.
 #[test(tokio::test)]
