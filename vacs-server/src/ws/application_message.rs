@@ -377,6 +377,20 @@ async fn handle_call_accept(state: &AppState, client: &ClientSession, accept: Ca
         AcceptCallOutcome::AcceptorBusy => {
             tracing::warn!("Accepting client has already an active call, rejecting call accept");
             send_call_error(client, call_id, CallErrorReason::CallActive, None).await;
+
+            if let CallTerminationOutcome::TargetFailed(ringing_targets, update) = state
+                .calls
+                .fail_ringing_recipient(call_id, answerer_id, CallErrorReason::CallActive)
+            {
+                fail_ringing_targets(
+                    state,
+                    call_id,
+                    ringing_targets,
+                    update,
+                    CallErrorReason::CallActive,
+                )
+                .await;
+            }
             return;
         }
         AcceptCallOutcome::NotFound => {
@@ -871,41 +885,7 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
         }
         CallTerminationOutcome::Continued => {}
         CallTerminationOutcome::TargetFailed(ringing_targets, update) => {
-            tracing::trace!(
-                "All notified clients either rejected or errored, call failed, sending call error to source client"
-            );
-
-            let Some(caller_id) = ringing_targets.first().map(|r| r.caller_id.clone()) else {
-                tracing::error!(
-                    "Call error resulted in a failed termination outcome, but ringing targets is empty"
-                );
-                return;
-            };
-
-            cancel_failed_target(
-                state,
-                call_id,
-                ringing_targets,
-                CallCancelReason::Errored(reason),
-            )
-            .await;
-
-            tracing::trace!("Send call update to remaining participants during call error");
-            for (participant_id, _) in update.all_participants_without_self(caller_id) {
-                if let Err(err) = state
-                    .send_message(
-                        participant_id,
-                        ServerMessage::CallUpdate(update.for_recipient(participant_id)),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        ?err,
-                        ?participant_id,
-                        "Failed to send call update to participant"
-                    );
-                }
-            }
+            fail_ringing_targets(state, call_id, ringing_targets, update, reason).await;
         }
         CallTerminationOutcome::Changed(actions) => {
             for action in actions {
@@ -1238,6 +1218,40 @@ async fn handle_webrtc_ice_candidate(
             None,
         )
         .await;
+    }
+}
+
+/// Cancels targets whose notified clients all rejected or errored and tells the
+/// remaining participants about the shrunken call.
+async fn fail_ringing_targets(
+    state: &AppState,
+    call_id: &CallId,
+    ringing_targets: Vec<RingingTarget>,
+    update: UpdateParticipants,
+    reason: CallErrorReason,
+) {
+    tracing::trace!(
+        "All notified clients either rejected or errored, call failed, sending call error to source client"
+    );
+
+    let Some(caller_id) = ringing_targets.first().map(|r| r.caller_id.clone()) else {
+        tracing::error!(
+            "Call error resulted in a failed termination outcome, but ringing targets is empty"
+        );
+        return;
+    };
+
+    cancel_failed_target(
+        state,
+        call_id,
+        ringing_targets,
+        CallCancelReason::Errored(reason),
+    )
+    .await;
+
+    tracing::trace!("Send call update to remaining participants during call error");
+    for (participant_id, _) in update.all_participants_without_self(caller_id) {
+        send_call_update(state, participant_id, &update).await;
     }
 }
 

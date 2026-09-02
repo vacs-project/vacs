@@ -340,6 +340,22 @@ impl CallManager {
         )
     }
 
+    /// Marks a notified client as failed for every target it rings for, the
+    /// same way a client-reported error does, without touching active calls.
+    pub fn fail_ringing_recipient(
+        &self,
+        call_id: &CallId,
+        client_id: &ClientId,
+        reason: CallErrorReason,
+    ) -> CallTerminationOutcome {
+        self.mark_client_within_ringing_calls(
+            call_id,
+            client_id,
+            RingingTargetEntry::mark_errored,
+            CallAttemptOutcome::Error(reason),
+        )
+    }
+
     pub fn call_error(
         &self,
         call_id: &CallId,
