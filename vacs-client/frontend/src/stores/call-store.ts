@@ -457,6 +457,12 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 );
             }
 
+            if (error.callEnded) {
+                callDisplay.call.invitedTargets = [];
+                callDisplay.call.joinedParticipants = {};
+                callDisplay.prioTargets = [];
+            }
+
             const otherParties = otherPartyCount(callDisplay.call);
 
             if (otherParties < 2) {

@@ -17,6 +17,7 @@ export type CallError = {
     callId: CallId;
     origin: CallErrorOrigin;
     reason: string;
+    callEnded?: boolean;
 };
 
 export async function invokeSafe<T>(cmd: RemoteCommand, args?: InvokeArgs): Promise<T | undefined> {
