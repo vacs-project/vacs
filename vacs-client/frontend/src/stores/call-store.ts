@@ -261,12 +261,16 @@ export const useCallStore = create<CallState>()((set, get) => ({
                             hasTarget(update.invitedTargets, target) ||
                             hasTarget(update.joinedParticipants, target),
                     ),
-                    // A re-invited target is no longer rejected or errored.
+                    // A re-invited or joined target is no longer rejected or errored.
                     rejectedTargets: callDisplay.rejectedTargets.filter(
-                        target => !hasTarget(update.invitedTargets, target),
+                        target =>
+                            !hasTarget(update.invitedTargets, target) &&
+                            !hasTarget(update.joinedParticipants, target),
                     ),
                     erroredTargets: callDisplay.erroredTargets.filter(
-                        errored => !hasTarget(update.invitedTargets, errored.target),
+                        errored =>
+                            !hasTarget(update.invitedTargets, errored.target) &&
+                            !hasTarget(update.joinedParticipants, errored.target),
                     ),
                 };
 
@@ -428,10 +432,10 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 callDisplay.prioTargets = [];
             } else {
                 if (error.origin.type === "targets") {
-                    targets = error.origin.value.filter(
-                        target =>
-                            hasTarget(callDisplay.call.invitedTargets, target) ||
-                            hasTarget(callDisplay.call.joinedParticipants, target),
+                    // A joined participant is only ever removed by a call update;
+                    // an error naming it must not leave it in both lists.
+                    targets = error.origin.value.filter(target =>
+                        hasTarget(callDisplay.call.invitedTargets, target),
                     );
 
                     if (targets.length === 0) return;
