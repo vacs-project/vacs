@@ -62,7 +62,6 @@ fn has_reconnect_capability(sdp: &str) -> bool {
 
 #[derive(Debug)]
 pub struct UnansweredCallGuard {
-    pub call_id: CallId,
     pub cancel: CancellationToken,
     pub handle: JoinHandle<()>,
 }
@@ -671,6 +670,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         log::debug!("Cleaning up call {call_id}");
 
+        self.cancel_all_unanswered_call_timers();
         self.cancel_call_establishment_timer();
         self.cancel_all_link_retries(call_id);
 
@@ -720,7 +720,6 @@ impl AppStateWebrtcExt for AppStateInner {
 
         log::debug!("No peer connections remain in call {call_id}, ending call");
 
-        self.cancel_all_unanswered_call_timers(call_id);
         self.cleanup_current_call(call_id).await;
 
         true
@@ -864,7 +863,6 @@ impl AppStateInner {
             .await;
         self.emit_call_error(app, call_id, true, CallErrorOrigin::Call, reason);
 
-        self.cancel_all_unanswered_call_timers(call_id);
         self.cleanup_current_call(call_id).await;
         app.emit("signaling:force-call-end", &call_id).ok();
     }
