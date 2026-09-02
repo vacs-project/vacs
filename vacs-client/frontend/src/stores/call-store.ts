@@ -381,7 +381,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
             const callDisplay = get().callDisplay;
             if (callDisplay === undefined) return;
 
-            let nextCallDisplay: CallDisplay = {
+            const nextCallDisplay: CallDisplay = {
                 ...callDisplay,
                 rejectedTargets: callDisplay.rejectedTargets.filter(
                     rejectedTarget =>
@@ -393,8 +393,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 ),
             };
 
-            set({callDisplay: nextCallDisplay});
-            tryStopBlink(null, nextCallDisplay, null, null, null);
+            setDismissedDisplay(nextCallDisplay);
         },
         errorTargets: error => {
             const callId = error.callId;
@@ -495,7 +494,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
             const callDisplay = get().callDisplay;
             if (callDisplay === undefined) return;
 
-            let nextCallDisplay: CallDisplay = {
+            const nextCallDisplay: CallDisplay = {
                 ...callDisplay,
                 erroredTargets: callDisplay.erroredTargets.filter(
                     erroredTarget =>
@@ -507,8 +506,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 ),
             };
 
-            set({callDisplay: nextCallDisplay});
-            tryStopBlink(null, nextCallDisplay, null, null, null);
+            setDismissedDisplay(nextCallDisplay);
         },
         setConnectionState: (callId, peerId, connectionState) => {
             let callDisplay = get().callDisplay;
@@ -558,6 +556,26 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
 const isTerminalCallDisplay = (callDisplay: CallDisplay) =>
     callDisplay.type === "error" || callDisplay.type === "rejected";
+
+/**
+ * Stores a display after a per-target dismissal. A terminal display whose last
+ * annotation was dismissed is over for good: keeping it would silently block
+ * every new and incoming call.
+ */
+const setDismissedDisplay = (callDisplay: CallDisplay) => {
+    const cleared =
+        isTerminalCallDisplay(callDisplay) &&
+        callDisplay.rejectedTargets.length === 0 &&
+        callDisplay.erroredTargets.length === 0;
+
+    if (cleared) {
+        useCallStore.setState({callDisplay: undefined, conferenceState: "inactive"});
+        tryStopBlink(null, undefined, null, null, "inactive");
+    } else {
+        useCallStore.setState({callDisplay});
+        tryStopBlink(null, callDisplay, null, null, null);
+    }
+};
 
 const deriveIsConferenceLeader = (
     conferenceLeader: ClientId | null | undefined,
