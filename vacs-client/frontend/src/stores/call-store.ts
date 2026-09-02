@@ -605,6 +605,11 @@ const addTargetsToCallListEntry = (callId: CallId, targets: CallTarget[]) =>
         ),
     }));
 
+const removeTargetsFromCallListEntry = (callId: CallId, targets: CallTarget[]) =>
+    useCallListStore.getState().actions.updateCallListEntry(callId, entry => ({
+        targets: entry.targets.filter(entryTarget => !hasTarget(targets, entryTarget.target)),
+    }));
+
 const rejectCallListEntryIfUnanswered = (callId: CallId) =>
     useCallListStore
         .getState()
@@ -727,6 +732,8 @@ export const startCall = async (...targets: CallTarget[]) => {
         stationId,
     };
 
+    const previousConferenceState = conferenceState;
+
     try {
         if (callDisplay !== undefined) {
             useCallStore.setState({
@@ -777,6 +784,54 @@ export const startCall = async (...targets: CallTarget[]) => {
         setPrio(false);
         return {callId, source, prio};
     } catch {
+        if (callDisplay !== undefined) {
+            rollBackInvite(callDisplay, targets, previousConferenceState);
+        }
         return;
     }
+};
+
+/**
+ * Undoes an optimistic conference invite. Only the invited targets are taken back: the display
+ * may have moved on in the meantime (a call update, or a reset after the disconnect that made
+ * the invite fail), and restoring the snapshot would resurrect state that is gone.
+ */
+const rollBackInvite = (
+    snapshot: CallDisplay,
+    targets: CallTarget[],
+    previousConferenceState: ConferenceState,
+) => {
+    const current = useCallStore.getState().callDisplay;
+    if (current === undefined || current.call.callId !== snapshot.call.callId) return;
+
+    const nextCallDisplay: CallDisplay = {
+        ...current,
+        call: {
+            ...current.call,
+            invitedTargets: current.call.invitedTargets.filter(
+                target => !hasTarget(targets, target),
+            ),
+            ownInvitedTargets: current.call.ownInvitedTargets.filter(
+                target => !hasTarget(targets, target),
+            ),
+            // The optimistic leadership claim goes; an authoritative value that
+            // arrived in the meantime stays.
+            isConferenceLeader:
+                current.call.isConferenceLeader === true &&
+                snapshot.call.isConferenceLeader !== true
+                    ? snapshot.call.isConferenceLeader
+                    : current.call.isConferenceLeader,
+        },
+        prioTargets: current.prioTargets.filter(target => !hasTarget(targets, target)),
+        rejectedTargets: current.rejectedTargets.concat(
+            snapshot.rejectedTargets.filter(target => hasTarget(targets, target)),
+        ),
+        erroredTargets: current.erroredTargets.concat(
+            snapshot.erroredTargets.filter(errored => hasTarget(targets, errored.target)),
+        ),
+    };
+
+    useCallStore.setState({callDisplay: nextCallDisplay, conferenceState: previousConferenceState});
+    removeTargetsFromCallListEntry(snapshot.call.callId, targets);
+    tryStopBlink(null, nextCallDisplay, null, null, previousConferenceState);
 };
