@@ -301,6 +301,66 @@ describe("call store", () => {
         });
     });
 
+    describe("per-target dismissal", () => {
+        it("clears a rejected display once its last rejected target is dismissed", () => {
+            useCallStore.setState({
+                callDisplay: {
+                    ...outgoingDisplay([]),
+                    type: "rejected",
+                    rejectedTargets: [STATION_1],
+                },
+            });
+
+            useCallStore.getState().actions.dismissRejectedTarget(STATION_1);
+
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
+        });
+
+        it("keeps a rejected display while other rejected targets remain", () => {
+            useCallStore.setState({
+                callDisplay: {
+                    ...outgoingDisplay([]),
+                    type: "rejected",
+                    rejectedTargets: [STATION_1, STATION_2],
+                },
+            });
+
+            useCallStore.getState().actions.dismissRejectedTarget(STATION_1);
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("rejected");
+            expect(display?.rejectedTargets).toEqual([STATION_2]);
+        });
+
+        it("clears an error display once its last errored target is dismissed", () => {
+            useCallStore.setState({
+                callDisplay: {
+                    ...outgoingDisplay([]),
+                    type: "error",
+                    erroredTargets: [{target: STATION_1, reason: "callFailure"}],
+                },
+                conferenceState: "active",
+            });
+
+            useCallStore.getState().actions.dismissErrorTarget(STATION_1);
+
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
+            expect(useCallStore.getState().conferenceState).toBe("inactive");
+        });
+
+        it("keeps a live display when its only annotation is dismissed", () => {
+            useCallStore.setState({
+                callDisplay: {...acceptedDisplay([]), rejectedTargets: [STATION_2]},
+            });
+
+            useCallStore.getState().actions.dismissRejectedTarget(STATION_2);
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("accepted");
+            expect(display?.rejectedTargets).toEqual([]);
+        });
+    });
+
     describe("errorTargets", () => {
         it("ends the call with the unreachable peer marked when the error ended the call", () => {
             useAuthStore.setState({cid: "client0" as ClientId});
@@ -320,7 +380,6 @@ describe("call store", () => {
             ]);
             expect(display?.call.invitedTargets).toEqual([]);
         });
-
     });
 
     describe("terminal display freeze", () => {
