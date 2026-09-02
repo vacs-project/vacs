@@ -417,6 +417,21 @@ describe("call store", () => {
         });
     });
 
+    describe("removeCall", () => {
+        it("keeps a rejected display on a trailing call end", () => {
+            const display: CallDisplay = {
+                ...outgoingDisplay([]),
+                type: "rejected",
+                rejectedTargets: [STATION_1],
+            };
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.removeCall(CALL_ID, true);
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+    });
+
     describe("terminal display freeze", () => {
         it("ignores target rejections for a terminal display", () => {
             const display = makeTestCallDisplay("error", {invitedTargets: [STATION_1]});
