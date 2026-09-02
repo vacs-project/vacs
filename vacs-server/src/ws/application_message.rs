@@ -968,19 +968,26 @@ async fn handle_call_error(state: &AppState, client: &ClientSession, error: Call
                         }
                     }
                     UpdateCallAction::UpdateParticipants(updates) => {
+                        // Survivors only ever learn about the erroring client, never a
+                        // call-scoped reason, which their clients treat as their own
+                        // call failing.
+                        let survivor_error = matches!(
+                            reason,
+                            CallErrorReason::WebrtcFailure(_)
+                                | CallErrorReason::AudioFailure(_)
+                                | CallErrorReason::SignalingFailure(_)
+                        )
+                        .then(|| CallError {
+                            call_id: *call_id,
+                            reason: reason.clone(),
+                            message: None,
+                        });
+
                         for (client_id, _) in updates.all_participants() {
                             tracing::trace!(?client_id, "Updating participant during call error");
 
-                            if let Err(err) = state
-                                .send_message(
-                                    client_id,
-                                    CallError {
-                                        call_id: *call_id,
-                                        reason: reason.clone(),
-                                        message: None,
-                                    },
-                                )
-                                .await
+                            if let Some(error) = survivor_error.clone()
+                                && let Err(err) = state.send_message(client_id, error).await
                             {
                                 tracing::warn!(
                                     ?err,
