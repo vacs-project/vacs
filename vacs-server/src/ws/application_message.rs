@@ -1039,6 +1039,10 @@ async fn handle_call_drop_target(
                 None,
             )
             .await;
+
+            if let Some(update) = state.calls.call_state_update(call_id, dropping_id) {
+                send_call_update(state, dropping_id, &update).await;
+            }
         }
         DropTargetOutcome::Obsolete(update) => {
             tracing::debug!("Target drop is now obsolete, sending current call state");

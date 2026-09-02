@@ -1711,3 +1711,54 @@ async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> 
 
     Ok(())
 }
+
+/// A refused drop is answered with the reason and the authoritative call state,
+/// so a client that applied the drop locally converges back.
+#[test(tokio::test)]
+async fn refused_drop_carries_the_authoritative_call_state() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    join_call(&mut client1, &mut client2, call_id).await?;
+    join_call(&mut client1, &mut client3, call_id).await?;
+
+    client2
+        .send(ClientMessage::CallDropTarget(
+            vacs_protocol::ws::client::CallDropTarget {
+                call_id,
+                target: CallTarget::Client(client3.id().clone()),
+                reason: vacs_protocol::ws::client::CallDropReason::Requested,
+            },
+        ))
+        .await?;
+
+    let messages = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(
+                m,
+                ServerMessage::CallError(_) | ServerMessage::CallUpdate(_)
+            )
+        })
+        .await;
+    assert!(
+        messages.iter().any(|m| matches!(m, ServerMessage::CallError(error)
+            if matches!(error.reason, vacs_protocol::ws::shared::CallErrorReason::NotConferenceLeader(_)))),
+        "client2 should be refused, got {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CallUpdate(update)
+            if update.call_id == call_id
+                && update.joined_participants.contains_key(client3.id())
+                && update.conference_leader.as_ref() == Some(client1.id()))),
+        "the refusal is followed by the current call state, got {messages:?}"
+    );
+
+    Ok(())
+}
