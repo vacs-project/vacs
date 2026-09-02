@@ -1001,15 +1001,13 @@ impl AppStateInner {
 
         let (output_tx, output_rx) = mpsc::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
 
-        let attach_muted = {
-            let keybind_engine = self.keybind_engine.read().await;
-            keybind_engine.set_call_active(true);
-            keybind_engine.should_attach_input_muted()
-        };
+        let keybind_engine = self.keybind_engine.read().await;
+        keybind_engine.set_call_active(true);
 
         let audio_config = self.config.audio.clone();
         let (audio_source_id, input_rx) = {
             let mut audio_manager = self.audio_manager.write();
+            let attach_muted = keybind_engine.should_attach_input_muted();
 
             log::debug!("Attaching call to audio manager");
             let audio_source_id = match audio_manager.attach_call_output(
@@ -1040,6 +1038,7 @@ impl AppStateInner {
 
             (audio_source_id, input_rx)
         };
+        drop(keybind_engine);
 
         if joined_sound == Some(SourceType::CallStart)
             && let Some(webrtc_call) = self.webrtc_call_mut(call_id)
