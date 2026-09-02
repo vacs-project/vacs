@@ -53,8 +53,10 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
 
     const prio =
         enablePrio &&
-        callDisplay !== undefined &&
-        stationIds.some(stationId => hasTarget(callDisplay.prioTargets, {station: stationId}));
+        (stationIds.some(stationId =>
+            hasTarget(callDisplay?.prioTargets ?? [], {station: stationId}),
+        ) ||
+            (incomingCall?.prio ?? false));
 
     const {color, highlight} = getCallStateColors({
         inCall,
