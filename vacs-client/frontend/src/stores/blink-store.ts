@@ -2,6 +2,7 @@ import {create} from "zustand/react";
 import {CallDisplay, ConferenceState, useCallStore} from "./call-store.ts";
 import {useRadioStore} from "./radio-store.ts";
 import {isPlaybackPaused} from "./playback-store.ts";
+import {hasTarget} from "../types/call.ts";
 
 type BlinkState = {
     blink: boolean;
@@ -92,7 +93,12 @@ export const syncBlink = () => {
     }
 };
 
-const shouldStopBlinking = (
+// A prio target blinks while it rings; once joined (or seeded as the caller of an accepted
+// prio call) it is merely marked.
+const prioTargetRinging = (callDisplay: CallDisplay) =>
+    callDisplay.prioTargets.some(target => hasTarget(callDisplay.call.invitedTargets, target));
+
+export const shouldStopBlinking = (
     incomingCallsLength: number,
     callDisplay: CallDisplay | undefined,
     cpl: boolean,
@@ -105,11 +111,10 @@ const shouldStopBlinking = (
         incomingCallsLength === 0 &&
         conferenceState !== "modify" &&
         (callDisplay === undefined ||
-            (callDisplay.type !== "rejected" &&
-                callDisplay.type !== "error" &&
-                callDisplay.rejectedTargets.length === 0 &&
-                callDisplay.erroredTargets.length === 0 &&
-                callDisplay.type === "accepted") ||
-            (callDisplay.type === "outgoing" && !callDisplay.call.prio))
+            (!prioTargetRinging(callDisplay) &&
+                (callDisplay.type === "outgoing" ||
+                    (callDisplay.type === "accepted" &&
+                        callDisplay.rejectedTargets.length === 0 &&
+                        callDisplay.erroredTargets.length === 0))))
     );
 };

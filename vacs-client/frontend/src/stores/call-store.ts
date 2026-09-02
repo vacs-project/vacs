@@ -759,6 +759,10 @@ export const startCall = async (...targets: CallTarget[]) => {
                 conferenceState: "active",
             });
             addTargetsToCallListEntry(callDisplay.call.callId, targets);
+
+            if (prio) {
+                startBlink();
+            }
         }
 
         const callId = await invokeStrict<CallId>("signaling_invite_to_call", {
