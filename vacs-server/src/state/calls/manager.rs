@@ -896,156 +896,157 @@ impl CallManager {
 
         let mut actions = Vec::new();
 
-        let active_or_outgoing_call_id = self.client_active_calls.write().remove(client_id);
-        if let Some(active_or_ringing_call_id) = active_or_outgoing_call_id {
-            let mut has_active_or_outgoing_call = false;
-
-            // Held across the ringing and active handling below; see end_call.
+        {
+            // Held across the ringing and active handling below; see end_call. The busy
+            // marker goes under the same guard: a concurrent accept on this client's live
+            // socket (the VATSIM sync unregisters off-task) reads the marker under it.
             let mut ringing_calls = self.ringing_calls.write();
 
-            {
-                match ringing_calls.entry(active_or_ringing_call_id) {
-                    Entry::Occupied(entry) if entry.get().caller_id == *client_id => {
-                        has_active_or_outgoing_call = true;
+            let active_or_outgoing_call_id = self.client_active_calls.write().remove(client_id);
+            if let Some(active_or_ringing_call_id) = active_or_outgoing_call_id {
+                let mut has_active_or_outgoing_call = false;
 
-                        let ringing_call = entry.remove();
+                {
+                    match ringing_calls.entry(active_or_ringing_call_id) {
+                        Entry::Occupied(entry) if entry.get().caller_id == *client_id => {
+                            has_active_or_outgoing_call = true;
 
-                        {
-                            let mut client_incoming_calls = self.client_incoming_calls.write();
-                            for callee_id in ringing_call
-                                .targets
-                                .values()
-                                .flat_map(|e| &e.notified_clients)
+                            let ringing_call = entry.remove();
+
                             {
-                                if let Some(calls) = client_incoming_calls.get_mut(callee_id) {
-                                    calls.remove(&active_or_ringing_call_id);
-                                    if calls.is_empty() {
-                                        client_incoming_calls.remove(callee_id);
-                                    }
-                                }
-                            }
-                        }
-
-                        tracing::trace!(
-                            ?active_or_ringing_call_id,
-                            "Aborting outgoing ringing call"
-                        );
-                        actions.extend(
-                            ringing_call
-                                .complete_all_targets(CallAttemptOutcome::Aborted)
-                                .into_iter()
-                                .map(UpdateCallAction::CancelRingingTarget),
-                        );
-                    }
-                    _ => {}
-                }
-            }
-
-            {
-                let mut active_calls = self.active_calls.write();
-                match active_calls.entry(active_or_ringing_call_id) {
-                    Entry::Occupied(mut entry) => {
-                        has_active_or_outgoing_call = true;
-
-                        let active_call = entry.get_mut();
-
-                        if active_call.participants.contains_key(client_id) {
-                            let participants_without_self =
-                                active_call.participants_without_self(client_id);
-
-                            if participants_without_self.is_empty() {
-                                tracing::error!(
-                                    "Disconnecting client has active call, which has no other participant than self"
-                                );
-                                ErrorMetrics::peer_not_found();
-                                entry.remove();
-                                drop(active_calls);
-
-                                actions.extend(self.cancel_pending_invitations(
-                                    &mut ringing_calls,
-                                    &active_or_ringing_call_id,
-                                    CallAttemptOutcome::Aborted,
-                                ));
-                            } else if active_call.conference_leader.as_ref() == Some(client_id)
-                                || participants_without_self.len() <= 1
-                            {
-                                entry.remove();
-                                drop(active_calls);
-
+                                let mut client_incoming_calls = self.client_incoming_calls.write();
+                                for callee_id in ringing_call
+                                    .targets
+                                    .values()
+                                    .flat_map(|e| &e.notified_clients)
                                 {
-                                    let mut client_active_calls = self.client_active_calls.write();
-                                    for participant_id in participants_without_self.keys() {
-                                        if client_active_calls
-                                            .get(participant_id)
-                                            .is_some_and(|c| *c == active_or_ringing_call_id)
-                                        {
-                                            client_active_calls.remove(participant_id);
+                                    if let Some(calls) = client_incoming_calls.get_mut(callee_id) {
+                                        calls.remove(&active_or_ringing_call_id);
+                                        if calls.is_empty() {
+                                            client_incoming_calls.remove(callee_id);
                                         }
                                     }
                                 }
-
-                                actions.extend(participants_without_self.into_keys().map(
-                                    |participant_id| {
-                                        UpdateCallAction::DropParticipant(
-                                            active_or_ringing_call_id,
-                                            participant_id,
-                                        )
-                                    },
-                                ));
-                                actions.extend(self.cancel_pending_invitations(
-                                    &mut ringing_calls,
-                                    &active_or_ringing_call_id,
-                                    CallAttemptOutcome::Aborted,
-                                ));
-                            } else {
-                                if active_call.participants.remove(client_id).is_none() {
-                                    tracing::error!(
-                                        "Tried to remove disconnecting participant from active call, but no entry found; sending update anyway..."
-                                    );
-                                }
-                                active_call.forget_participant(client_id);
-
-                                if active_call.participants.len() <= 2 {
-                                    active_call.conference_leader = None;
-                                }
-
-                                let joined_participants = active_call.participants.clone();
-                                let conference_leader = active_call.conference_leader.clone();
-
-                                drop(active_calls);
-
-                                self.client_active_calls.write().remove(client_id);
-
-                                let invited_participants = ringing_calls
-                                    .get(&active_or_ringing_call_id)
-                                    .map(|ringing_call| ringing_call.invited_participants())
-                                    .unwrap_or_default();
-
-                                let update = UpdateParticipants {
-                                    call_id: active_or_ringing_call_id,
-                                    invited_participants,
-                                    joined_participants,
-                                    conference_leader,
-                                };
-
-                                actions.push(UpdateCallAction::UpdateParticipants(update));
                             }
-                        } else {
-                            tracing::error!(
-                                "Client has active call, but does not participate in that call"
+
+                            tracing::trace!(
+                                ?active_or_ringing_call_id,
+                                "Aborting outgoing ringing call"
+                            );
+                            actions.extend(
+                                ringing_call
+                                    .complete_all_targets(CallAttemptOutcome::Aborted)
+                                    .into_iter()
+                                    .map(UpdateCallAction::CancelRingingTarget),
                             );
                         }
+                        _ => {}
                     }
-                    Entry::Vacant(_) => {}
                 }
-            }
 
-            drop(ringing_calls);
+                {
+                    let mut active_calls = self.active_calls.write();
+                    match active_calls.entry(active_or_ringing_call_id) {
+                        Entry::Occupied(mut entry) => {
+                            has_active_or_outgoing_call = true;
 
-            if !has_active_or_outgoing_call {
-                tracing::error!(
-                    "Client has active call, but call was not found in ringing or active"
-                );
+                            let active_call = entry.get_mut();
+
+                            if active_call.participants.contains_key(client_id) {
+                                let participants_without_self =
+                                    active_call.participants_without_self(client_id);
+
+                                if participants_without_self.is_empty() {
+                                    tracing::error!(
+                                        "Disconnecting client has active call, which has no other participant than self"
+                                    );
+                                    ErrorMetrics::peer_not_found();
+                                    entry.remove();
+                                    drop(active_calls);
+
+                                    actions.extend(self.cancel_pending_invitations(
+                                        &mut ringing_calls,
+                                        &active_or_ringing_call_id,
+                                        CallAttemptOutcome::Aborted,
+                                    ));
+                                } else if active_call.conference_leader.as_ref() == Some(client_id)
+                                    || participants_without_self.len() <= 1
+                                {
+                                    entry.remove();
+                                    drop(active_calls);
+
+                                    {
+                                        let mut client_active_calls =
+                                            self.client_active_calls.write();
+                                        for participant_id in participants_without_self.keys() {
+                                            if client_active_calls
+                                                .get(participant_id)
+                                                .is_some_and(|c| *c == active_or_ringing_call_id)
+                                            {
+                                                client_active_calls.remove(participant_id);
+                                            }
+                                        }
+                                    }
+
+                                    actions.extend(participants_without_self.into_keys().map(
+                                        |participant_id| {
+                                            UpdateCallAction::DropParticipant(
+                                                active_or_ringing_call_id,
+                                                participant_id,
+                                            )
+                                        },
+                                    ));
+                                    actions.extend(self.cancel_pending_invitations(
+                                        &mut ringing_calls,
+                                        &active_or_ringing_call_id,
+                                        CallAttemptOutcome::Aborted,
+                                    ));
+                                } else {
+                                    if active_call.participants.remove(client_id).is_none() {
+                                        tracing::error!(
+                                            "Tried to remove disconnecting participant from active call, but no entry found; sending update anyway..."
+                                        );
+                                    }
+                                    active_call.forget_participant(client_id);
+
+                                    if active_call.participants.len() <= 2 {
+                                        active_call.conference_leader = None;
+                                    }
+
+                                    let joined_participants = active_call.participants.clone();
+                                    let conference_leader = active_call.conference_leader.clone();
+
+                                    drop(active_calls);
+
+                                    let invited_participants = ringing_calls
+                                        .get(&active_or_ringing_call_id)
+                                        .map(|ringing_call| ringing_call.invited_participants())
+                                        .unwrap_or_default();
+
+                                    let update = UpdateParticipants {
+                                        call_id: active_or_ringing_call_id,
+                                        invited_participants,
+                                        joined_participants,
+                                        conference_leader,
+                                    };
+
+                                    actions.push(UpdateCallAction::UpdateParticipants(update));
+                                }
+                            } else {
+                                tracing::error!(
+                                    "Client has active call, but does not participate in that call"
+                                );
+                            }
+                        }
+                        Entry::Vacant(_) => {}
+                    }
+                }
+
+                if !has_active_or_outgoing_call {
+                    tracing::error!(
+                        "Client has active call, but call was not found in ringing or active"
+                    );
+                }
             }
         }
 
