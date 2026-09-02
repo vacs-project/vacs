@@ -96,10 +96,9 @@ pub trait AppStateSignalingExt: sealed::Sealed {
     );
     fn cancel_unanswered_call_timers_for_targets<'a>(
         &mut self,
-        call_id: &CallId,
         targets: impl Iterator<Item = &'a CallTarget>,
     );
-    fn cancel_all_unanswered_call_timers(&mut self, call_id: CallId);
+    fn cancel_all_unanswered_call_timers(&mut self);
     fn start_call_establishment_timer(&mut self, app: &AppHandle, call_id: CallId);
     fn cancel_call_establishment_timer(&mut self);
     async fn accept_call(
@@ -291,7 +290,7 @@ impl AppStateSignalingExt for AppStateInner {
         call_id: &CallId,
         targets: HashSet<CallTarget>,
     ) {
-        self.cancel_unanswered_call_timers_for_targets(call_id, targets.iter());
+        self.cancel_unanswered_call_timers_for_targets(targets.iter());
 
         let timeout = Duration::from_secs(self.config.client.auto_hangup_seconds);
         if timeout.is_zero() {
@@ -342,57 +341,36 @@ impl AppStateSignalingExt for AppStateInner {
                 }
             });
 
-            self.unanswered_call_guards.insert(
-                target,
-                UnansweredCallGuard {
-                    call_id: *call_id,
-                    cancel,
-                    handle,
-                },
-            );
+            self.unanswered_call_guards
+                .insert(target, UnansweredCallGuard { cancel, handle });
         }
     }
 
     fn cancel_unanswered_call_timers_for_targets<'a>(
         &mut self,
-        call_id: &CallId,
         targets: impl Iterator<Item = &'a CallTarget>,
     ) {
         for target in targets {
-            if let Some(guard) = self.unanswered_call_guards.remove(target)
-                && &guard.call_id == call_id
-            {
+            if let Some(guard) = self.unanswered_call_guards.remove(target) {
                 guard.cancel.cancel();
                 guard.handle.abort();
             }
         }
     }
 
-    fn cancel_all_unanswered_call_timers<'a>(&mut self, call_id: CallId) {
-        self.unanswered_call_guards.retain(|_, guard| {
-            if guard.call_id == call_id {
-                guard.cancel.cancel();
-                guard.handle.abort();
-
-                false
-            } else {
-                true
-            }
-        });
+    fn cancel_all_unanswered_call_timers(&mut self) {
+        for (_, guard) in self.unanswered_call_guards.drain() {
+            guard.cancel.cancel();
+            guard.handle.abort();
+        }
     }
 
     fn start_call_establishment_timer(&mut self, app: &AppHandle, call_id: CallId) {
         // A limbo peer is a deliberately absent peer; arming the watchdog
         // while a link retry runs would end a live conference.
-        if self.has_pending_link_retries(call_id)
-            || self
-                .establishment_guard
-                .as_ref()
-                .is_some_and(|guard| guard.call_id == call_id)
-        {
+        if self.has_pending_link_retries(call_id) || self.establishment_guard.is_some() {
             return;
         }
-        self.cancel_call_establishment_timer();
 
         let cancel = self.shutdown_token.child_token();
         let handle = tauri::async_runtime::spawn({
@@ -433,7 +411,6 @@ impl AppStateSignalingExt for AppStateInner {
                         }
 
                         state.emit_call_error(&app, call_id, true, CallErrorOrigin::Call, CallErrorReason::CallFailure);
-                        state.cancel_all_unanswered_call_timers(call_id);
                         state.cleanup_current_call(call_id).await;
                         app.emit("signaling:force-call-end", &call_id).ok();
                     }
@@ -441,11 +418,7 @@ impl AppStateSignalingExt for AppStateInner {
             }
         });
 
-        self.establishment_guard = Some(UnansweredCallGuard {
-            call_id,
-            cancel,
-            handle,
-        });
+        self.establishment_guard = Some(UnansweredCallGuard { cancel, handle });
     }
 
     fn cancel_call_establishment_timer(&mut self) {
@@ -558,7 +531,7 @@ impl AppStateSignalingExt for AppStateInner {
         .await?;
 
         if is_invited {
-            self.cancel_unanswered_call_timers_for_targets(&call_id, [&target].into_iter());
+            self.cancel_unanswered_call_timers_for_targets([&target].into_iter());
 
             let Some(current_call) = self.current_call_mut(call_id) else {
                 return Ok(());
@@ -578,8 +551,6 @@ impl AppStateSignalingExt for AppStateInner {
         let own_client_id = self.require_client_id()?;
 
         log::debug!("Ending call {call_id}");
-
-        self.cancel_all_unanswered_call_timers(call_id);
 
         self.send_signaling_message(shared::CallEnd {
             call_id,
@@ -838,7 +809,6 @@ impl AppStateInner {
                 {
                     log::debug!("Call {call_id} ended locally, cleaning up");
 
-                    state.cancel_all_unanswered_call_timers(*call_id);
                     state.cleanup_current_call(*call_id).await;
 
                     app.emit("signaling:force-call-end", call_id).ok();
@@ -846,10 +816,10 @@ impl AppStateInner {
                 }
 
                 if invited_targets.is_empty() {
-                    state.cancel_all_unanswered_call_timers(*call_id);
+                    state.cancel_all_unanswered_call_timers();
                     state.audio_manager.read().stop(SourceType::Ringback);
                 } else {
-                    state.cancel_unanswered_call_timers_for_targets(call_id, newly_joined.values());
+                    state.cancel_unanswered_call_timers_for_targets(newly_joined.values());
                 }
 
                 for peer_id in left {
@@ -1107,7 +1077,6 @@ impl AppStateInner {
                 }
 
                 state.remove_incoming_call(call_id);
-                state.cancel_all_unanswered_call_timers(call_id);
 
                 app.emit("signaling:call-end", &call_id).ok();
             }
@@ -1133,13 +1102,9 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         } else {
-                            state.cancel_unanswered_call_timers_for_targets(
-                                &call_id,
-                                targets.iter(),
-                            );
+                            state.cancel_unanswered_call_timers_for_targets(targets.iter());
                         }
                         state.stop_ringback_if_no_invited_targets(call_id);
 
@@ -1161,8 +1126,6 @@ impl AppStateInner {
                         }
 
                         state.remove_incoming_call(call_id);
-
-                        state.cancel_all_unanswered_call_timers(call_id);
 
                         state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
                     }
@@ -1202,11 +1165,10 @@ impl AppStateInner {
                         let targets = HashSet::from([target.clone()]);
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         }
 
-                        state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        state.cancel_unanswered_call_timers_for_targets(targets.iter());
                         state.stop_ringback_if_no_invited_targets(call_id);
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
@@ -1223,8 +1185,6 @@ impl AppStateInner {
                             );
                             return;
                         }
-
-                        state.cancel_all_unanswered_call_timers(call_id);
 
                         app.emit(
                             "webrtc:call-error",
@@ -1253,8 +1213,6 @@ impl AppStateInner {
 
                         state.remove_incoming_call(call_id);
 
-                        state.cancel_all_unanswered_call_timers(call_id);
-
                         app.emit("signaling:call-end", &call_id).ok();
                     }
                     // Unknown reasons only remove the listed targets; nothing
@@ -1276,17 +1234,13 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
 
                             app.emit("signaling:force-call-end", call_id).ok();
                         } else {
                             let update = server::CallUpdate::from(&*current_call);
 
-                            state.cancel_unanswered_call_timers_for_targets(
-                                &call_id,
-                                targets.iter(),
-                            );
+                            state.cancel_unanswered_call_timers_for_targets(targets.iter());
                             state.stop_ringback_if_no_invited_targets(call_id);
 
                             app.emit("signaling:call-update", update).ok();
@@ -1309,11 +1263,10 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         }
 
-                        state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        state.cancel_unanswered_call_timers_for_targets(targets.iter());
                         state.stop_ringback_if_no_invited_targets(call_id);
 
                         app.emit("signaling:call-reject", RejectTargets { call_id, targets })
@@ -1329,11 +1282,10 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
                         }
 
-                        state.cancel_unanswered_call_timers_for_targets(&call_id, targets.iter());
+                        state.cancel_unanswered_call_timers_for_targets(targets.iter());
                         state.stop_ringback_if_no_invited_targets(call_id);
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
@@ -1539,7 +1491,6 @@ impl AppStateInner {
 
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
-                            state.cancel_all_unanswered_call_timers(call_id);
                             state.cleanup_current_call(call_id).await;
 
                             app.emit("signaling:force-call-end", call_id).ok();
@@ -1550,10 +1501,7 @@ impl AppStateInner {
                             )
                             .ok();
 
-                            state.cancel_unanswered_call_timers_for_targets(
-                                &call_id,
-                                targets.iter(),
-                            );
+                            state.cancel_unanswered_call_timers_for_targets(targets.iter());
                         }
 
                         state.stop_ringback_if_no_invited_targets(call_id);
@@ -1627,14 +1575,5 @@ impl AppStateInner {
         }
 
         self.keybind_engine.read().await.set_call_active(false);
-
-        for (target, guard) in self.unanswered_call_guards.drain() {
-            log::trace!(
-                "Cancelling unanswered call timer for call {} and target {target:?}",
-                guard.call_id
-            );
-            guard.cancel.cancel();
-            guard.handle.abort();
-        }
     }
 }
