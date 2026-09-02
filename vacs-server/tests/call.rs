@@ -1712,6 +1712,62 @@ async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> 
     Ok(())
 }
 
+/// A conference member reporting a call-scoped error leaves the call; the
+/// survivors only get the roster change, never the reason, since their clients
+/// treat call-scoped reasons as their own call failing.
+#[test(tokio::test)]
+async fn conference_member_call_failure_only_updates_survivors() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    join_call(&mut client1, &mut client2, call_id).await?;
+    join_call(&mut client1, &mut client3, call_id).await?;
+
+    client3
+        .send(ClientMessage::CallError(
+            vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::CallFailure,
+                message: None,
+            },
+        ))
+        .await?;
+
+    for client in [&mut client1, &mut client2] {
+        let messages = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(
+                    m,
+                    ServerMessage::CallUpdate(_)
+                        | ServerMessage::CallError(_)
+                        | ServerMessage::CallEnd(_)
+                )
+            })
+            .await;
+        assert!(
+            !messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallError(_) | ServerMessage::CallEnd(_))),
+            "survivor must not be told the call failed, got {messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && !update.joined_participants.contains_key(client3.id()))),
+            "survivor should see the erroring member leave, got {messages:?}"
+        );
+    }
+
+    Ok(())
+}
+
 /// A refused drop is answered with the reason and the authoritative call state,
 /// so a client that applied the drop locally converges back.
 #[test(tokio::test)]
