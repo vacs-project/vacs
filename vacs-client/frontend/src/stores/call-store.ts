@@ -292,7 +292,7 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             if (
                 callDisplay?.call.callId === callId &&
-                callDisplay?.type !== "error" &&
+                !isTerminalCallDisplay(callDisplay) &&
                 (!callEnd || callDisplay?.type !== "outgoing")
             ) {
                 callDisplay = undefined;
