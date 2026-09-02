@@ -112,6 +112,8 @@ pub enum CallErrorReason {
     /// not open, inviting into a conference without being its leader, and
     /// dropping a target one is not permitted to drop (a ringing target one
     /// did not invite, or a joined participant while not being the leader).
+    /// A refused drop leaves the target in the call and is followed by a
+    /// `CallUpdate` carrying the authoritative call state.
     NotConferenceLeader(CallTarget),
     NotParticipant,
     MaxConferenceSizeReached(HashSet<CallTarget>),

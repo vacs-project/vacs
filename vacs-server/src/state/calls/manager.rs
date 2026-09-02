@@ -1269,6 +1269,36 @@ impl CallManager {
         }
     }
 
+    /// The call state as `client_id` would receive it in a `CallUpdate`, or
+    /// `None` when the client neither invited into nor joined the call.
+    pub fn call_state_update(
+        &self,
+        call_id: &CallId,
+        client_id: &ClientId,
+    ) -> Option<UpdateParticipants> {
+        let ringing_calls = self.ringing_calls.read();
+        let ringing = ringing_calls.get(call_id);
+        let invited_participants = ringing
+            .map(RingingCallEntry::invited_participants)
+            .unwrap_or_default();
+        let (joined_participants, conference_leader) = self.active_call_snapshot(call_id);
+
+        let involved = ringing.is_some_and(|call| {
+            call.caller_id == *client_id
+                || call
+                    .targets
+                    .values()
+                    .any(|target| target.source.client_id == *client_id)
+        }) || joined_participants.contains_key(client_id);
+
+        involved.then_some(UpdateParticipants {
+            call_id: *call_id,
+            invited_participants,
+            joined_participants,
+            conference_leader,
+        })
+    }
+
     fn active_call_snapshot(&self, call_id: &CallId) -> (CallParticipants, Option<ClientId>) {
         self.active_calls
             .read()
