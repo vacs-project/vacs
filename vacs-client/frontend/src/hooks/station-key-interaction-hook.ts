@@ -142,9 +142,8 @@ export function useStationKeyInteraction(
 
     const prio =
         enablePrio &&
-        (callDisplay !== undefined
-            ? hasTarget(callDisplay.prioTargets, {station: stationId})
-            : (incomingCall?.prio ?? false));
+        (hasTarget(callDisplay?.prioTargets ?? [], {station: stationId}) ||
+            (incomingCall?.prio ?? false));
 
     const {color, highlight} = getCallStateColors({
         inCall,
