@@ -9,6 +9,10 @@ use vacs_audio::{EncodedAudioFrame, FRAME_DURATION_MS};
 use webrtc::media::Sample;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 
+/// Bound on joining the sender task: a write stuck on a dead transport must not
+/// hold up the peer close, and with it the input device release.
+const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct Sender {
     shutdown_tx: watch::Sender<()>,
     task: JoinHandle<()>,
@@ -75,10 +79,19 @@ impl Sender {
     }
 
     #[instrument(level = "trace", skip(self), err)]
-    pub async fn stop(self) -> Result<()> {
+    pub async fn stop(mut self) -> Result<()> {
         self.shutdown();
         tracing::trace!("Waiting for sender task to finish");
-        self.task.await.context("Failed to join sender task")
+        match tokio::time::timeout(STOP_TIMEOUT, &mut self.task).await {
+            Ok(joined) => joined.context("Failed to join sender task"),
+            Err(_) => {
+                tracing::warn!("Sender task did not stop within {STOP_TIMEOUT:?}, aborting it");
+                self.task.abort();
+                // Joined so the input subscription is gone when this returns.
+                let _ = (&mut self.task).await;
+                Ok(())
+            }
+        }
     }
 }
 
