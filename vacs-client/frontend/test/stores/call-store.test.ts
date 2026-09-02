@@ -301,6 +301,28 @@ describe("call store", () => {
         });
     });
 
+    describe("errorTargets", () => {
+        it("ends the call with the unreachable peer marked when the error ended the call", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: acceptedDisplay([STATION_2])});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "client", value: "client1" as ClientId},
+                reason: "peerConnectionFailed",
+                callEnded: true,
+            });
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("error");
+            expect(display?.erroredTargets).toEqual([
+                {target: STATION_1, reason: "peerConnectionFailed"},
+            ]);
+            expect(display?.call.invitedTargets).toEqual([]);
+        });
+
+    });
+
     describe("terminal display freeze", () => {
         it("ignores target rejections for a terminal display", () => {
             const display = makeTestCallDisplay("error", {invitedTargets: [STATION_1]});
