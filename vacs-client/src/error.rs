@@ -334,6 +334,8 @@ pub struct CallError {
     call_id: CallId,
     origin: CallErrorOrigin,
     reason: String,
+    /// The error ends the call for this client, whatever else the display holds.
+    call_ended: bool,
 }
 
 impl CallError {
@@ -346,6 +348,7 @@ impl CallError {
         Self {
             call_id,
             origin,
+            call_ended: false,
             reason: format!(
                 "{} {}",
                 if is_local { "Local" } else { "Remote" },
@@ -370,6 +373,11 @@ impl CallError {
                 }
             ),
         }
+    }
+
+    pub fn ended(mut self) -> Self {
+        self.call_ended = true;
+        self
     }
 }
 

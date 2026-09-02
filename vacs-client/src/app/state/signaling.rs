@@ -6,7 +6,7 @@ use crate::app::state::webrtc::{
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::source_type::SourceType;
 use crate::config::BackendEndpoint;
-use crate::error::{CallErrorOrigin, Error, FrontendError};
+use crate::error::{CallError, CallErrorOrigin, Error, FrontendError};
 use crate::signaling::auth::TauriTokenProvider;
 use serde::Serialize;
 use serde_json::Value;
@@ -1211,7 +1211,7 @@ impl AppStateInner {
 
                         state.emit_call_error(app, call_id, false, targets.into(), reason);
                     }
-                    CallErrorReason::PeerConnectionFailed(_) => {
+                    CallErrorReason::PeerConnectionFailed(peer_id) => {
                         // Eviction: the link to this peer is dead on both ends
                         // and the server removed us; a CallEnd follows.
                         let state = app.state::<AppState>();
@@ -1226,7 +1226,11 @@ impl AppStateInner {
 
                         state.cancel_all_unanswered_call_timers(call_id);
 
-                        state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
+                        app.emit(
+                            "webrtc:call-error",
+                            CallError::new(call_id, false, peer_id.into(), reason).ended(),
+                        )
+                        .ok();
                     }
                     CallErrorReason::AutoHangup => {} // should not be sent in a CallError message
                 }
