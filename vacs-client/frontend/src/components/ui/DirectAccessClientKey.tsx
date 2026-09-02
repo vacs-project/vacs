@@ -53,8 +53,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
             const ownInvited = beingCalled && hasTarget(callDisplay.call.ownInvitedTargets, target);
 
             if (ownInvited && callSize > 1) {
-                // Optimistic: a caller without joined participants gets no
-                // confirming call update.
+                // Optimistic; the server's echoed call update converges it.
                 try {
                     await invokeStrict("signaling_drop_target", {
                         callId: callDisplay.call.callId,
