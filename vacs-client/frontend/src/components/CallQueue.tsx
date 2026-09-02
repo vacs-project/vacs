@@ -71,13 +71,14 @@ function CallQueue() {
                             alt="Disconnected"
                         />
                     )}
-                    {someConnectionState(callDisplay, "degraded") && (
-                        <img
-                            className="absolute top-1 left-1 h-5 w-5"
-                            src={volumeMute}
-                            alt="No incoming audio"
-                        />
-                    )}
+                    {!someConnectionState(callDisplay, "disconnected") &&
+                        someConnectionState(callDisplay, "degraded") && (
+                            <img
+                                className="absolute top-1 left-1 h-5 w-5"
+                                src={volumeMute}
+                                alt="No incoming audio"
+                            />
+                        )}
                     <Button
                         color={cdColor}
                         highlight={cdHighlight}
