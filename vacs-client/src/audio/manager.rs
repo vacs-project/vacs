@@ -222,6 +222,15 @@ impl AudioManager {
         emit: Arc<dyn Fn(InputLevel) + Send + Sync>,
         restarted_at: Option<Instant>,
     ) -> Result<(), Error> {
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| !input.is_level_meter() && input.receiver_count() > 0)
+        {
+            log::debug!("Call capture stream attached, not replacing it with a level meter");
+            return Ok(());
+        }
+
         let (device, _) = DeviceSelector::open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
