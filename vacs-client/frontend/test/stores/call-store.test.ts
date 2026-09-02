@@ -249,6 +249,25 @@ describe("call store", () => {
             ["client1" as ClientId]: STATION_1,
         };
 
+        it("clears an errored annotation once the target has joined", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            const display = acceptedDisplay([]);
+            useCallStore.setState({
+                callDisplay: {
+                    ...display,
+                    erroredTargets: [{target: STATION_2, reason: "autoHangup"}],
+                },
+            });
+
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [],
+                joinedParticipants: {...JOINED, ["client2" as ClientId]: STATION_2},
+            });
+
+            expect(useCallStore.getState().callDisplay?.erroredTargets).toEqual([]);
+        });
+
         it("clears rejected and errored annotations for re-invited targets", () => {
             const display = acceptedDisplay([]);
             useCallStore.setState({
@@ -379,6 +398,22 @@ describe("call store", () => {
                 {target: STATION_1, reason: "peerConnectionFailed"},
             ]);
             expect(display?.call.invitedTargets).toEqual([]);
+        });
+
+        it("ignores a targets error naming a joined participant", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            const display = acceptedDisplay([]);
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "targets", value: [STATION_1]},
+                reason: "alreadyParticipant",
+            });
+
+            const next = useCallStore.getState().callDisplay;
+            expect(next?.erroredTargets).toEqual([]);
+            expect(next?.call.joinedParticipants).toEqual(display.call.joinedParticipants);
         });
     });
 
