@@ -44,7 +44,7 @@ hmac = "0.13.0"
 hound = "3.5.1"
 http = "1.4.1"
 http-body-util = "0.1.3"
-jsonwebtoken = "10.4.0"
+jsonwebtoken = "11.0.0"
 keyboard-types = { version = "0.8.3", features = ["serde"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-openssl"] }
 log = "0.4.30"
