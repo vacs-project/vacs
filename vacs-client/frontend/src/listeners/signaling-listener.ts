@@ -1,5 +1,6 @@
 import {IncomingCallListEntry, useCallListStore} from "../stores/call-list-store.ts";
 import {OutgoingCallEvent, useCallStore} from "../stores/call-store.ts";
+import {applySessionInfo} from "../stores/session-info.ts";
 import {useClientsStore} from "../stores/clients-store.ts";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import {useErrorOverlayStore} from "../stores/error-overlay-store.ts";
@@ -17,12 +18,7 @@ import {StationChange, StationInfo} from "../types/station.ts";
 
 export function setupSignalingListeners() {
     const {setClients, addClient, removeClient} = useClientsStore.getState();
-    const {
-        setStations,
-        addStationChanges,
-        setPositionDefaultSources,
-        reset: resetStationsStore,
-    } = useStationsStore.getState();
+    const {setStations, addStationChanges, reset: resetStationsStore} = useStationsStore.getState();
     const {
         addIncomingCall,
         applyOutgoingCall,
@@ -30,7 +26,6 @@ export function setupSignalingListeners() {
         removeCall,
         rejectTargets,
         acceptIncomingCall,
-        setMaxConferenceSize,
         reset: resetCallStore,
     } = useCallStore.getState().actions;
     const {addIncomingCallListEntry, clearCallList} = useCallListStore.getState().actions;
@@ -48,16 +43,7 @@ export function setupSignalingListeners() {
         unlistenFns.push(
             listen<SessionInfo>("signaling:connected", event => {
                 setConnectionState("connected");
-                setConnectionInfo(event.payload.client);
-                if (
-                    event.payload.profile.type === "changed" &&
-                    event.payload.profile.activeProfile !== undefined &&
-                    event.payload.profile.activeProfile.profile !== undefined
-                ) {
-                    setProfile(event.payload.profile.activeProfile.profile);
-                }
-                setPositionDefaultSources(event.payload.defaultCallSources);
-                setMaxConferenceSize(event.payload.maxConfSize);
+                applySessionInfo(event.payload);
             }),
             listen("signaling:reconnecting", () => {
                 setConnectionState("connecting");
