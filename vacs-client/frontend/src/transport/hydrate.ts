@@ -10,8 +10,10 @@ import {useStationsStore} from "../stores/stations-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {useCapabilitiesStore} from "../stores/capabilities-store.ts";
 import {useProfileStore} from "../stores/profile-store.ts";
+import {useCallStore} from "../stores/call-store.ts";
 import {withSyncSuppressed} from "./store-sync.ts";
 
+/** Call state is absent on purpose: it arrives with the store sync requested after hydration. */
 export type SessionStateSnapshot = {
     connectionState: SignalingConnectionState;
     sessionInfo: SessionInfo | null;
@@ -41,10 +43,12 @@ function applySnapshot(snapshot: SessionStateSnapshot) {
     const {setCallConfig, setClientPageSettings} = useSettingsStore.getState();
     const {setCapabilities} = useCapabilitiesStore.getState();
     const {setProfile} = useProfileStore.getState();
+    const {setMaxConferenceSize} = useCallStore.getState().actions;
 
     setConnectionState(snapshot.connectionState);
     if (snapshot.sessionInfo) {
         setConnectionInfo(snapshot.sessionInfo.client);
+        setMaxConferenceSize(snapshot.sessionInfo.maxConfSize);
     }
 
     if (snapshot.clientId) {

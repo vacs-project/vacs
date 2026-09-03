@@ -59,3 +59,8 @@ export function makeTestCallDisplay(
         rejectedTargets: [],
     };
 }
+
+/** Lets pending promise continuations (e.g. async store subscriptions) settle. */
+export function flushMicrotasks(): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
