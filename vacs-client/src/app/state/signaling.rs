@@ -484,13 +484,13 @@ impl AppStateSignalingExt for AppStateInner {
     ) -> Result<CallId, Error> {
         let call_id = if let Some(current_call) = self.current_call.as_ref() {
             let call_id = current_call.call_id();
-            log::debug!("Starting call {call_id} as source {source:?} with targets {targets:?}");
-            call_id
-        } else {
-            let call_id = CallId::new();
             log::debug!(
                 "Inviting targets {targets:?} to existing call {call_id} as source {source:?}"
             );
+            call_id
+        } else {
+            let call_id = CallId::new();
+            log::debug!("Starting call {call_id} as source {source:?} with targets {targets:?}");
             call_id
         };
 
