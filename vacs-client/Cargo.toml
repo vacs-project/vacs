@@ -1,6 +1,6 @@
 [package]
 name = "vacs-client"
-version = "2.6.0"
+version = "2.6.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

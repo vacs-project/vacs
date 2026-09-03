@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.1](https://github.com/vacs-project/vacs/compare/vacs-client-v2.6.0...vacs-client-v2.6.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **vacs-client:** skip early tasks that race the app state setup ([#1099](https://github.com/vacs-project/vacs/issues/1099)) ([f77f7bb](https://github.com/vacs-project/vacs/commit/f77f7bb2366b0f7c33c3b4a3ebf6396b35c0240e))
+
 ## [2.6.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.5.1...vacs-client-v2.6.0) (2026-08-11)
 
 
