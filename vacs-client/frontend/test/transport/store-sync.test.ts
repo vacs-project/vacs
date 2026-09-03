@@ -199,7 +199,12 @@ describe("store sync", () => {
             conferenceState: "active",
         });
 
-        receiveSync({prio: true, callDisplay: null, incomingCalls: null, conferenceState: null});
+        receiveSync({
+            prio: true,
+            callDisplay: null,
+            incomingCalls: null,
+            conferenceState: "active",
+        });
 
         const state = useCallStore.getState();
         expect(state.callDisplay?.type).toBe("accepted");
@@ -210,29 +215,59 @@ describe("store sync", () => {
         teardown();
     });
 
-    it("does not carry event-driven call state in live broadcasts", async () => {
+    it("carries only store-driven displays in live broadcasts", async () => {
         const teardown = setupStoreSync();
         await flushMicrotasks();
         invoke.mockClear();
 
+        // Outgoing, incoming and accepted displays come from events on every instance.
+        useCallStore.setState({callDisplay: makeTestCallDisplay("outgoing")});
         useCallStore.setState({callDisplay: makeTestCallDisplay("accepted")});
-
-        expect(invoke).toHaveBeenCalledWith("remote_broadcast_store_sync", {
-            store: "call",
-            state: {prio: false, callDisplay: null, incomingCalls: null, conferenceState: null},
-            sourceId: expect.any(String),
-        });
-
-        invoke.mockClear();
         useCallStore.setState({
             incomingCalls: [makeTestCall("incoming", {callId: "call1" as CallId})],
-            conferenceState: "active",
         });
 
         expect(invoke).not.toHaveBeenCalledWith(
             "remote_broadcast_store_sync",
             expect.objectContaining({store: "call"}),
         );
+
+        // Conference modify mode is entered locally, so the state is always carried.
+        useCallStore.setState({conferenceState: "active"});
+
+        expect(invoke).toHaveBeenCalledWith("remote_broadcast_store_sync", {
+            store: "call",
+            state: {prio: false, callDisplay: null, incomingCalls: null, conferenceState: "active"},
+            sourceId: expect.any(String),
+        });
+
+        // A terminal display and its dismissal only exist in the store.
+        const rejected = makeTestCallDisplay("rejected");
+        useCallStore.setState({callDisplay: rejected});
+
+        expect(invoke).toHaveBeenCalledWith("remote_broadcast_store_sync", {
+            store: "call",
+            state: {
+                prio: false,
+                callDisplay: rejected,
+                incomingCalls: null,
+                conferenceState: "active",
+            },
+            sourceId: expect.any(String),
+        });
+
+        invoke.mockClear();
+        useCallStore.setState({callDisplay: undefined});
+
+        const dismissal = invoke.mock.calls.find(
+            ([cmd, args]) => cmd === "remote_broadcast_store_sync" && args?.store === "call",
+        );
+        expect(dismissal?.[1]?.state).toEqual({
+            prio: false,
+            callDisplay: undefined,
+            incomingCalls: null,
+            conferenceState: "active",
+        });
 
         teardown();
     });
