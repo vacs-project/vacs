@@ -9,8 +9,7 @@ import {useClientsStore} from "../stores/clients-store.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {useCapabilitiesStore} from "../stores/capabilities-store.ts";
-import {useProfileStore} from "../stores/profile-store.ts";
-import {useCallStore} from "../stores/call-store.ts";
+import {applySessionInfo} from "../stores/session-info.ts";
 import {withSyncSuppressed} from "./store-sync.ts";
 
 /** Call state is absent on purpose: it arrives with the store sync requested after hydration. */
@@ -36,20 +35,14 @@ export function hydrateStores(snapshot: SessionStateSnapshot) {
 }
 
 function applySnapshot(snapshot: SessionStateSnapshot) {
-    const {setConnectionInfo, setConnectionState} = useConnectionStore.getState();
+    const {setConnectionState} = useConnectionStore.getState();
     const {setAuthenticated, setUnauthenticated} = useAuthStore.getState();
     const {setClients} = useClientsStore.getState();
     const {setStations, setPositionDefaultSources} = useStationsStore.getState();
     const {setCallConfig, setClientPageSettings} = useSettingsStore.getState();
     const {setCapabilities} = useCapabilitiesStore.getState();
-    const {setProfile} = useProfileStore.getState();
-    const {setMaxConferenceSize} = useCallStore.getState().actions;
 
     setConnectionState(snapshot.connectionState);
-    if (snapshot.sessionInfo) {
-        setConnectionInfo(snapshot.sessionInfo.client);
-        setMaxConferenceSize(snapshot.sessionInfo.maxConfSize);
-    }
 
     if (snapshot.clientId) {
         setAuthenticated(snapshot.clientId);
@@ -58,14 +51,12 @@ function applySnapshot(snapshot: SessionStateSnapshot) {
     }
 
     setStations(snapshot.stations);
-    setPositionDefaultSources(snapshot.defaultCallSources);
     setClients(snapshot.clients);
 
-    if (
-        snapshot.sessionInfo?.profile.type === "changed" &&
-        snapshot.sessionInfo.profile.activeProfile?.profile
-    ) {
-        setProfile(snapshot.sessionInfo.profile.activeProfile.profile);
+    if (snapshot.sessionInfo) {
+        applySessionInfo(snapshot.sessionInfo);
+    } else {
+        setPositionDefaultSources(snapshot.defaultCallSources);
     }
 
     setCallConfig(snapshot.callConfig);
