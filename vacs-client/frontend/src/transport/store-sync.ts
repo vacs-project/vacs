@@ -1,6 +1,6 @@
 import {syncBlink} from "../stores/blink-store.ts";
 import {type CallListItem, useCallListStore} from "../stores/call-list-store.ts";
-import {CallDisplay, useCallStore} from "../stores/call-store.ts";
+import {CallDisplay, ConferenceState, useCallStore} from "../stores/call-store.ts";
 import {PlaybackStatus, usePlaybackStore} from "../stores/playback-store.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
@@ -13,17 +13,18 @@ import type {RadioConfigWithLabels, TransmitConfigWithLabels} from "../types/tra
 import {invoke, isRemote, isTauri, listen} from "./index.ts";
 import {Call} from "../types/call.ts";
 
-// TODO: Update entire remote for conference calls
-
 type StationsSync = {
     defaultSource: StationId | undefined;
     temporarySource: StationId | undefined;
 };
 
+// null: not carried by live syncs (event-driven on every instance); only the
+// re-broadcast after a sync request fills it.
 type CallSync = {
     prio: boolean;
     callDisplay: CallDisplay | undefined | null;
-    incomingCalls: Call[];
+    incomingCalls: Call[] | null;
+    conferenceState: ConferenceState | null;
 };
 
 type CallListSync = {
@@ -151,13 +152,19 @@ function applySync(payload: SyncPayload) {
             const {
                 actions: {setPrio},
             } = useCallStore.getState();
-            const {prio, callDisplay} = payload.state;
+            const {prio, callDisplay, incomingCalls, conferenceState} = payload.state;
             setPrio(prio);
 
             if (callDisplay !== null) {
                 useCallStore.setState({callDisplay});
-                syncBlink();
             }
+            if (incomingCalls !== null) {
+                useCallStore.setState({incomingCalls});
+            }
+            if (conferenceState !== null) {
+                useCallStore.setState({conferenceState});
+            }
+            syncBlink();
             break;
         }
         case "callList": {
@@ -259,7 +266,10 @@ function startSync(): () => void {
     unlistenFns.push(
         subscribeFields(useCallStore, "call", s => ({
             prio: s.prio,
-            incomingCalls: s.incomingCalls,
+            incomingCalls: null,
+            conferenceState: null,
+            // Only store-driven displays are mirrored; an incoming or accepted
+            // display is built from events on every instance.
             callDisplay:
                 s.callDisplay === undefined ||
                 s.callDisplay.type === "outgoing" ||
@@ -339,6 +349,7 @@ function broadcastAllStoreState() {
         prio: call.prio,
         callDisplay: call.callDisplay,
         incomingCalls: call.incomingCalls,
+        conferenceState: call.conferenceState,
     });
 
     const callList = useCallListStore.getState();
