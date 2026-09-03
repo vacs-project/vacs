@@ -279,6 +279,8 @@ function spawnVacsServer(): ChildProcess {
             "VACS-VATSIM-DATA_FEED_POSITION_GRACE_PERIOD-NANOS": "0",
             "VACS-VATSIM-COVERAGE_DIR": path.resolve(VACS_DATA_DIR, "dataset"),
             "VACS-SERVER-BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT}`,
+            // Off the server default, which a dev server on the same machine holds.
+            "VACS-SERVER-METRICS_BIND_ADDR": `127.0.0.1:${VACS_SERVER_PORT + 1}`,
         },
     });
     proc.on("error", error => {
