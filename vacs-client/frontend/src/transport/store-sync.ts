@@ -24,7 +24,7 @@ type CallSync = {
     prio: boolean;
     callDisplay: CallDisplay | undefined | null;
     incomingCalls: Call[] | null;
-    conferenceState: ConferenceState | null;
+    conferenceState: ConferenceState;
 };
 
 type CallListSync = {
@@ -161,9 +161,7 @@ function applySync(payload: SyncPayload) {
             if (incomingCalls !== null) {
                 useCallStore.setState({incomingCalls});
             }
-            if (conferenceState !== null) {
-                useCallStore.setState({conferenceState});
-            }
+            useCallStore.setState({conferenceState});
             syncBlink();
             break;
         }
@@ -203,6 +201,18 @@ function applySync(payload: SyncPayload) {
         }
     }
 }
+
+const selectLiveCallSync = (s: ReturnType<typeof useCallStore.getState>): CallSync => ({
+    prio: s.prio,
+    incomingCalls: null,
+    conferenceState: s.conferenceState,
+    callDisplay:
+        s.callDisplay === undefined ||
+        s.callDisplay.type === "error" ||
+        s.callDisplay.type === "rejected"
+            ? s.callDisplay
+            : null,
+});
 
 export function setupStoreSync(): () => void {
     let teardown: (() => void) | undefined;
@@ -264,20 +274,15 @@ function startSync(): () => void {
     );
 
     unlistenFns.push(
-        subscribeFields(useCallStore, "call", s => ({
-            prio: s.prio,
-            incomingCalls: null,
-            conferenceState: null,
-            // Only store-driven displays are mirrored; an incoming or accepted
-            // display is built from events on every instance.
-            callDisplay:
-                s.callDisplay === undefined ||
-                s.callDisplay.type === "outgoing" ||
-                s.callDisplay.type === "error" ||
-                s.callDisplay.type === "rejected"
-                    ? s.callDisplay
-                    : null,
-        })),
+        subscribeFields(
+            useCallStore,
+            "call",
+            selectLiveCallSync,
+            (next, prev) =>
+                selectLiveCallSync(next).callDisplay === null &&
+                next.prio === prev.prio &&
+                next.conferenceState === prev.conferenceState,
+        ),
     );
 
     unlistenFns.push(

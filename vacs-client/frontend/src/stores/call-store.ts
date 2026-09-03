@@ -31,6 +31,13 @@ export type CallDisplay = {
     errorReason?: string;
 };
 
+export type OutgoingCallEvent = {
+    callId: CallId;
+    source: CallSource;
+    targets: CallTarget[];
+    prio: boolean;
+};
+
 export type ConferenceState = "modify" | "active" | "inactive";
 
 type CallState = {
@@ -40,7 +47,7 @@ type CallState = {
     conferenceState: ConferenceState;
     maxConferenceSize: number | undefined;
     actions: {
-        setOutgoingCall: (call: CallDisplayCall) => void;
+        applyOutgoingCall: (event: OutgoingCallEvent) => void;
         acceptIncomingCall: (callId: CallId) => void;
         endCall: () => void;
         addIncomingCall: (call: Call) => void;
@@ -75,19 +82,31 @@ export const useCallStore = create<CallState>()((set, get) => ({
     conferenceState: "inactive",
     maxConferenceSize: undefined,
     actions: {
-        setOutgoingCall: call => {
-            if (call.prio) {
-                startBlink();
+        applyOutgoingCall: event => {
+            if (event.targets.length === 0) return;
+
+            const callDisplay = get().callDisplay;
+
+            if (callDisplay?.call.callId === event.callId) {
+                if (!isTerminalCallDisplay(callDisplay)) {
+                    addInvitedTargets(callDisplay, event.targets, event.prio);
+                }
+                return;
             }
 
-            set({
-                callDisplay: {
-                    type: "outgoing",
-                    call,
-                    prioTargets: call.prio ? call.invitedTargets : [],
-                    rejectedTargets: [],
-                    erroredTargets: [],
-                },
+            setOutgoingCall({
+                callId: event.callId,
+                source: event.source,
+                target: event.targets[0],
+                invitedTargets: event.targets,
+                ownInvitedTargets: event.targets,
+                joinedParticipants: {},
+                isConferenceLeader: event.targets.length > 1 ? true : undefined,
+                prio: event.prio,
+            });
+            useCallListStore.getState().actions.addOutgoingCallListEntry({
+                callId: event.callId,
+                targets: event.targets,
             });
         },
         acceptIncomingCall: callId => {
@@ -605,6 +624,59 @@ const addTargetsToCallListEntry = (callId: CallId, targets: CallTarget[]) =>
         ),
     }));
 
+const setOutgoingCall = (call: CallDisplayCall) => {
+    if (call.prio) {
+        startBlink();
+    }
+
+    useCallStore.setState({
+        callDisplay: {
+            type: "outgoing",
+            call,
+            prioTargets: call.prio ? call.invitedTargets : [],
+            rejectedTargets: [],
+            erroredTargets: [],
+        },
+    });
+};
+
+// Idempotent: applied optimistically by the initiator and again from the outgoing-call event.
+const addInvitedTargets = (callDisplay: CallDisplay, targets: CallTarget[], prio: boolean) => {
+    const added = targets.filter(target => !hasTarget(callDisplay.call.invitedTargets, target));
+    const ownAdded = targets.filter(
+        target => !hasTarget(callDisplay.call.ownInvitedTargets, target),
+    );
+    const prioAdded = prio
+        ? targets.filter(target => !hasTarget(callDisplay.prioTargets, target))
+        : [];
+
+    useCallStore.setState({
+        callDisplay: {
+            ...callDisplay,
+            call: {
+                ...callDisplay.call,
+                invitedTargets: callDisplay.call.invitedTargets.concat(added),
+                ownInvitedTargets: callDisplay.call.ownInvitedTargets.concat(ownAdded),
+                isConferenceLeader: true,
+            },
+            prioTargets: callDisplay.prioTargets.concat(prioAdded),
+            // A re-invited target is no longer rejected or errored.
+            rejectedTargets: callDisplay.rejectedTargets.filter(
+                target => !hasTarget(targets, target),
+            ),
+            erroredTargets: callDisplay.erroredTargets.filter(
+                errored => !hasTarget(targets, errored.target),
+            ),
+        },
+        conferenceState: "active",
+    });
+    addTargetsToCallListEntry(callDisplay.call.callId, targets);
+
+    if (prioAdded.length > 0) {
+        startBlink();
+    }
+};
+
 const removeTargetsFromCallListEntry = (callId: CallId, targets: CallTarget[]) =>
     useCallListStore.getState().actions.updateCallListEntry(callId, entry => ({
         targets: entry.targets.filter(entryTarget => !hasTarget(targets, entryTarget.target)),
@@ -714,8 +786,7 @@ export const startCall = async (...targets: CallTarget[]) => {
 
     const {info} = useConnectionStore.getState();
     const {prio} = useCallStore.getState();
-    const {setOutgoingCall, setPrio} = useCallStore.getState().actions;
-    const {addOutgoingCallListEntry} = useCallListStore.getState().actions;
+    const {setPrio} = useCallStore.getState().actions;
     const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
 
     let stationId: StationId | undefined;
@@ -736,62 +807,21 @@ export const startCall = async (...targets: CallTarget[]) => {
 
     try {
         if (callDisplay !== undefined) {
-            useCallStore.setState({
-                callDisplay: {
-                    ...callDisplay,
-                    call: {
-                        ...callDisplay.call,
-                        invitedTargets: callDisplay.call.invitedTargets.concat(targets),
-                        ownInvitedTargets: callDisplay.call.ownInvitedTargets.concat(targets),
-                        isConferenceLeader: true,
-                    },
-                    prioTargets: prio
-                        ? callDisplay.prioTargets.concat(targets)
-                        : callDisplay.prioTargets,
-                    // A re-invited target is no longer rejected or errored.
-                    rejectedTargets: callDisplay.rejectedTargets.filter(
-                        target => !hasTarget(targets, target),
-                    ),
-                    erroredTargets: callDisplay.erroredTargets.filter(
-                        errored => !hasTarget(targets, errored.target),
-                    ),
-                },
-                conferenceState: "active",
-            });
-            addTargetsToCallListEntry(callDisplay.call.callId, targets);
-
-            if (prio) {
-                startBlink();
-            }
+            addInvitedTargets(callDisplay, targets, prio);
         }
 
-        const callId = await invokeStrict<CallId>("signaling_invite_to_call", {
+        await invokeStrict<CallId>("signaling_invite_to_call", {
             source,
             targets,
             prio,
         });
 
-        if (callDisplay === undefined) {
-            setOutgoingCall({
-                callId,
-                source,
-                target: targets[0],
-                invitedTargets: targets,
-                ownInvitedTargets: targets,
-                joinedParticipants: {},
-                isConferenceLeader: targets.length > 1 ? true : undefined,
-                prio,
-            });
-            addOutgoingCallListEntry({callId, targets});
-        }
-
+        // The display comes from the outgoing-call event, ordered before any answer to the invite.
         setPrio(false);
-        return {callId, source, prio};
     } catch {
         if (callDisplay !== undefined) {
             rollBackInvite(callDisplay, targets, previousConferenceState);
         }
-        return;
     }
 };
 

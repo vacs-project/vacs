@@ -508,6 +508,10 @@ impl AppStateSignalingExt for AppStateInner {
             self.current_call = Some(Call::from_invite(&invite, &self.shutdown_token));
         }
 
+        // Under the state lock so it precedes any event the server's answer produces;
+        // the command reply is on another channel and can lose that race.
+        app.emit("signaling:outgoing-call", &invite).ok();
+
         self.start_unanswered_call_timer_for_targets(app, &invite.call_id, invite.targets.clone());
 
         self.audio_manager.read().restart(SourceType::Ringback);

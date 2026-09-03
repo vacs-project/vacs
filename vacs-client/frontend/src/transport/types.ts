@@ -111,7 +111,7 @@ export type RemoteEvent =
     | "signaling:client-disconnected"
     | "signaling:client-not-found"
     | "signaling:call-invitation"
-    | "signaling:outgoing-call-accepted"
+    | "signaling:outgoing-call"
     | "signaling:call-update"
     | "signaling:call-end"
     | "signaling:call-reject"

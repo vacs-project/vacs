@@ -1,5 +1,5 @@
 import {IncomingCallListEntry, useCallListStore} from "../stores/call-list-store.ts";
-import {useCallStore} from "../stores/call-store.ts";
+import {OutgoingCallEvent, useCallStore} from "../stores/call-store.ts";
 import {useClientsStore} from "../stores/clients-store.ts";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import {useErrorOverlayStore} from "../stores/error-overlay-store.ts";
@@ -25,6 +25,7 @@ export function setupSignalingListeners() {
     } = useStationsStore.getState();
     const {
         addIncomingCall,
+        applyOutgoingCall,
         updateCall,
         removeCall,
         rejectTargets,
@@ -101,6 +102,9 @@ export function setupSignalingListeners() {
             }),
             listen<Call>("signaling:call-invitation", event => {
                 addIncomingCall(event.payload);
+            }),
+            listen<OutgoingCallEvent>("signaling:outgoing-call", event => {
+                applyOutgoingCall(event.payload);
             }),
             listen<CallId>("signaling:accept-incoming-call", event => {
                 acceptIncomingCall(event.payload);
