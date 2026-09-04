@@ -2,7 +2,7 @@ use crate::app::PersistedClientConfig;
 use crate::app::state::AppState;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::{refresh_expired_ice_config, refresh_ice_config};
+use crate::app::state::webrtc::refresh_ice_config;
 use crate::config::{BackendEndpoint, CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::{Error, HandleUnauthorizedExt};
 use std::collections::HashSet;
@@ -77,7 +77,7 @@ pub async fn signaling_invite_to_call(
     source: CallSource,
     prio: bool,
 ) -> Result<CallId, Error> {
-    refresh_expired_ice_config(&app).await;
+    refresh_ice_config(&app, false).await;
 
     let mut state = app_state.lock().await;
     let call_id = state.invite_to_call(&app, source, targets, prio).await?;
@@ -94,7 +94,7 @@ pub async fn signaling_accept_call(
 ) -> Result<(), Error> {
     log::debug!("Accepting call {call_id:?}");
 
-    refresh_expired_ice_config(&app).await;
+    refresh_ice_config(&app, false).await;
 
     let mut state = app_state.lock().await;
     state.accept_call(&app, Some(call_id)).await?;
