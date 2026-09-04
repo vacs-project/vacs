@@ -1,13 +1,12 @@
 use crate::app::PersistedClientConfig;
+use crate::app::state::AppState;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::{AppStateWebrtcExt, refresh_expired_ice_config};
-use crate::app::state::{AppState, AppStateInner};
+use crate::app::state::webrtc::{refresh_expired_ice_config, refresh_ice_config};
 use crate::config::{BackendEndpoint, CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::{Error, HandleUnauthorizedExt};
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager, State};
-use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId};
 use vacs_signaling::protocol::ws::shared::{CallId, CallSource, CallTarget};
 
@@ -16,22 +15,24 @@ use vacs_signaling::protocol::ws::shared::{CallId, CallSource, CallTarget};
 pub async fn signaling_connect(
     app: AppHandle,
     app_state: State<'_, AppState>,
-    http_state: State<'_, HttpState>,
     position_id: Option<PositionId>,
 ) -> Result<(), Error> {
-    let mut app_state = app_state.lock().await;
+    let fetch_ice_config = {
+        let app_state = app_state.lock().await;
 
-    #[cfg(any(debug_assertions, feature = "rc"))]
-    let position_id = position_id.or_else(|| app_state.config.backend.dev_position_id.clone());
+        #[cfg(any(debug_assertions, feature = "rc"))]
+        let position_id = position_id.or_else(|| app_state.config.backend.dev_position_id.clone());
 
-    app_state.connect_signaling(&app, position_id).await?;
+        app_state.connect_signaling(&app, position_id).await?;
+        app_state.config.ice.is_default()
+    };
 
-    if !app_state.config.ice.is_default() {
+    if !fetch_ice_config {
         log::info!("Modified ICE config detected, not fetching from server");
         return Ok(());
     }
 
-    refresh_ice_config(&http_state, &mut app_state).await;
+    refresh_ice_config(&app, true).await;
 
     Ok(())
 }
@@ -72,17 +73,13 @@ pub async fn signaling_terminate(
 pub async fn signaling_invite_to_call(
     app: AppHandle,
     app_state: State<'_, AppState>,
-    http_state: State<'_, HttpState>,
     targets: HashSet<CallTarget>,
     source: CallSource,
     prio: bool,
 ) -> Result<CallId, Error> {
+    refresh_expired_ice_config(&app).await;
+
     let mut state = app_state.lock().await;
-
-    if state.is_ice_config_expired() {
-        refresh_ice_config(&http_state, &mut state).await;
-    }
-
     let call_id = state.invite_to_call(&app, source, targets, prio).await?;
 
     Ok(call_id)
@@ -183,23 +180,4 @@ pub async fn signaling_remove_ignored_client(
     persisted_stations_config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
 
     Ok(removed)
-}
-
-async fn refresh_ice_config(http_state: &HttpState, app_state: &mut AppStateInner) {
-    let config = match http_state
-        .http_get::<IceConfig>(BackendEndpoint::IceConfig, None)
-        .await
-    {
-        Ok(config) => config,
-        Err(err) => {
-            log::warn!("Failed to fetch ICE config, falling back to default: {err:?}");
-            return;
-        }
-    };
-
-    log::info!(
-        "Received ICE config from server, expires at {}",
-        config.expires_at.unwrap_or_default()
-    );
-    app_state.set_ice_config(config);
 }
