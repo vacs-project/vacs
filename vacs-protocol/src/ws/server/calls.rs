@@ -80,7 +80,9 @@ pub struct CallCancelled {
     pub call_id: CallId,
     /// The invitations this cancellation affects. Cancellations only ever
     /// concern ringing invitations; joined participants are torn down via
-    /// `CallEnd`.
+    /// `CallEnd`. A ringing recipient finds its own target listed under
+    /// `CallerCancelled` and `Disconnected` and an empty set under
+    /// `AnsweredElsewhere`; its invitation ends either way.
     pub targets: HashSet<CallTarget>,
     pub reason: CallCancelReason,
 }
