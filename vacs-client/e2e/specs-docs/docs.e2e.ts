@@ -382,7 +382,11 @@ describe("Documentation screenshots", () => {
         // two hosts; the event the media watchdog would emit for it does not.
         const callId = await activeCallId("clientA");
         if (callId === null) throw new Error("No active call to degrade");
-        await emitEvent("clientA", "webrtc:call-degraded", callId);
+        // Per peer, not per call: the listener reads callId and peerId, and
+        // the store ignores an event whose peer is not a joined participant.
+        // The peer here is the other client, which took the call as the
+        // station's coverage.
+        await emitEvent("clientA", "webrtc:call-degraded", {callId, peerId: CID_B});
 
         await clientA.$('img[alt="No incoming audio"]').waitForDisplayed();
 
