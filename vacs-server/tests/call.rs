@@ -1,10 +1,13 @@
 use std::collections::HashSet;
+use std::num::NonZeroU32;
 use std::time::Duration;
 use test_log::test;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::ServerMessage;
 use vacs_protocol::ws::shared::{CallId, CallTarget};
+use vacs_server::config::{AppConfig, CallConfig};
+use vacs_server::ratelimit::{Policy as RateLimitPolicy, RateLimiters, RateLimitersConfig};
 use vacs_server::test_utils::{TestApp, TestClient, setup_n_test_clients};
 
 #[test(tokio::test)]
@@ -2486,6 +2489,263 @@ async fn busy_co_target_fails_without_disturbing_the_other_target() -> anyhow::R
     assert!(
         busy_call_messages.is_empty(),
         "the busy client's own call is untouched, got {busy_call_messages:?}"
+    );
+
+    Ok(())
+}
+
+/// Builds rate limiters whose call invite burst is `burst` targets, spread
+/// wide enough over time that nothing replenishes during a test.
+fn invite_rate_limiters(burst: u32) -> RateLimiters {
+    RateLimiters::from(RateLimitersConfig {
+        call_invite: RateLimitPolicy::new(600, NonZeroU32::new(burst).expect("non-zero burst")),
+        ..RateLimitersConfig::default()
+    })
+}
+
+/// An invite that would spend more tokens than the caller has left is refused
+/// as a whole, naming the targets it asked for.
+#[test(tokio::test)]
+async fn rate_limited_invite_reports_the_requested_targets() -> anyhow::Result<()> {
+    let test_app =
+        TestApp::new_with_config(TestApp::default_config(), invite_rate_limiters(2)).await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let first_call_id = CallId::new();
+    invite(
+        &mut client1,
+        first_call_id,
+        HashSet::from([CallTarget::Client(client2.id().clone())]),
+    )
+    .await?;
+    let invitations = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation)
+                if invitation.call_id == first_call_id)
+        })
+        .await;
+    assert_eq!(invitations.len(), 1, "the first invite is within the limit");
+
+    client1
+        .send(ClientMessage::CallEnd(
+            vacs_protocol::ws::shared::CallEnd::new(first_call_id, client1.id().clone()),
+        ))
+        .await?;
+    client2.recv_until_timeout(Duration::from_millis(50)).await;
+
+    // Only one token is left, so a two-target invite cannot be charged at all.
+    let second_call_id = CallId::new();
+    let targets = HashSet::from([
+        CallTarget::Client(client2.id().clone()),
+        CallTarget::Client(client3.id().clone()),
+    ]);
+    invite(&mut client1, second_call_id, targets.clone()).await?;
+
+    let errors = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::Error(_))
+        })
+        .await;
+    assert_eq!(
+        errors.len(),
+        1,
+        "the caller should receive exactly one rate limit error, got {errors:?}"
+    );
+    let ServerMessage::Error(error) = &errors[0] else {
+        panic!("Unexpected message: {:?}", errors[0]);
+    };
+    assert_eq!(
+        error.call_id,
+        Some(second_call_id),
+        "the error should name the rejected call"
+    );
+    match &error.reason {
+        vacs_protocol::ws::shared::ErrorReason::RateLimited {
+            targets: rejected_targets,
+            retry_after_secs,
+        } => {
+            assert_eq!(
+                rejected_targets, &targets,
+                "the error should name the targets of the rejected invite"
+            );
+            assert!(
+                *retry_after_secs > 0,
+                "the caller should be told when to retry"
+            );
+        }
+        reason => panic!("Unexpected error reason: {reason:?}"),
+    }
+
+    for client in [&mut client2, &mut client3] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(invitation)
+                    if invitation.call_id == second_call_id)
+            })
+            .await;
+        assert!(
+            invitations.is_empty(),
+            "a rate limited invite must not ring anyone, got {invitations:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// The rate limit is charged per resolved target, so targets nobody is logged
+/// in for cost the caller nothing.
+#[test(tokio::test)]
+async fn unresolvable_targets_do_not_count_against_the_invite_rate_limit() -> anyhow::Result<()> {
+    let test_app =
+        TestApp::new_with_config(TestApp::default_config(), invite_rate_limiters(1)).await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+
+    // Two targets would exceed the burst outright, so this invite only passes
+    // because the offline one is dropped before the limit is charged.
+    let first_call_id = CallId::new();
+    invite(
+        &mut client1,
+        first_call_id,
+        HashSet::from([
+            CallTarget::Client(client2.id().clone()),
+            CallTarget::Client(ClientId::from("client69")),
+        ]),
+    )
+    .await?;
+
+    let invitations = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation)
+                if invitation.call_id == first_call_id)
+        })
+        .await;
+    assert_eq!(
+        invitations.len(),
+        1,
+        "the online target should ring despite the offline co-target"
+    );
+
+    client1
+        .send(ClientMessage::CallEnd(
+            vacs_protocol::ws::shared::CallEnd::new(first_call_id, client1.id().clone()),
+        ))
+        .await?;
+    client1.recv_until_timeout(Duration::from_millis(50)).await;
+    client2.recv_until_timeout(Duration::from_millis(50)).await;
+
+    // The single resolved target used up the whole burst.
+    let second_call_id = CallId::new();
+    invite(
+        &mut client1,
+        second_call_id,
+        HashSet::from([CallTarget::Client(client2.id().clone())]),
+    )
+    .await?;
+
+    let errors = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::Error(error)
+            if matches!(
+                error.reason,
+                vacs_protocol::ws::shared::ErrorReason::RateLimited { .. }
+            ))
+        })
+        .await;
+    assert_eq!(
+        errors.len(),
+        1,
+        "exactly one token may have been charged for the partially resolvable invite"
+    );
+
+    Ok(())
+}
+
+/// Growing a conference past the configured size is refused, and the refusal
+/// leaves the running call exactly as it was.
+#[test(tokio::test)]
+async fn invite_beyond_max_conference_size_leaves_the_call_unchanged() -> anyhow::Result<()> {
+    let config = AppConfig {
+        call: CallConfig { max_conf_size: 3 },
+        ..TestApp::default_config()
+    };
+    let test_app = TestApp::new_with_config(config, RateLimiters::default()).await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 4).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+    let mut client4 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let fourth_target = CallTarget::Client(client4.id().clone());
+    invite(
+        &mut client1,
+        call_id,
+        HashSet::from([fourth_target.clone()]),
+    )
+    .await?;
+
+    let errors = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+            if error.call_id == call_id
+                && error.reason
+                    == vacs_protocol::ws::shared::CallErrorReason::MaxConferenceSizeReached(
+                        HashSet::from([fourth_target.clone()])
+                    ))
+        })
+        .await;
+    assert_eq!(
+        errors.len(),
+        1,
+        "the leader should be told the conference is full"
+    );
+
+    let invitations = client4
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    assert!(
+        invitations.is_empty(),
+        "the rejected target must not ring, got {invitations:?}"
+    );
+
+    for client in [&mut client2, &mut client3] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(_) | ServerMessage::CallEnd(_))
+            })
+            .await;
+        assert!(
+            updates.is_empty(),
+            "the running conference must not be disturbed, got {updates:?}"
+        );
+    }
+
+    let active_call = test_app
+        .state()
+        .calls
+        .active_call(&call_id)
+        .expect("the conference must still exist");
+    assert_eq!(
+        active_call.participants.len(),
+        3,
+        "the rejected invite must not change the roster"
+    );
+    assert_eq!(
+        active_call.conference_leader.as_ref(),
+        Some(client1.id()),
+        "the rejected invite must not change the leadership"
     );
 
     Ok(())

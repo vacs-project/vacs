@@ -3,10 +3,13 @@ use crate::config::{AppConfig, AuthConfig, VatsimConfig};
 use crate::ice::provider::stun::StunOnlyProvider;
 use crate::ratelimit::RateLimiters;
 use crate::release::UpdateChecker;
+use crate::release::catalog::file::FileCatalog;
+use crate::release::policy::Policy;
 use crate::routes::create_app;
 use crate::state::AppState;
 use crate::store::Store;
 use crate::store::memory::MemoryStore;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,7 +34,54 @@ impl TestApp {
     }
 
     pub async fn new_with_network(network: Network) -> Self {
-        let config = AppConfig {
+        Self::build(
+            network,
+            Self::default_config(),
+            RateLimiters::default(),
+            UpdateChecker::default(),
+        )
+        .await
+    }
+
+    /// Runs the server with a tailored config, for tests that need a specific
+    /// conference size limit or invite rate limit.
+    pub async fn new_with_config(config: AppConfig, rate_limiters: RateLimiters) -> Self {
+        Self::build(
+            Network::default(),
+            config,
+            rate_limiters,
+            UpdateChecker::default(),
+        )
+        .await
+    }
+
+    /// Runs the server behind a release policy that only accepts client
+    /// protocol versions matching `compatible_protocol_range`.
+    pub async fn new_with_protocol_range(compatible_protocol_range: &str) -> Self {
+        let mut policy_file = tempfile::NamedTempFile::new().expect("Failed to create policy file");
+        writeln!(
+            policy_file,
+            "compatible_protocol_range = \"{compatible_protocol_range}\""
+        )
+        .expect("Failed to write policy file");
+
+        // Policy reads the file once, so the handle may go away afterwards.
+        let policy = Policy::new(policy_file.path()).expect("Failed to load policy");
+        let catalog = FileCatalog::new("releases.toml").expect("Failed to load release catalog");
+
+        Self::build(
+            Network::default(),
+            Self::default_config(),
+            RateLimiters::default(),
+            UpdateChecker::new(Arc::new(catalog), policy),
+        )
+        .await
+    }
+
+    /// The config every test app starts from: no VATSIM connection required
+    /// and a short login timeout.
+    pub fn default_config() -> AppConfig {
+        AppConfig {
             auth: AuthConfig {
                 login_flow_timeout_millis: 100,
                 ..Default::default()
@@ -47,19 +97,26 @@ impl TestApp {
                 data_feed_position_grace_period: Duration::from_secs(90),
             },
             ..Default::default()
-        };
+        }
+    }
 
+    async fn build(
+        network: Network,
+        config: AppConfig,
+        rate_limiters: RateLimiters,
+        updates: UpdateChecker,
+    ) -> Self {
         let mock_data_feed = Arc::new(MockDataFeed::default());
 
         let (shutdown_tx, shutdown_rx) = watch::channel(());
         let state = Arc::new(AppState::new(
             config.clone(),
-            UpdateChecker::default(),
+            updates,
             Store::Memory(MemoryStore::default()),
             SlurperClient::new("http://localhost:12345").unwrap(),
             mock_data_feed.clone(),
             network,
-            RateLimiters::default(),
+            rate_limiters,
             shutdown_rx,
             Arc::new(StunOnlyProvider::default()),
             None,
