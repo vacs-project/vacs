@@ -18,7 +18,9 @@ import {CallId, ClientId, StationId} from "../../src/types/generic.ts";
 import {makeTestCallDisplay} from "../util.ts";
 
 const CALL_ID = "call0" as CallId;
+const STATION_1: CallTarget = {station: "station1" as StationId};
 const STATION_2: CallTarget = {station: "station2" as StationId};
+const STATION_3: CallTarget = {station: "station3" as StationId};
 
 const outgoing = (overrides: Partial<OutgoingCallEvent> = {}): OutgoingCallEvent => ({
     callId: CALL_ID,
@@ -136,5 +138,106 @@ describe("outgoing call event", () => {
         const display = useCallStore.getState().callDisplay;
         expect(display?.type).toBe("outgoing");
         expect(display?.call.callId).toBe(CALL_ID);
+    });
+});
+
+describe("outgoing call event target bookkeeping", () => {
+    it("ignores an event without targets", () => {
+        actions().applyOutgoingCall(outgoing({targets: []}));
+
+        expect(useCallStore.getState().callDisplay).toBeUndefined();
+        expect(useCallListStore.getState().callList.size).toBe(0);
+    });
+
+    it("does not duplicate prio targets when the event is re-delivered", () => {
+        useCallStore.setState({
+            callDisplay: makeTestCallDisplay("accepted", {callId: CALL_ID, invitedTargets: []}),
+            conferenceState: "active",
+        });
+
+        actions().applyOutgoingCall(outgoing({prio: true}));
+        actions().applyOutgoingCall(outgoing({prio: true}));
+
+        const display = useCallStore.getState().callDisplay;
+        expect(display?.call.invitedTargets).toEqual([STATION_2]);
+        expect(display?.call.ownInvitedTargets).toEqual([STATION_2]);
+        expect(display?.prioTargets).toEqual([STATION_2]);
+    });
+
+    it("clears rejected and errored annotations of re-invited targets", () => {
+        const display = makeTestCallDisplay("accepted", {callId: CALL_ID, invitedTargets: []});
+        useCallStore.setState({
+            callDisplay: {
+                ...display,
+                rejectedTargets: [STATION_2],
+                erroredTargets: [
+                    {target: STATION_3, reason: "callFailure"},
+                    {target: STATION_1, reason: "autoHangup"},
+                ],
+            },
+        });
+
+        actions().applyOutgoingCall(outgoing({targets: [STATION_2, STATION_3]}));
+
+        const next = useCallStore.getState().callDisplay;
+        expect(next?.rejectedTargets).toEqual([]);
+        // The annotation of a target that was not re-invited survives.
+        expect(next?.erroredTargets).toEqual([{target: STATION_1, reason: "autoHangup"}]);
+    });
+});
+
+describe("rollBackInvite", () => {
+    it("restores the annotations of the rolled back targets", async () => {
+        useAuthStore.setState({cid: "client0" as ClientId});
+        const display = makeTestCallDisplay("accepted", {callId: CALL_ID, invitedTargets: []});
+        useCallStore.setState({
+            callDisplay: {
+                ...display,
+                rejectedTargets: [STATION_2],
+                erroredTargets: [{target: STATION_3, reason: "callFailure"}],
+            },
+            conferenceState: "modify",
+        });
+        invoke.mockImplementation(() => Promise.reject(new Error("offline")));
+
+        await startCall(STATION_2, STATION_3);
+
+        const next = useCallStore.getState().callDisplay;
+        expect(next?.call.invitedTargets).toEqual([]);
+        expect(next?.call.ownInvitedTargets).toEqual([]);
+        expect(next?.rejectedTargets).toEqual([STATION_2]);
+        expect(next?.erroredTargets).toEqual([{target: STATION_3, reason: "callFailure"}]);
+        expect(useCallStore.getState().conferenceState).toBe("modify");
+    });
+
+    it("removes the rolled back targets from the call list entry", async () => {
+        useAuthStore.setState({cid: "client0" as ClientId});
+        useCallListStore
+            .getState()
+            .actions.addOutgoingCallListEntry({callId: CALL_ID, targets: [STATION_1]});
+        useCallStore.setState({
+            callDisplay: makeTestCallDisplay("accepted", {callId: CALL_ID, invitedTargets: []}),
+            conferenceState: "modify",
+        });
+        invoke.mockImplementation(() => Promise.reject(new Error("offline")));
+
+        await startCall(STATION_2);
+
+        expect(useCallListStore.getState().callList.get(CALL_ID)?.targets).toEqual([
+            {target: STATION_1, clientId: undefined},
+        ]);
+    });
+
+    it("gives up the optimistic leadership claim", async () => {
+        useAuthStore.setState({cid: "client0" as ClientId});
+        useCallStore.setState({
+            callDisplay: makeTestCallDisplay("accepted", {callId: CALL_ID, invitedTargets: []}),
+            conferenceState: "modify",
+        });
+        invoke.mockImplementation(() => Promise.reject(new Error("offline")));
+
+        await startCall(STATION_2);
+
+        expect(useCallStore.getState().callDisplay?.call.isConferenceLeader).toBeUndefined();
     });
 });

@@ -1,9 +1,17 @@
 import {afterEach, describe, expect, it} from "vitest";
-import {CallDisplay, useCallStore} from "../../src/stores/call-store.ts";
+import {
+    allConnectionStates,
+    CallDisplay,
+    someConnectionState,
+    useCallStore,
+} from "../../src/stores/call-store.ts";
 import {CallTarget} from "../../src/types/call.ts";
 import {CallId, ClientId, StationId} from "../../src/types/generic.ts";
 import {useAuthStore} from "../../src/stores/auth-store.ts";
-import {makeTestCallDisplay} from "../util.ts";
+import {useBlinkStore} from "../../src/stores/blink-store.ts";
+import {useCallListStore} from "../../src/stores/call-list-store.ts";
+import type {CallErrorOrigin} from "../../src/error.ts";
+import {makeTestCall, makeTestCallDisplay} from "../util.ts";
 
 const CALL_ID = "call0" as CallId;
 const OTHER_CALL_ID = "call1" as CallId;
@@ -36,6 +44,8 @@ function cancel(target: CallTarget, callId: CallId = CALL_ID) {
 
 afterEach(() => {
     useCallStore.getState().actions.reset();
+    useCallListStore.getState().actions.clearCallList();
+    useBlinkStore.getState().stopBlink();
 });
 
 describe("call store", () => {
@@ -415,9 +425,107 @@ describe("call store", () => {
             expect(next?.erroredTargets).toEqual([]);
             expect(next?.call.joinedParticipants).toEqual(display.call.joinedParticipants);
         });
+
+        it("ignores an origin variant it does not know", () => {
+            const display = acceptedDisplay([STATION_2]);
+            useCallStore.setState({callDisplay: display, conferenceState: "active"});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "position"} as unknown as CallErrorOrigin,
+                reason: "callFailure",
+            });
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+            expect(useCallStore.getState().conferenceState).toBe("active");
+        });
+
+        it("clears the joined participants when a target error ended the call", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: acceptedDisplay([STATION_2])});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "targets", value: [STATION_2]},
+                reason: "callFailure",
+                callEnded: true,
+            });
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("error");
+            expect(display?.call.joinedParticipants).toEqual({});
+            expect(display?.call.invitedTargets).toEqual([]);
+            expect(display?.erroredTargets).toEqual([{target: STATION_2, reason: "callFailure"}]);
+            expect(display?.errorReason).toBe("callFailure");
+        });
+
+        it("drops only the matching incoming call when the error names another call", () => {
+            const display = acceptedDisplay([STATION_2]);
+            useCallStore.setState({
+                callDisplay: display,
+                incomingCalls: [makeTestCall("incoming", {callId: OTHER_CALL_ID})],
+            });
+
+            useCallStore.getState().actions.errorTargets({
+                callId: OTHER_CALL_ID,
+                origin: {type: "targets", value: [STATION_2]},
+                reason: "callFailure",
+            });
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+            expect(useCallStore.getState().incomingCalls).toEqual([]);
+        });
     });
 
     describe("removeCall", () => {
+        it("keeps a still-outgoing display on a trailing call end", () => {
+            const display = outgoingDisplay([STATION_1]);
+            useCallStore.setState({callDisplay: display, conferenceState: "active"});
+
+            useCallStore.getState().actions.removeCall(CALL_ID, true);
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+            expect(useCallStore.getState().conferenceState).toBe("active");
+        });
+
+        it("clears a still-outgoing display on a forced removal", () => {
+            useCallStore.setState({
+                callDisplay: outgoingDisplay([STATION_1]),
+                conferenceState: "active",
+            });
+
+            useCallStore.getState().actions.removeCall(CALL_ID);
+
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
+            expect(useCallStore.getState().conferenceState).toBe("inactive");
+        });
+
+        it("clears an accepted display on a call end", () => {
+            useCallStore.setState({callDisplay: acceptedDisplay([]), conferenceState: "active"});
+
+            useCallStore.getState().actions.removeCall(CALL_ID, true);
+
+            expect(useCallStore.getState().callDisplay).toBeUndefined();
+            expect(useCallStore.getState().conferenceState).toBe("inactive");
+        });
+
+        it("stops the blink and marks the entry unanswered for an incoming call", () => {
+            useCallListStore.getState().actions.addIncomingCallListEntry({
+                callId: CALL_ID,
+                source: {clientId: "client9" as ClientId},
+            });
+            useCallStore
+                .getState()
+                .actions.addIncomingCall(makeTestCall("incoming", {callId: CALL_ID}));
+            expect(useBlinkStore.getState().blinkTimeoutId).toBeDefined();
+
+            useCallStore.getState().actions.removeCall(CALL_ID, true);
+
+            expect(useCallStore.getState().incomingCalls).toEqual([]);
+            expect(useBlinkStore.getState().blinkTimeoutId).toBeUndefined();
+            expect(useCallListStore.getState().callList.get(CALL_ID)?.answered).toBe(false);
+        });
+
         it("keeps a rejected display on a trailing call end", () => {
             const display: CallDisplay = {
                 ...outgoingDisplay([]),
@@ -530,6 +638,226 @@ describe("call store", () => {
             update(null);
 
             expect(useCallStore.getState().callDisplay?.call.isConferenceLeader).toBeUndefined();
+        });
+    });
+
+    describe("updateCall connection states", () => {
+        it("keeps the state of an already joined peer and connects new ones", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            const display = acceptedDisplay([]);
+            display.call.joinedParticipants["client1" as ClientId].state = "degraded";
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [],
+                joinedParticipants: {
+                    ["client0" as ClientId]: {station: "station0" as StationId},
+                    ["client1" as ClientId]: STATION_1,
+                    ["client2" as ClientId]: STATION_2,
+                },
+            });
+
+            const joined = useCallStore.getState().callDisplay!.call.joinedParticipants;
+            expect(joined["client1" as ClientId]).toEqual({target: STATION_1, state: "degraded"});
+            expect(joined["client2" as ClientId]).toEqual({target: STATION_2, state: "connecting"});
+        });
+
+        it("marks this client connected when it first appears in the roster", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: outgoingDisplay([STATION_1])});
+
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets: [],
+                joinedParticipants: {
+                    ["client0" as ClientId]: {station: "station0" as StationId},
+                    ["client1" as ClientId]: STATION_1,
+                },
+            });
+
+            const joined = useCallStore.getState().callDisplay!.call.joinedParticipants;
+            expect(joined["client0" as ClientId].state).toBe("connected");
+            expect(joined["client1" as ClientId].state).toBe("connecting");
+        });
+    });
+
+    describe("updateCall party substitution", () => {
+        // The display's own source (client0/station0) stays a joined participant here,
+        // so only the target is substituted.
+        const update = (invitedTargets: CallTarget[], joined: Record<string, CallTarget>) =>
+            useCallStore.getState().actions.updateCall({
+                callId: CALL_ID,
+                invitedTargets,
+                joinedParticipants: {
+                    ["client0" as ClientId]: {station: "station0" as StationId},
+                    ...joined,
+                },
+            });
+
+        it("substitutes a departed target with the first remaining invited target", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            update([STATION_3], {["client2" as ClientId]: STATION_2});
+
+            expect(useCallStore.getState().callDisplay?.call.target).toEqual(STATION_3);
+        });
+
+        it("falls back to a remaining joined peer when nothing is invited", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            update([], {["client2" as ClientId]: STATION_2});
+
+            expect(useCallStore.getState().callDisplay?.call.target).toEqual(STATION_2);
+        });
+
+        it("keeps the target while it is still a party to the call", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            update([STATION_3], {["client1" as ClientId]: STATION_1});
+
+            expect(useCallStore.getState().callDisplay?.call.target).toEqual(STATION_1);
+        });
+
+        it("substitutes a departed source with the first remaining joined peer", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            const display = makeTestCallDisplay("accepted", {
+                source: {clientId: "client9" as ClientId, stationId: "station9" as StationId},
+                target: {station: "station9" as StationId},
+                invitedTargets: [],
+            });
+            useCallStore.setState({
+                callDisplay: {
+                    ...display,
+                    call: {
+                        ...display.call,
+                        joinedParticipants: {
+                            ["client0" as ClientId]: {
+                                target: {station: "station0" as StationId},
+                                state: "connected",
+                            },
+                            ["client9" as ClientId]: {
+                                target: {station: "station9" as StationId},
+                                state: "connected",
+                            },
+                        },
+                        ownInvitedTargets: [],
+                    },
+                },
+            });
+
+            update([], {["client2" as ClientId]: STATION_2});
+
+            expect(useCallStore.getState().callDisplay?.call.source).toEqual({
+                clientId: "client2" as ClientId,
+                positionId: undefined,
+                stationId: "station2" as StationId,
+            });
+        });
+
+        it("deactivates the conference when one other party remains", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({
+                callDisplay: acceptedDisplay([STATION_2]),
+                conferenceState: "active",
+            });
+
+            update([], {["client1" as ClientId]: STATION_1});
+
+            expect(useCallStore.getState().conferenceState).toBe("inactive");
+        });
+
+        it("keeps the conference active while two other parties remain", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            useCallStore.setState({
+                callDisplay: acceptedDisplay([STATION_2]),
+                conferenceState: "active",
+            });
+
+            update([STATION_2], {["client1" as ClientId]: STATION_1});
+
+            expect(useCallStore.getState().conferenceState).toBe("active");
+        });
+    });
+
+    describe("setConnectionState", () => {
+        it("writes the state of the named peer only", () => {
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            useCallStore
+                .getState()
+                .actions.setConnectionState(CALL_ID, "client1" as ClientId, "degraded");
+
+            const joined = useCallStore.getState().callDisplay!.call.joinedParticipants;
+            expect(joined["client1" as ClientId].state).toBe("degraded");
+            expect(joined["client0" as ClientId].state).toBe("connecting");
+        });
+
+        it("ignores a peer that is not in the call", () => {
+            const display = acceptedDisplay([]);
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore
+                .getState()
+                .actions.setConnectionState(CALL_ID, "client7" as ClientId, "connected");
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        it("ignores a foreign call id", () => {
+            const display = acceptedDisplay([]);
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore
+                .getState()
+                .actions.setConnectionState(OTHER_CALL_ID, "client1" as ClientId, "connected");
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+    });
+
+    describe("connection state helpers", () => {
+        function connected(): CallDisplay {
+            const display = acceptedDisplay([]);
+            display.call.joinedParticipants["client0" as ClientId].state = "connected";
+            display.call.joinedParticipants["client1" as ClientId].state = "connected";
+            return display;
+        }
+
+        it("reports a matching peer state", () => {
+            const display = connected();
+            display.call.joinedParticipants["client1" as ClientId].state = "disconnected";
+
+            expect(someConnectionState(display, "disconnected")).toBe(true);
+            expect(someConnectionState(display, "degraded")).toBe(false);
+        });
+
+        it("ignores this client's own state when excludeSelf is set", () => {
+            useAuthStore.setState({cid: "client0" as ClientId});
+            const display = connected();
+            display.call.joinedParticipants["client0" as ClientId].state = "degraded";
+
+            expect(someConnectionState(display, "degraded")).toBe(true);
+            expect(someConnectionState(display, "degraded", true)).toBe(false);
+        });
+
+        it("reports no state for an absent display", () => {
+            expect(someConnectionState(undefined, "connected")).toBe(false);
+        });
+
+        it("requires every peer to match", () => {
+            const display = connected();
+            expect(allConnectionStates(display, "connected")).toBe(true);
+
+            display.call.joinedParticipants["client1" as ClientId].state = "connecting";
+            expect(allConnectionStates(display, "connected")).toBe(false);
+        });
+
+        it("treats an absent display as vacuously matching", () => {
+            expect(allConnectionStates(undefined, "connected")).toBe(true);
         });
     });
 });
