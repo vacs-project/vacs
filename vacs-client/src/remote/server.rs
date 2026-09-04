@@ -799,8 +799,7 @@ async fn dispatch_command(
         SignalingConnect => {
             let position_id = args!(args, "positionId");
             let app_state = app.state::<AppState>();
-            let http_state = app.state::<HttpState>();
-            dispatch(signaling_connect(app.clone(), app_state, http_state, position_id).await)
+            dispatch(signaling_connect(app.clone(), app_state, position_id).await)
         }
         SignalingDisconnect => dispatch(signaling_disconnect(app.clone()).await),
         SignalingDropTarget => {
@@ -815,11 +814,7 @@ async fn dispatch_command(
         SignalingInviteToCall => {
             let (targets, source, prio) = args!(args, "targets", "source", "prio");
             let app_state = app.state::<AppState>();
-            let http_state = app.state::<HttpState>();
-            dispatch(
-                signaling_invite_to_call(app.clone(), app_state, http_state, targets, source, prio)
-                    .await,
-            )
+            dispatch(signaling_invite_to_call(app.clone(), app_state, targets, source, prio).await)
         }
         SignalingAcceptCall => {
             let call_id = args!(args, "callId");
