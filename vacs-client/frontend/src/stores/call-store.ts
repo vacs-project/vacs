@@ -754,6 +754,17 @@ export const startCall = async (...targets: CallTarget[]) => {
         return;
     }
 
+    if (
+        callDisplay !== undefined &&
+        targets.some(
+            target =>
+                hasTarget(callDisplay.call.joinedParticipants, target) ||
+                hasTarget(callDisplay.call.invitedTargets, target),
+        )
+    ) {
+        return;
+    }
+
     const currentCallSize =
         callDisplay !== undefined
             ? participantCount(callDisplay.call.joinedParticipants) +

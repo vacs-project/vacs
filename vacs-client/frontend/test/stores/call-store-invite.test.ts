@@ -166,6 +166,50 @@ describe("startCall guards", () => {
         expect(useCallStore.getState().callDisplay).toBe(display);
     });
 
+    it("ignores an invite for a target that already joined the call", async () => {
+        useAuthStore.setState({cid: "client0" as ClientId});
+        const display = makeTestCallDisplay("accepted", {invitedTargets: []});
+        display.call.joinedParticipants["client2" as ClientId] = {
+            target: STATION_2,
+            state: "connected",
+        };
+        useCallStore.setState({callDisplay: display, conferenceState: "modify"});
+
+        await startCall(STATION_2);
+
+        expect(invoke).not.toHaveBeenCalled();
+        expect(useCallStore.getState().callDisplay).toBe(display);
+        expect(useErrorOverlayStore.getState().visible).toBe(false);
+    });
+
+    it("ignores an invite for a target that is already ringing", async () => {
+        useAuthStore.setState({cid: "client0" as ClientId});
+        const display = makeTestCallDisplay("accepted", {invitedTargets: [STATION_2]});
+        useCallStore.setState({callDisplay: display, conferenceState: "modify"});
+
+        await startCall(STATION_2);
+
+        expect(invoke).not.toHaveBeenCalled();
+        expect(useCallStore.getState().callDisplay).toBe(display);
+        expect(useErrorOverlayStore.getState().visible).toBe(false);
+    });
+
+    it("allows re-inviting a target that rejected", async () => {
+        useAuthStore.setState({cid: "client0" as ClientId});
+        const display = makeTestCallDisplay("accepted", {invitedTargets: []});
+        display.rejectedTargets = [STATION_2];
+        useCallStore.setState({callDisplay: display, conferenceState: "modify"});
+
+        await startCall(STATION_2);
+
+        expect(invoke).toHaveBeenCalledWith(
+            "signaling_invite_to_call",
+            expect.objectContaining({targets: [STATION_2]}),
+        );
+        expect(useErrorOverlayStore.getState().visible).toBe(false);
+        expect(useCallStore.getState().callDisplay?.call.invitedTargets).toEqual([STATION_2]);
+    });
+
     it("consumes the temporary station source and clears it", async () => {
         useAuthStore.setState({cid: "client0" as ClientId});
         useConnectionStore.getState().setConnectionInfo({
