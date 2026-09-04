@@ -6,6 +6,7 @@ import {useFilterStore} from "../stores/filter-store.ts";
 import {useCallStore} from "../stores/call-store.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
 import DirectAccessKeyButton from "./ui/DirectAccessKeyButton.tsx";
+import {hasTarget} from "../types/call.ts";
 
 type ClientPageProps = {
     config: ClientPageConfig;
@@ -107,14 +108,20 @@ function ClientPageGroupKey({
             .map(client => client.id);
     }, [clients, group]);
 
-    const isCalling = incomingCalls.some(call => clientIdsInGroup.includes(call.source.clientId));
+    const isCalling = incomingCalls.some(
+        call =>
+            clientIdsInGroup.includes(call.source.clientId) ||
+            clientIdsInGroup.some(clientId => clientId in call.joinedParticipants),
+    );
     const involved =
         callDisplay !== undefined &&
         (clientIdsInGroup.includes(callDisplay.call.source.clientId) ||
             clientIdsInGroup.some(
                 clientId =>
                     callDisplay.call.invitedTargets.some(target => target.client === clientId) ||
-                    clientId in callDisplay.call.joinedParticipants,
+                    clientId in callDisplay.call.joinedParticipants ||
+                    hasTarget(callDisplay.rejectedTargets, {client: clientId}) ||
+                    hasTarget(callDisplay.erroredTargets, {client: clientId}),
             ));
     const beingCalled = callDisplay?.type === "outgoing" && involved;
     const inCall = callDisplay?.type === "accepted" && involved;
