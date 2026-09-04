@@ -28,11 +28,13 @@ vi.mock("../../src/transport", () => ({
 }));
 
 import {useSettingsStore} from "../../src/stores/settings-store.ts";
+import {type CallListItem, useCallListStore} from "../../src/stores/call-list-store.ts";
 import {useCallStore} from "../../src/stores/call-store.ts";
+import {useStationsStore} from "../../src/stores/stations-store.ts";
 import {hydrateStores, SessionStateSnapshot} from "../../src/transport/hydrate.ts";
 import {setupStoreSync} from "../../src/transport/store-sync.ts";
 import {flushMicrotasks, makeTestCall, makeTestCallDisplay} from "../util.ts";
-import type {CallId, ClientId} from "../../src/types/generic.ts";
+import type {CallId, ClientId, StationId} from "../../src/types/generic.ts";
 
 const snapshot: SessionStateSnapshot = {
     connectionState: "disconnected",
@@ -72,12 +74,27 @@ function findStoreSyncCallback() {
     return call[1];
 }
 
+const receiveCallListSync = (callList: [CallId, CallListItem][]) =>
+    handlers.get("store:sync")!({
+        payload: {store: "callList", state: {callList}, sourceId: "desktop"},
+    });
+
+const CALL_LIST_ITEM: CallListItem = {
+    type: "OUT",
+    time: "12:34",
+    name: "LOWI APP",
+    targets: [{target: {station: "LOWI_APP" as StationId}, clientId: undefined}],
+    answered: true,
+};
+
 describe("store sync", () => {
     afterEach(() => {
         useSettingsStore.setState({playbackEnabled: false});
         vi.clearAllMocks();
         useCallStore.getState().actions.reset();
         useCallStore.getState().actions.setPrio(false);
+        useCallListStore.getState().actions.clearCallList();
+        useStationsStore.getState().reset();
     });
 
     it("does not re-broadcast store state while hydrating from a snapshot", async () => {
@@ -267,6 +284,81 @@ describe("store sync", () => {
             callDisplay: undefined,
             incomingCalls: null,
             conferenceState: "active",
+        });
+
+        teardown();
+    });
+
+    it("falls back to the snapshot's default call sources without session info", () => {
+        hydrateStores({
+            ...snapshot,
+            stations: [
+                {id: "LOVV_N1" as StationId, own: false},
+                {id: "LOVV_N2" as StationId, own: true},
+            ],
+            defaultCallSources: ["LOVV_N1" as StationId, "LOVV_N2" as StationId],
+        });
+
+        expect(useStationsStore.getState().positionDefaultSources).toEqual([
+            "LOVV_N1" as StationId,
+            "LOVV_N2" as StationId,
+        ]);
+        expect(useStationsStore.getState().defaultSource).toBe("LOVV_N2" as StationId);
+        expect(useCallStore.getState().maxConferenceSize).toBeUndefined();
+    });
+
+    it("applies an incoming call list sync as a map", async () => {
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        invoke.mockClear();
+
+        receiveCallListSync([["call0" as CallId, CALL_LIST_ITEM]]);
+
+        expect(useCallListStore.getState().callList.get("call0" as CallId)).toEqual(CALL_LIST_ITEM);
+        expect(invoke).not.toHaveBeenCalledWith("remote_broadcast_store_sync", expect.anything());
+
+        teardown();
+    });
+
+    it("broadcasts a local call list change as entry pairs", async () => {
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        invoke.mockClear();
+
+        useCallListStore.getState().actions.addOutgoingCallListEntry({
+            callId: "call0" as CallId,
+            targets: [{station: "LOWI_APP" as StationId}],
+        });
+
+        const broadcast = invoke.mock.calls.find(
+            ([cmd, args]) => cmd === "remote_broadcast_store_sync" && args?.store === "callList",
+        );
+        expect(broadcast?.[1]?.state).toEqual({
+            callList: [
+                ["call0" as CallId, useCallListStore.getState().callList.get("call0" as CallId)],
+            ],
+        });
+
+        teardown();
+    });
+
+    it("broadcasts a prio change while a live display is up", async () => {
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        useCallStore.setState({callDisplay: makeTestCallDisplay("accepted")});
+        invoke.mockClear();
+
+        useCallStore.getState().actions.setPrio(true);
+
+        expect(invoke).toHaveBeenCalledWith("remote_broadcast_store_sync", {
+            store: "call",
+            state: {
+                prio: true,
+                callDisplay: null,
+                incomingCalls: null,
+                conferenceState: "inactive",
+            },
+            sourceId: expect.any(String),
         });
 
         teardown();
