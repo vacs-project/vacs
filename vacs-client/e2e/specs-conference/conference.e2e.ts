@@ -6,6 +6,7 @@ import {
     clientKey,
     conferenceKey,
     getClient,
+    showClientKey,
     waitForCallColor,
 } from "../helpers/browser.ts";
 
@@ -15,31 +16,6 @@ import {
 const CID_A = "10000004";
 const CID_B = "10000005";
 const CID_C = "10000006";
-
-/**
- * Brings the client key for the given display name into view, opening the
- * "OTHER" client group (all clients without a resolved VATSIM position) when
- * the page still shows the group keys. Unlike the one-shot helper in
- * specs/call.e2e.ts this is safe to call repeatedly: the group key is gone
- * once the group is open, and END resets the page back to the group keys.
- */
-async function showClientKey(
-    browser: WebdriverIO.Browser,
-    displayName: string,
-): Promise<ChainablePromiseElement> {
-    await browser.waitUntil(
-        async () => {
-            if (await clientKey(browser, displayName).isExisting()) return true;
-            const group = await browser.$("button*=OTHER");
-            if (await group.isDisplayed()) await click(browser, group);
-            return false;
-        },
-        {timeoutMsg: `Client key for ${displayName} did not appear in the OTHER group`},
-    );
-    const key = clientKey(browser, displayName);
-    await key.waitForDisplayed();
-    return key;
-}
 
 /**
  * Clicks another client's key. Depending on the current call state that
