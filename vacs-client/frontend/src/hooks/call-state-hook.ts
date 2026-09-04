@@ -21,11 +21,8 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
 
     const incomingCall = incomingCalls.find(
         call =>
-            call.source.stationId !== undefined &&
-            (stationIds.includes(call.source.stationId) ||
-                stationIds.some(stationId =>
-                    hasTarget(call.joinedParticipants, {station: stationId}),
-                )),
+            (call.source.stationId !== undefined && stationIds.includes(call.source.stationId)) ||
+            stationIds.some(stationId => hasTarget(call.joinedParticipants, {station: stationId})),
     );
     const isCalling = incomingCall !== undefined;
     const beingCalled = stationIds.some(stationId =>
