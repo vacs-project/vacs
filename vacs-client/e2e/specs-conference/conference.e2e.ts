@@ -6,9 +6,12 @@ import {
     clientKey,
     conferenceKey,
     getClient,
+    inviteTarget,
     showClientKey,
     waitForCallColor,
+    waitForErroredKey,
 } from "../helpers/browser.ts";
+import {SignalingTestClient} from "../helpers/signaling-client.ts";
 
 // Users without matching datafeed controllers: their sessions stay
 // positionless (display name = CID) regardless of datafeed sync timing, so
@@ -16,6 +19,9 @@ import {
 const CID_A = "10000004";
 const CID_B = "10000005";
 const CID_C = "10000006";
+// A fourth client for the size limit, present as a raw signaling client: the
+// suite runs three app instances, and the refused target never needs a UI.
+const CID_D = "10000007";
 
 /**
  * Clicks another client's key. Depending on the current call state that
@@ -36,39 +42,6 @@ async function clickClientKey(browser: WebdriverIO.Browser, displayName: string)
 async function waitForJoined(browser: WebdriverIO.Browser, displayNames: string[]): Promise<void> {
     for (const displayName of displayNames) {
         await waitForCallColor(browser, await showClientKey(browser, displayName), {active: true});
-    }
-}
-
-/**
- * Invites another target into the client's current call through the same
- * signaling command a client key invokes. Needed only where the UI offers no
- * affordance: a fresh call cannot be given a second target, because the CONF
- * key stays locked until a call is established.
- */
-async function inviteTarget(
-    browser: WebdriverIO.Browser,
-    ownCid: string,
-    targetCid: string,
-): Promise<void> {
-    const result = await browser.execute(
-        async (own: string, target: string) => {
-            try {
-                await window.__TAURI_INTERNALS__.invoke("signaling_invite_to_call", {
-                    source: {clientId: own},
-                    targets: [{client: target}],
-                    prio: false,
-                });
-                return {ok: true as const};
-            } catch (e) {
-                return {ok: false as const, error: String(e)};
-            }
-        },
-        ownCid,
-        targetCid,
-    );
-
-    if (!result.ok) {
-        throw new Error(`signaling_invite_to_call failed for ${targetCid}: ${result.error}`);
     }
 }
 
@@ -105,6 +78,8 @@ async function establishConference(): Promise<void> {
 }
 
 describe("Conference Calls", () => {
+    let peers: SignalingTestClient[] = [];
+
     beforeEach(async () => {
         await resetMockState();
         await restartApps();
@@ -113,6 +88,19 @@ describe("Conference Calls", () => {
         await loginAndConnect(getClient("clientB"), CID_B);
         await loginAndConnect(getClient("clientC"), CID_C);
     });
+
+    afterEach(() => {
+        for (const peer of peers) {
+            peer.disconnect();
+        }
+        peers = [];
+    });
+
+    async function connectPeer(cid: string): Promise<SignalingTestClient> {
+        const peer = await SignalingTestClient.connect(cid);
+        peers.push(peer);
+        return peer;
+    }
 
     it("should connect a conference whose callees were invited before either accepted", async () => {
         const clientA = getClient("clientA");
@@ -278,5 +266,39 @@ describe("Conference Calls", () => {
         // The leader also left the client list, so its key is gone entirely.
         await clientKey(clientB, CID_A).waitForDisplayed({reverse: true});
         await clientKey(clientC, CID_A).waitForDisplayed({reverse: true});
+    });
+
+    it("should refuse an invite beyond the max conference size", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+        const clientC = getClient("clientC");
+        // Connected before the conference forms, so its client key is in the
+        // list by the time the refused invite has to annotate it.
+        const peerD = await connectPeer(CID_D);
+
+        await establishConference();
+
+        // The frontend carries its own guard against exceeding maxConfSize
+        // (from the session info) and would refuse this before it ever
+        // reached the server, so the invite goes out through the command a
+        // client key would invoke. What is under test is the server's
+        // refusal and how the client renders it.
+        await inviteTarget(clientA, CID_A, CID_D);
+
+        // The refusal annotates the target that could not join and names the
+        // reason in the info grid. The cell's title carries the raw reason,
+        // which the client prefixes with where the error came from and the
+        // CSS then uppercases.
+        await waitForErroredKey(clientA, await showClientKey(clientA, CID_D));
+        await clientA.$('//div[@title="Remote Max conf size"]').waitForDisplayed();
+
+        // The fourth client never rang.
+        await peerD.expectNoMessage(msg => msg.type === "callInvitation");
+
+        // The running conference is untouched on all three clients.
+        await waitForJoined(clientA, [CID_B, CID_C]);
+        await waitForJoined(clientB, [CID_A, CID_C]);
+        await waitForJoined(clientC, [CID_A, CID_B]);
+        await callDisplaySlot(clientA).waitForDisplayed();
     });
 });
