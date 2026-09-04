@@ -16,9 +16,17 @@ export const SCREENSHOT_DIR =
 /**
  * Captures the whole webview. The embedded driver snapshots webview content
  * only, so the result carries no window decorations.
+ *
+ * `settle` overrides the pause before the snapshot. Lower it only for a state
+ * the UI does not hold still, such as a blinking key, where waiting out the
+ * color transition would also wait out the phase being captured.
  */
-export async function captureWindow(browser: WebdriverIO.Browser, name: string): Promise<string> {
-    return write(await frame(browser), name);
+export async function captureWindow(
+    browser: WebdriverIO.Browser,
+    name: string,
+    options: {settle?: number} = {},
+): Promise<string> {
+    return write(await frame(browser, options.settle), name);
 }
 
 /**
@@ -94,11 +102,11 @@ export async function freezeClock(browser: WebdriverIO.Browser, iso: string): Pr
 /** Long enough for the UI's color transitions to finish (150ms in Tailwind). */
 const SETTLE_MS = 300;
 
-async function frame(browser: WebdriverIO.Browser): Promise<PNG> {
+async function frame(browser: WebdriverIO.Browser, settle?: number): Promise<PNG> {
     // Without this, a capture taken right after a state change can land
     // mid-transition, which makes the same image differ between runs: the
     // clear buttons next to the key fields animate their stroke color.
-    await browser.pause(SETTLE_MS);
+    await browser.pause(settle ?? SETTLE_MS);
     const encoded = await browser.takeScreenshot();
     return PNG.sync.read(Buffer.from(encoded, "base64"));
 }
