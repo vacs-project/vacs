@@ -4,8 +4,12 @@ import {
     callDisplaySlot,
     callQueueSlot,
     click,
+    clientKey,
     getClient,
+    inviteTarget,
+    showClientKey,
     startCallTo,
+    waitForCallColor,
     waitForOutgoingCall,
     waitForRejectedCall,
 } from "../helpers/browser.ts";
@@ -16,6 +20,8 @@ const APP_CID = "10000004";
 // A raw signaling client without a datafeed controller keeps its CID as
 // display name, which is also the label of its client key.
 const PEER_CID = "10000005";
+// The conference's third party, positionless for the same reason.
+const SECOND_PEER_CID = "10000006";
 
 describe("Remote Call State", () => {
     let peers: SignalingTestClient[] = [];
@@ -108,5 +114,51 @@ describe("Remote Call State", () => {
         await click(clientA, callDisplaySlot(clientA));
         await callDisplaySlot(clientA).waitForDisplayed({reverse: true});
         await callDisplaySlot(remoteBrowser).waitForDisplayed({reverse: true});
+    });
+
+    it("should drop a conference participant from the remote browser", async () => {
+        const clientA = getClient("clientA");
+        // Both peers connect before the browser hydrates, so their client
+        // keys come with the snapshot and can be pressed without waiting for
+        // a client list update.
+        const first = await connectPeer(PEER_CID);
+        const second = await connectPeer(SECOND_PEER_CID);
+        const remoteBrowser = await openRemoteBrowser();
+
+        // Two targets on one call, invited before either accepts: the CONF
+        // key needs connected media to unlock, and raw signaling clients
+        // never answer the WebRTC offer, so the second target goes out
+        // through the command the key would invoke. The app instance ends up
+        // the conference leader either way, since it is the source both
+        // acceptances name.
+        await startCallTo(clientA, PEER_CID);
+        const firstInvitation = await first.waitForMessage(msg => msg.type === "callInvitation");
+        await inviteTarget(clientA, APP_CID, SECOND_PEER_CID);
+        const secondInvitation = await second.waitForMessage(msg => msg.type === "callInvitation");
+
+        first.accept(firstInvitation.callId as string);
+        second.accept(secondInvitation.callId as string);
+
+        // Three parties on both UIs before the drop, so a key going idle
+        // afterwards can only be the drop.
+        for (const browser of [clientA, remoteBrowser]) {
+            await waitForCallColor(browser, await showClientKey(browser, PEER_CID), {active: true});
+            await waitForCallColor(browser, await showClientKey(browser, SECOND_PEER_CID), {
+                active: true,
+            });
+        }
+
+        // The leader's key press in the browser dispatches signaling_drop_target
+        // over the remote transport; nothing else in the suite exercises it.
+        await click(remoteBrowser, await showClientKey(remoteBrowser, SECOND_PEER_CID));
+
+        await second.waitForMessage(msg => msg.type === "callEnd");
+
+        // Both UIs converge on the two-party call that is left.
+        for (const browser of [clientA, remoteBrowser]) {
+            await waitForCallColor(browser, clientKey(browser, SECOND_PEER_CID), {active: false});
+            await waitForCallColor(browser, clientKey(browser, PEER_CID), {active: true});
+            await callDisplaySlot(browser).waitForDisplayed();
+        }
     });
 });
