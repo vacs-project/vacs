@@ -7,11 +7,13 @@ import {loginAndConnectAs, removeController, resetMockState} from "../helpers/au
 import {
     callQueueSlot,
     click,
+    conferenceKey,
     getClient,
     mockCommand,
     selectOption,
     tauriApi,
     waitForCallColor,
+    waitForErroredKey,
 } from "../helpers/browser.ts";
 import {annotate, clearAnnotations} from "../helpers/annotate.ts";
 import {captureElement, captureWindow, freezeClock} from "../helpers/screenshot.ts";
@@ -40,9 +42,46 @@ const POSITION_A = "LOVV_E_CTR";
 // A user without a datafeed controller keeps the position it is given.
 const CID_B = "10000005";
 const POSITION_B = "LOVV_BC_CTR";
+// A third client, for the conference images. LOWG APP sits on the same
+// direct access page as the S sectors, so all three parties of the captured
+// conference are keys of one page.
+const CID_C = "10000006";
+const POSITION_C = "LOWG_APP";
 // The datafeed's own BC controller would mask the S stations that make the
 // call in the degraded-call capture routable.
 const DATAFEED_BC_CID = "10000003";
+
+// The direct access group holding the S sectors and the Graz keys, and the
+// keys inside it. S1 through S7 are covered by LOVV_BC_CTR and LOWG APP by
+// its own position, so who answers which key is decided by the dataset, not
+// by call routing luck.
+const S_GROUP = '//button[.//p[@title="S"] and .//p[@title="LOWG"]]';
+const S1_KEY = '//button[.//p[@title="S1"]]';
+const S2_KEY = '//button[.//p[@title="S2"]]';
+const LOWG_APP_KEY = '//button[.//p[@title="LOWG"] and .//p[@title="APP"]]';
+
+/** The call display: the topmost call queue slot, which shows the own call. */
+const CALL_DISPLAY =
+    '//div[contains(@class, "scrollbar-none")]' +
+    '/div[contains(@class, "relative")]/button[contains(@class, "h-16")]';
+/**
+ * An incoming call's answer key: a call queue slot that is a direct child of
+ * the queue, unlike the call display, which sits in a wrapper. Matched
+ * structurally because a conference invitation is labeled CONF rather than
+ * with the caller's name.
+ */
+const INCOMING_ANSWER_KEY =
+    '//div[contains(@class, "scrollbar-none")]/button[contains(@class, "h-16")]';
+/** The call list row labeled CONF, on the telephone page. */
+const CALL_LIST_CONF_ROW =
+    '//div[contains(@class, "px-0.5") and contains(@class, "font-semibold")][text()="CONF"]';
+/** The bottom right info grid cell, which names the last call error. */
+const INFO_GRID_ERROR = '//div[@title="Remote Target participating"]';
+/** The button in the right hand column that opens the telephone page. */
+const TELEPHONE_BUTTON = '//button[.//img[@alt="Telephone"]]';
+/** The call status indicator in the window's top left corner. */
+const STATUS_INDICATOR =
+    '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]';
 
 // Device metadata behind the joystick screenshots. SDL GUIDs, a throttle and
 // a yoke, chosen so the images show two distinguishable products rather than
@@ -370,9 +409,7 @@ describe("Documentation screenshots", () => {
         // Wait out the real negotiation first: a call-connected event arriving
         // after the degrade event would put the call back to connected and
         // take the icon away again mid-capture.
-        const indicator = clientA.$(
-            '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]',
-        );
+        const indicator = clientA.$(STATUS_INDICATOR);
         await clientA.waitUntil(
             async () => ((await indicator.getAttribute("class")) ?? "").includes("bg-green"),
             {timeoutMsg: "Call did not reach the connected state"},
@@ -397,7 +434,7 @@ describe("Documentation screenshots", () => {
         // elements, so they stay on the right thing when the layout moves.
         await annotate(clientA, [
             {
-                target: '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]',
+                target: STATUS_INDICATOR,
                 badge: 1,
                 // The indicator sits in the window's top-left corner, so the
                 // badge goes below it: the other corners cover the clock.
@@ -412,7 +449,187 @@ describe("Documentation screenshots", () => {
         await captureWindow(clientA, "troubleshooting/degraded-call-annotated.png");
         await clearAnnotations(clientA);
     });
+
+    it("captures a conference call and its refused target", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+        const clientC = getClient("clientC");
+        await removeController(DATAFEED_BC_CID);
+        await restartApps();
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await loginAndConnectAs(clientB, CID_B, POSITION_B);
+        await loginAndConnectAs(clientC, CID_C, POSITION_C);
+
+        const group = await clientA.$(S_GROUP);
+        await group.waitForDisplayed();
+        await click(clientA, group);
+
+        // The 1:1 call the conference grows from. Both callees answer by
+        // pressing the caller's key, which carries its default call source.
+        const s1 = clientA.$(S1_KEY);
+        await waitUntilEnabled(clientA, s1, "S1");
+        await click(clientA, s1);
+        const answerB = clientB.$(INCOMING_ANSWER_KEY);
+        await answerB.waitForDisplayed();
+        await click(clientB, answerB);
+        await waitForCallColor(clientA, s1, {active: true});
+        await waitForConnectedCall(clientA);
+
+        // CONF unlocks only once the call is established and its media
+        // connected; pressing it opens modify mode, and the next key press
+        // adds that sector to the call instead of starting a new one.
+        const conf = conferenceKey(clientA);
+        await clientA.waitUntil(async () => await conf.isEnabled(), {
+            timeoutMsg: "CONF key did not unlock for the established call",
+        });
+        await click(clientA, conf);
+
+        const lowgApp = clientA.$(LOWG_APP_KEY);
+        await waitUntilEnabled(clientA, lowgApp, "LOWG APP");
+        await click(clientA, lowgApp);
+        // The invitation reaches clientC as a conference: two parties are
+        // already in the call, so its answer key reads CONF.
+        const answerC = clientC.$(INCOMING_ANSWER_KEY);
+        await answerC.waitForDisplayed();
+        await click(clientC, answerC);
+        await waitForCallColor(clientA, lowgApp, {active: true});
+        await waitForConnectedCall(clientA);
+        // Every leg of the mesh is up: no participant carries the
+        // disconnected marker the call display would show for a dead link.
+        await clientA.$('img[alt="Disconnected"]').waitForDisplayed({reverse: true});
+
+        // The prose walks the CONF key first, then the sector that was added
+        // through it.
+        await annotate(clientA, [
+            // Below the key: every placement above it covers the header's callsign.
+            {target: '//button[@title="Conference Call"]', badge: 1, place: "bottom-right"},
+            {target: LOWG_APP_KEY, badge: 2, place: "top-right"},
+        ]);
+        await captureWindow(clientA, "using-vacs/conference-call.png");
+        await clearAnnotations(clientA);
+
+        // The same call seen from the telephone page: the call display and
+        // the call list both label a conference CONF rather than naming one
+        // party.
+        await click(clientA, clientA.$(TELEPHONE_BUTTON));
+        await clientA.$(CALL_LIST_CONF_ROW).waitForDisplayed();
+        await annotate(clientA, [
+            {target: CALL_DISPLAY, badge: 1, place: "left"},
+            // Below the row rather than beside it, which would cover the CIDs.
+            {target: CALL_LIST_CONF_ROW, badge: 2, place: "bottom-right"},
+        ]);
+        await captureWindow(clientA, "using-vacs/conference-call-list.png");
+        await clearAnnotations(clientA);
+        await click(clientA, clientA.$(TELEPHONE_BUTTON));
+        await clientA.$(CALL_LIST_CONF_ROW).waitForDisplayed({reverse: true});
+
+        // A target the server refuses. S2 is covered by the same controller
+        // that already answered S1, so the invite comes back as a refusal
+        // rather than ringing anywhere: the key is annotated and the reason
+        // lands in the info grid.
+        await click(clientA, conf);
+        const s2 = clientA.$(S2_KEY);
+        await waitUntilEnabled(clientA, s2, "S2");
+        await click(clientA, s2);
+        await waitForErroredKey(clientA, s2);
+        await clientA.$(INFO_GRID_ERROR).waitForDisplayed();
+
+        await annotate(clientA, [
+            {target: S2_KEY, badge: 1, place: "top-right"},
+            // The cell sits in the window's top right corner, so the badge goes
+            // to its left; above it would be cut off by the window edge.
+            {target: INFO_GRID_ERROR, badge: 2, place: "left"},
+        ]);
+        await captureBlinkingWindow(clientA, "using-vacs/conference-refused-target.png", S2_KEY);
+        await clearAnnotations(clientA);
+    });
+
+    it("captures the Call Config", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        await openSettings(clientA);
+        await openSettingsPage(clientA, "Call");
+        const dialog = subPage(clientA, "Call Config");
+        await dialog.waitForDisplayed();
+
+        // The two conference sounds, in the order the page lists them.
+        await annotate(clientA, [
+            {
+                target: callConfigRowSelector("Play participant joined sound"),
+                badge: 1,
+                place: "left",
+            },
+            {
+                target: callConfigRowSelector("Play participant left sound"),
+                badge: 2,
+                place: "left",
+            },
+        ]);
+        // Padding, so the badges outside the rows' left edge stay in frame.
+        await captureElement(clientA, dialog, "settings/CallConfigPage.png", {padding: 18});
+        await clearAnnotations(clientA);
+    });
 });
+
+/** Waits until a direct access key is clickable, i.e. its station is online. */
+async function waitUntilEnabled(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+    label: string,
+): Promise<void> {
+    await element.waitForDisplayed();
+    await browser.waitUntil(async () => await element.isEnabled(), {
+        timeoutMsg: `${label} did not come online`,
+    });
+}
+
+/**
+ * Waits until the call status indicator is green, which is the point at
+ * which every peer of the current call carries media. Capturing before it
+ * would show a call still negotiating.
+ */
+async function waitForConnectedCall(browser: WebdriverIO.Browser): Promise<void> {
+    const indicator = browser.$(STATUS_INDICATOR);
+    await browser.waitUntil(
+        async () => ((await indicator.getAttribute("class")) ?? "").includes("bg-green"),
+        {timeoutMsg: "Call did not reach the connected state"},
+    );
+}
+
+/**
+ * Captures the window while the given element is in the colored half of its
+ * blink cycle. A rejected or errored key blinks with a 500ms period, so the
+ * capture is timed to the phase and verified afterwards rather than taken
+ * after the usual settle pause, which would land in whichever half came
+ * next.
+ */
+async function captureBlinkingWindow(
+    browser: WebdriverIO.Browser,
+    name: string,
+    selector: string,
+): Promise<void> {
+    const isLit = async () =>
+        ((await browser.$(selector).getAttribute("class")) ?? "").includes("bg-red-500");
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+        await browser.waitUntil(isLit, {
+            interval: 25,
+            timeoutMsg: "Key did not blink red for the capture",
+        });
+        await captureWindow(browser, name, {settle: 0});
+        if (await isLit()) return;
+    }
+
+    throw new Error(`Could not capture ${name} inside the blink's colored phase`);
+}
+
+/** The row of the Call Config carrying the given setting label. */
+function callConfigRowSelector(label: string): string {
+    return `//div[./label[text()="${label}"]]`;
+}
 
 /**
  * Pins everything in the window that would otherwise differ per run: the
