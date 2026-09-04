@@ -158,6 +158,13 @@ pub enum PlaybackError {
     #[error("WAV writer error: {0}")]
     Wav(String),
     #[error("Audio source error: {0}")]
+    #[cfg_attr(
+        target_os = "macos",
+        allow(
+            dead_code,
+            reason = "only the Linux/Windows capture sources construct this; macOS has no source"
+        )
+    )]
     Source(String),
     #[error("Playback capture not supported on this platform")]
     #[cfg_attr(
