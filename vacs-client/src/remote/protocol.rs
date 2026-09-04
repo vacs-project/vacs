@@ -510,3 +510,29 @@ impl ServerMessage {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn event_names_are_unique() {
+        // `as_str` is written by hand per variant; a duplicated name would make one
+        // of the two events unsubscribable.
+        let names: HashSet<&str> = RemoteEvent::ALL.iter().map(|e| e.as_str()).collect();
+        assert_eq!(names.len(), RemoteEvent::ALL.len());
+    }
+
+    #[test]
+    fn subscriptions_name_events_by_their_wire_name() {
+        let msg = r#"{"type":"subscribe","event":"signaling:call-invitation"}"#;
+        let parsed: ClientMessage = serde_json::from_str(msg).expect("subscribe parses");
+        assert!(matches!(
+            parsed,
+            ClientMessage::Subscribe {
+                event: RemoteEvent::SignalingCallInvitation
+            }
+        ));
+    }
+}

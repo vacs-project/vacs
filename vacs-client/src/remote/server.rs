@@ -913,3 +913,58 @@ async fn dispatch_command(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::CallConfig;
+    use crate::config::AppConfig;
+    use crate::platform::Platform;
+
+    #[test]
+    fn the_session_state_snapshot_keeps_its_camel_case_shape() {
+        let snapshot = SessionStateSnapshot {
+            connection_state: ConnectionState::default(),
+            session_info: None,
+            default_call_sources: Vec::new(),
+            stations: Vec::new(),
+            clients: Vec::new(),
+            client_id: None,
+            call_config: CallConfig::default().into(),
+            client_page_settings: FrontendClientPageSettings::from(&AppConfig::default()),
+            capabilities: Capabilities {
+                always_on_top: false,
+                keybind_listener: false,
+                keybind_emitter: false,
+                joystick: false,
+                playback: false,
+                platform: Platform::Unknown,
+            },
+        };
+
+        let json = serde_json::to_value(&snapshot).expect("snapshot serializes");
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .expect("snapshot is an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+
+        // The browser destructures exactly these in transport/hydrate.ts.
+        assert_eq!(
+            keys,
+            [
+                "callConfig",
+                "capabilities",
+                "clientId",
+                "clientPageSettings",
+                "clients",
+                "connectionState",
+                "defaultCallSources",
+                "sessionInfo",
+                "stations",
+            ]
+        );
+    }
+}
