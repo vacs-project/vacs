@@ -7,6 +7,8 @@ use vacs_protocol::VACS_PROTOCOL_VERSION;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{self, ServerMessage};
+use vacs_server::config::{AppConfig, CallConfig};
+use vacs_server::ratelimit::RateLimiters;
 use vacs_server::test_utils::{
     TestApp, TestClient, assert_message_matches, assert_raw_message_matches, connect_to_websocket,
     setup_test_clients,
@@ -404,4 +406,34 @@ async fn incompatible_protocol_version_is_refused() {
     )
     .await
     .expect("A client speaking the current protocol version must still log in");
+}
+
+#[test(tokio::test)]
+async fn session_info_advertises_the_configured_max_conference_size() {
+    let config = AppConfig {
+        call: CallConfig { max_conf_size: 3 },
+        ..TestApp::default_config()
+    };
+    let test_app = TestApp::new_with_config(config, RateLimiters::default()).await;
+
+    let mut ws_stream = connect_to_websocket(test_app.addr()).await;
+    let login = ClientMessage::Login(vacs_protocol::ws::client::Login {
+        token: "token1".to_string(),
+        protocol_version: VACS_PROTOCOL_VERSION.to_string(),
+        custom_profile: false,
+        position_id: None,
+    });
+    ws_stream
+        .send(tungstenite::Message::from(
+            ClientMessage::serialize(&login).unwrap(),
+        ))
+        .await
+        .expect("Failed to send Login message");
+
+    assert_raw_message_matches(ws_stream.next().await, |response| match response {
+        ServerMessage::SessionInfo(server::SessionInfo { max_conf_size, .. }) => {
+            assert_eq!(max_conf_size, Some(3));
+        }
+        _ => panic!("Unexpected response: {response:?}"),
+    });
 }
