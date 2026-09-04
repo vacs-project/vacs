@@ -92,7 +92,7 @@ describe("useCallState", () => {
             expect(state().isCalling).toBe(true);
         });
 
-        it("ignores an incoming call from a source without a station", () => {
+        it("matches an incoming call from a stationless source once a page station joined", () => {
             useCallStore.setState({
                 incomingCalls: [
                     incomingCall({
@@ -102,7 +102,7 @@ describe("useCallState", () => {
                 ],
             });
 
-            expect(state().isCalling).toBe(false);
+            expect(state().isCalling).toBe(true);
         });
 
         it("ignores an incoming call that no page station is part of", () => {
