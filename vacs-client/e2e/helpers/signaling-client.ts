@@ -1,5 +1,8 @@
 import WebSocket from "ws";
 
+/** Distinguishes a failed expectation from the wait's own timeout. */
+class AssertionError extends Error {}
+
 const SERVER_BASE = "http://127.0.0.1:4568";
 const WS_URL = "ws://127.0.0.1:4568/ws";
 const PROTOCOL_VERSION = "2.0.0";
@@ -210,6 +213,24 @@ export class SignalingTestClient {
         }
 
         return matches().slice(0, count);
+    }
+
+    /**
+     * Resolves once the window has passed without any received message
+     * matching the predicate, and rejects as soon as one does. The only way
+     * to assert a message is never sent, so the window is a real wait rather
+     * than a stand-in for a condition that could be polled.
+     */
+    async expectNoMessage(
+        predicate: (msg: ServerMessage) => boolean,
+        windowMs: number = 2000,
+    ): Promise<void> {
+        try {
+            const [message] = await this.waitForMessages(predicate, 1, windowMs);
+            throw new AssertionError(`Unexpected signaling message: ${JSON.stringify(message)}`);
+        } catch (e) {
+            if (e instanceof AssertionError) throw e;
+        }
     }
 
     disconnect(): void {

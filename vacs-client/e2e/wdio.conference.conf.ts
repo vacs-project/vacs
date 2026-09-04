@@ -7,6 +7,13 @@ import {clearAppLogs, configureInstances} from "./helpers/app-control.ts";
 // the same time, and onPrepare reaps every recorded app process first.
 const EMBEDDED_PORT_BASE = 4450;
 
+// The server's default limit is 8, which three app instances plus a raw
+// signaling client cannot reach. Set here rather than in wdio.conf.ts so only
+// the conference suite runs against it, and at module scope because the
+// worker loads this config before beforeSession spawns vacs-server with the
+// environment it inherits.
+process.env["VACS-CALL-MAX_CONF_SIZE"] = "3";
+
 configureInstances([
     {name: "clientA", port: EMBEDDED_PORT_BASE},
     {name: "clientB", port: EMBEDDED_PORT_BASE + 1},

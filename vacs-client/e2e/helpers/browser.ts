@@ -269,3 +269,59 @@ export async function waitForRejectedCall(browser: WebdriverIO.Browser): Promise
         {interval: 150, timeoutMsg: "Call display did not blink green for the rejected call"},
     );
 }
+
+/**
+ * Invites another target into the app instance's current call through the
+ * same signaling command a client key invokes. Needed only where the UI
+ * offers no affordance: the CONF key stays locked until a call is
+ * established and its media connected, so a call whose peers never
+ * negotiate (raw signaling clients) can never be grown from the UI, and a
+ * fresh call cannot be given a second target at all.
+ *
+ * Runs the invoke in the page, so it only works on an app instance; the
+ * remote browser has no __TAURI_INTERNALS__.
+ */
+export async function inviteTarget(
+    browser: WebdriverIO.Browser,
+    ownCid: string,
+    targetCid: string,
+): Promise<void> {
+    const result = await browser.execute(
+        async (own: string, target: string) => {
+            try {
+                await window.__TAURI_INTERNALS__.invoke("signaling_invite_to_call", {
+                    source: {clientId: own},
+                    targets: [{client: target}],
+                    prio: false,
+                });
+                return {ok: true as const};
+            } catch (e) {
+                return {ok: false as const, error: String(e)};
+            }
+        },
+        ownCid,
+        targetCid,
+    );
+
+    if (!result.ok) {
+        throw new Error(`signaling_invite_to_call failed for ${targetCid}: ${result.error}`);
+    }
+}
+
+/**
+ * Waits until the given key carries a call error annotation: an errored key
+ * blinks red with the 500ms blink period, so this samples until it catches
+ * the red half instead of reading the class list once.
+ */
+export async function waitForErroredKey(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    await browser.waitUntil(
+        async () => {
+            const classes = (await element.getAttribute("class")) ?? "";
+            return classes.includes("bg-red-500");
+        },
+        {interval: 150, timeoutMsg: "Key did not blink red for the errored target"},
+    );
+}

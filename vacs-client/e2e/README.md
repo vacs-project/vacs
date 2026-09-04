@@ -36,6 +36,9 @@ This runs three WebdriverIO configs in sequence:
   ports 4450-4452), covering conference calls. Specs live in
   `specs-conference/`. It inherits everything but the instance count from
   `wdio.conf.ts`, which keeps the two-instance suite's lifecycle untouched.
+  It also caps the server's conference size at 3
+  (`VACS-CALL-MAX_CONF_SIZE`), so a refused fourth invite is reachable with
+  a raw signaling client instead of a fourth app instance.
 
 Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 (optionally `--mochaOpts.grep "<test name>"`).
