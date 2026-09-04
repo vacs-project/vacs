@@ -250,4 +250,33 @@ describe("Conference Calls", () => {
         await callDisplaySlot(clientA).waitForDisplayed();
         await callDisplaySlot(clientC).waitForDisplayed();
     });
+
+    it("should end the conference for everyone when the leader disconnects", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+        const clientC = getClient("clientC");
+
+        await establishConference();
+
+        // The leader vanishes instead of hanging up: signaling_disconnect
+        // drops the websocket and tears the call down locally without ever
+        // sending a call end, which is the closest reachable stand-in for a
+        // crashed or network-dropped leader. Ending the conference for the
+        // survivors is then the server's job alone.
+        await clientA.execute(async () => {
+            await window.__TAURI_INTERNALS__.invoke("signaling_disconnect");
+        });
+
+        // The leader itself is back on the connect page.
+        await clientA.$("button*=Connect").waitForDisplayed();
+
+        // Both survivors lose the call, not just the leader's leg of it.
+        await callDisplaySlot(clientB).waitForDisplayed({reverse: true});
+        await callDisplaySlot(clientC).waitForDisplayed({reverse: true});
+        await waitForCallColor(clientB, clientKey(clientB, CID_C), {active: false});
+        await waitForCallColor(clientC, clientKey(clientC, CID_B), {active: false});
+        // The leader also left the client list, so its key is gone entirely.
+        await clientKey(clientB, CID_A).waitForDisplayed({reverse: true});
+        await clientKey(clientC, CID_A).waitForDisplayed({reverse: true});
+    });
 });
