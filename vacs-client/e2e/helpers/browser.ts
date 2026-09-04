@@ -183,3 +183,89 @@ export async function waitForCallColor(
         },
     );
 }
+
+/**
+ * Brings the client key for the given display name into view, opening the
+ * "OTHER" client group (all clients without a resolved VATSIM position) when
+ * the page still shows the group keys. Safe to call repeatedly: the group key
+ * is gone once the group is open, and END resets the page to the group keys.
+ */
+export async function showClientKey(
+    browser: WebdriverIO.Browser,
+    displayName: string,
+): Promise<ChainablePromiseElement> {
+    await browser.waitUntil(
+        async () => {
+            if (await clientKey(browser, displayName).isExisting()) return true;
+            const group = await browser.$("button*=OTHER");
+            if (await group.isDisplayed()) await click(browser, group);
+            return false;
+        },
+        {timeoutMsg: `Client key for ${displayName} did not appear in the OTHER group`},
+    );
+    const key = clientKey(browser, displayName);
+    await key.waitForDisplayed();
+    return key;
+}
+
+/**
+ * Starts a call to the client with the given display name by clicking its
+ * client key. Only valid while the client is idle: on a client that already
+ * has a call display the same click accepts, drops or ends instead.
+ */
+export async function startCallTo(
+    browser: WebdriverIO.Browser,
+    displayName: string,
+): Promise<void> {
+    const key = await showClientKey(browser, displayName);
+    await click(browser, key);
+}
+
+/**
+ * The green highlight the call display carries while the call is outgoing or
+ * rejected. It is an inner div, distinct from the key's own background: an
+ * accepted call turns the key itself green and has no highlight.
+ */
+function callDisplayHighlight(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return callDisplaySlot(browser).$('.//div[contains(@class, "bg-[#4b8747]")]');
+}
+
+/**
+ * Waits until the call display shows a ringing outgoing call: a steady gray
+ * key with the green inner highlight. The sampling window is what separates
+ * it from the rejected and errored displays, which carry the same highlight
+ * but blink their key color with a 500ms period.
+ */
+export async function waitForOutgoingCall(browser: WebdriverIO.Browser): Promise<void> {
+    await callDisplayHighlight(browser).waitForDisplayed();
+    await browser.waitUntil(
+        async () => {
+            // Longer than two blink periods, so no blink can hide in the gaps.
+            for (let sample = 0; sample < 12; sample++) {
+                const classes = (await callDisplaySlot(browser).getAttribute("class")) ?? "";
+                if (classes.includes("bg-[#4b8747]") || classes.includes("bg-red-500")) {
+                    return false;
+                }
+                await browser.pause(100);
+            }
+            return true;
+        },
+        {timeoutMsg: "Call display did not stay a steady outgoing call"},
+    );
+}
+
+/**
+ * Waits until the call display shows a rejected call: the key blinks green
+ * while keeping the green inner highlight. Seeing the key green at all is
+ * what separates it from the steady-gray outgoing display.
+ */
+export async function waitForRejectedCall(browser: WebdriverIO.Browser): Promise<void> {
+    await callDisplayHighlight(browser).waitForDisplayed();
+    await browser.waitUntil(
+        async () => {
+            const classes = (await callDisplaySlot(browser).getAttribute("class")) ?? "";
+            return classes.includes("bg-[#4b8747]");
+        },
+        {interval: 150, timeoutMsg: "Call display did not blink green for the rejected call"},
+    );
+}

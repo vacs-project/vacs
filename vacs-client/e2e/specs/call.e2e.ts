@@ -1,32 +1,19 @@
 import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
-import {callQueueSlot, click, clientKey, getClient, waitForCallColor} from "../helpers/browser.ts";
+import {
+    callQueueSlot,
+    click,
+    clientKey,
+    getClient,
+    showClientKey,
+    startCallTo,
+    waitForCallColor,
+} from "../helpers/browser.ts";
 
 // Users without matching datafeed controllers: their sessions stay
 // positionless (display name = CID) regardless of datafeed sync timing.
 const CID_A = "10000004";
 const CID_B = "10000005";
-
-/**
- * Opens the "OTHER" client group on the client page, which contains all
- * connected clients without a resolved VATSIM position (labeled by CID).
- */
-async function openOtherClients(browser: WebdriverIO.Browser): Promise<void> {
-    const group = await browser.$("button*=OTHER");
-    await group.waitForDisplayed();
-    await click(browser, group);
-}
-
-/**
- * Starts a call from the given browser to the client with the given CID by
- * clicking its client key.
- */
-async function startCallTo(browser: WebdriverIO.Browser, targetCid: string): Promise<void> {
-    await openOtherClients(browser);
-    const key = clientKey(browser, targetCid);
-    await key.waitForDisplayed();
-    await click(browser, key);
-}
 
 describe("Call Flow", () => {
     beforeEach(async () => {
@@ -84,10 +71,7 @@ describe("Call Flow", () => {
         await waitForCallColor(clientA, clientKey(clientA, CID_B), {active: true});
 
         // The callee ends the call by clicking the caller's client key.
-        await openOtherClients(clientB);
-        const callerKey = clientKey(clientB, CID_A);
-        await callerKey.waitForDisplayed();
-        await click(clientB, callerKey);
+        await click(clientB, await showClientKey(clientB, CID_A));
 
         await callQueueSlot(clientA, CID_B).waitForDisplayed({reverse: true});
         await callQueueSlot(clientB, CID_A).waitForDisplayed({reverse: true});
