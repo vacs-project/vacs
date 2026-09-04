@@ -19,10 +19,11 @@ import {
 } from "../../../src/components/ui/Button.tsx";
 import {CallDisplay, CallDisplayType, useCallStore} from "../../../src/stores/call-store.ts";
 import {useAuthStore} from "../../../src/stores/auth-store.ts";
+import {useBlinkStore} from "../../../src/stores/blink-store.ts";
 import type {CallParticipantsWithConnectionState} from "../../../src/types/call.ts";
 import type {ClientInfo} from "../../../src/types/client.ts";
 import type {CallId, ClientId} from "../../../src/types/generic.ts";
-import {makeTestCallDisplay} from "../../util.ts";
+import {makeTestCall, makeTestCallDisplay} from "../../util.ts";
 
 const CALL_ID = "call0" as CallId;
 const OWN = "1000000" as ClientId;
@@ -94,6 +95,7 @@ function expectColorAndHighlight(color: ButtonColor, highlight: ButtonHighlightC
 afterEach(() => {
     cleanup();
     useCallStore.getState().actions.reset();
+    useBlinkStore.setState({blink: false});
     invoke.mockReset();
     invoke.mockImplementation(() => Promise.resolve(undefined));
 });
@@ -275,5 +277,29 @@ describe("DirectAccessClientKey", () => {
         const display = useCallStore.getState().callDisplay;
         expect(display?.type).toBe("accepted");
         expect(display?.erroredTargets).toEqual([]);
+    });
+
+    it("shows priority for an incoming prio call while a call is displayed", async () => {
+        useCallStore.setState({
+            callDisplay: makeClientCallDisplay({
+                type: "accepted",
+                joinedClients: [OWN, SECOND_PEER],
+            }),
+            incomingCalls: [
+                makeTestCall("incoming", {
+                    callId: "call1" as CallId,
+                    source: {clientId: THIRD_PEER},
+                    prio: true,
+                }),
+            ],
+        });
+        await act(() => {
+            useBlinkStore.setState({blink: true});
+        });
+        render(
+            <DirectAccessClientKey client={{...peerClient, id: THIRD_PEER}} config={undefined} />,
+        );
+
+        expectColorAndHighlight("yellow", "green");
     });
 });
