@@ -186,16 +186,22 @@ impl AudioManager {
 
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
-            while let Some(err) = error_rx.recv().await {
-                let state = app.state::<AppState>();
-                let mut state = state.lock().await;
+            // The stream is discarded on the first error, so later events from
+            // it are stale and must not touch whatever replaced it.
+            let Some(err) = error_rx.recv().await else {
+                log::debug!("Playback capture error receiver closed");
+                return;
+            };
+            let state = app.state::<AppState>();
+            let mut state = state.lock().await;
 
-                end_call_on_stream_failure(&app, &mut state, "capture").await;
+            app.state::<AudioManagerHandle>()
+                .write()
+                .discard_input_device();
+            end_call_on_stream_failure(&app, &mut state, "capture").await;
 
-                app.emit::<FrontendError>("error", Error::from(err).into())
-                    .ok();
-            }
-            log::debug!("Playback capture error receiver closed");
+            app.emit::<FrontendError>("error", Error::from(err).into())
+                .ok();
         });
 
         let capture = CaptureStream::start(
@@ -354,6 +360,19 @@ impl AudioManager {
         {
             self.level_meter_users = 0;
             log::debug!("Detached input device");
+        }
+    }
+
+    /// Drops a failed capture stream regardless of its subscribers, so the
+    /// next attach opens a fresh device instead of resubscribing to a dead one.
+    pub fn discard_input_device(&mut self) {
+        if self
+            .input
+            .take_if(|capture| !capture.is_level_meter())
+            .is_some()
+        {
+            self.level_meter_users = 0;
+            log::debug!("Discarded failed input device");
         }
     }
 
