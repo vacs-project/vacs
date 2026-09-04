@@ -55,6 +55,25 @@ pub struct AppStateInner {
 pub type AppState = TokioMutex<AppStateInner>;
 
 impl AppStateInner {
+    /// Builds the mock audio backend, honoring `VACS_MOCK_AUDIO_CONFIG`:
+    /// when set, it must point to a TOML file deserializing into a
+    /// `MockBackendConfig`, allowing tests to define custom device layouts.
+    #[cfg(feature = "mock-audio")]
+    fn mock_audio_backend() -> anyhow::Result<vacs_audio::backend::mock::MockBackend> {
+        use anyhow::Context;
+
+        let Some(config_path) = std::env::var_os("VACS_MOCK_AUDIO_CONFIG") else {
+            return Ok(vacs_audio::backend::mock::MockBackend::default());
+        };
+
+        log::info!("Loading mock audio config from {config_path:?}");
+        let raw = std::fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read mock audio config {config_path:?}"))?;
+        let config = toml::from_str(&raw)
+            .with_context(|| format!("Failed to parse mock audio config {config_path:?}"))?;
+        Ok(vacs_audio::backend::mock::MockBackend::new(config))
+    }
+
     pub fn new(app: &AppHandle) -> Result<Self, StartupError> {
         let config_dir = app
             .path()
@@ -63,6 +82,19 @@ impl AppStateInner {
 
         let config = AppConfig::parse(&config_dir).map_startup_err(StartupError::Config)?;
         let shutdown_token = CancellationToken::new();
+
+        // Log the selected backend: a mock-audio build can never use real
+        // audio, which must be diagnosable from the logs.
+        #[cfg(feature = "mock-audio")]
+        let audio_backend: Arc<dyn vacs_audio::backend::AudioBackend> = {
+            log::info!("Using mock audio backend (mock-audio feature enabled)");
+            Arc::new(Self::mock_audio_backend().map_startup_err(StartupError::Audio)?)
+        };
+        #[cfg(not(feature = "mock-audio"))]
+        let audio_backend: Arc<dyn vacs_audio::backend::AudioBackend> = {
+            log::info!("Using cpal audio backend");
+            Arc::new(vacs_audio::backend::cpal::CpalBackend)
+        };
 
         Ok(Self {
             config: config.clone(),
@@ -73,7 +105,7 @@ impl AppStateInner {
                 config.client.max_signaling_reconnect_attempts(),
             ),
             audio_manager: Arc::new(RwLock::new(
-                AudioManager::new(app.clone(), &config.audio)
+                AudioManager::new(audio_backend, app.clone(), &config.audio)
                     .map_startup_err(StartupError::Audio)?,
             )),
             keybind_engine: Arc::new(TokioRwLock::new(KeybindEngine::new(
