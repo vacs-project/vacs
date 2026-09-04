@@ -1905,3 +1905,588 @@ async fn refused_drop_carries_the_authoritative_call_state() -> anyhow::Result<(
 
     Ok(())
 }
+
+/// Builds a three-party conference led by `leader` and drains the messages of
+/// its setup, so that the assertions afterwards only see the traffic under
+/// test.
+async fn setup_conference(
+    leader: &mut TestClient,
+    member1: &mut TestClient,
+    member2: &mut TestClient,
+    call_id: CallId,
+) -> anyhow::Result<()> {
+    join_call(leader, member1, call_id).await?;
+    join_call(leader, member2, call_id).await?;
+
+    for client in [leader, member1, member2] {
+        client.recv_until_timeout(Duration::from_millis(50)).await;
+    }
+
+    Ok(())
+}
+
+/// Leadership never transfers, so the leader hanging up tears the whole
+/// conference down.
+#[test(tokio::test)]
+async fn conference_leader_ending_the_call_ends_it_for_everyone() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let client1_id = client1.id().clone();
+    client1
+        .send(ClientMessage::CallEnd(
+            vacs_protocol::ws::shared::CallEnd::new(call_id, client1_id.clone()),
+        ))
+        .await?;
+
+    for client in [&mut client2, &mut client3] {
+        let ends = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallEnd(end)
+                    if end.call_id == call_id && end.ending_client_id == client1_id)
+            })
+            .await;
+        assert_eq!(
+            ends.len(),
+            1,
+            "every survivor should receive CallEnd naming the leader"
+        );
+    }
+
+    assert!(
+        test_app.state().calls.active_call(&call_id).is_none(),
+        "the conference must be gone once its leader ended it"
+    );
+
+    Ok(())
+}
+
+/// A dropped signaling connection ends the conference just like an explicit
+/// hangup, and the end is attributed to the leader that went away.
+#[test(tokio::test)]
+async fn conference_leader_disconnect_ends_the_call_for_everyone() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let client1_id = client1.id().clone();
+    client1.close().await;
+
+    for client in [&mut client2, &mut client3] {
+        let ends = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallEnd(end)
+                    if end.call_id == call_id && end.ending_client_id == client1_id)
+            })
+            .await;
+        assert_eq!(
+            ends.len(),
+            1,
+            "every survivor should receive CallEnd naming the disconnected leader"
+        );
+    }
+
+    assert!(
+        test_app.state().calls.active_call(&call_id).is_none(),
+        "the conference must be gone once its leader disconnected"
+    );
+
+    Ok(())
+}
+
+/// A non-leader leaving only shrinks the conference; back at two participants
+/// the call loses its leader and continues as a regular call.
+#[test(tokio::test)]
+async fn conference_member_ending_the_call_shrinks_it_to_a_regular_call() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let client3_id = client3.id().clone();
+    client3
+        .send(ClientMessage::CallEnd(
+            vacs_protocol::ws::shared::CallEnd::new(call_id, client3_id.clone()),
+        ))
+        .await?;
+
+    for client in [&mut client1, &mut client2] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && !update.joined_participants.contains_key(&client3_id)
+                        && update.conference_leader.is_none())
+            })
+            .await;
+        assert_eq!(
+            updates.len(),
+            1,
+            "survivors should see the leaver go and the leadership cleared"
+        );
+    }
+
+    let active_call = test_app
+        .state()
+        .calls
+        .active_call(&call_id)
+        .expect("the call must outlive a non-leader leaving");
+    assert_eq!(
+        active_call.participants.len(),
+        2,
+        "the two survivors must remain in the call"
+    );
+
+    Ok(())
+}
+
+#[test(tokio::test)]
+async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let client3_id = client3.id().clone();
+    client3.close().await;
+
+    for client in [&mut client1, &mut client2] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && !update.joined_participants.contains_key(&client3_id)
+                        && update.conference_leader.is_none())
+            })
+            .await;
+        assert_eq!(
+            updates.len(),
+            1,
+            "survivors should see the disconnected member go"
+        );
+    }
+
+    let active_call = test_app
+        .state()
+        .calls
+        .active_call(&call_id)
+        .expect("the call must outlive a non-leader disconnecting");
+    assert_eq!(
+        active_call.participants.len(),
+        2,
+        "the two survivors must remain in the call"
+    );
+
+    Ok(())
+}
+
+/// One dead link between two conference members removes the member that
+/// joined later, and only once both endpoints have reported it.
+#[test(tokio::test)]
+async fn confirmed_link_failure_evicts_the_later_joiner_of_the_pair() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let client2_id = client2.id().clone();
+    let client3_id = client3.id().clone();
+
+    client2
+        .send(ClientMessage::CallError(
+            vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::PeerConnectionFailed(
+                    client3_id.clone(),
+                ),
+                message: None,
+            },
+        ))
+        .await?;
+
+    for client in [&mut client1, &mut client2, &mut client3] {
+        let messages = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(
+                    m,
+                    ServerMessage::CallUpdate(_)
+                        | ServerMessage::CallError(_)
+                        | ServerMessage::CallEnd(_)
+                )
+            })
+            .await;
+        assert!(
+            messages.is_empty(),
+            "a one-sided link report must not be acted on, got {messages:?}"
+        );
+    }
+
+    client3
+        .send(ClientMessage::CallError(
+            vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::PeerConnectionFailed(
+                    client2_id.clone(),
+                ),
+                message: None,
+            },
+        ))
+        .await?;
+
+    let evicted_messages = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_) | ServerMessage::CallEnd(_))
+        })
+        .await;
+    assert_eq!(
+        evicted_messages.len(),
+        2,
+        "the evictee should be told why and then that the call is over, got {evicted_messages:?}"
+    );
+    assert!(
+        matches!(&evicted_messages[0], ServerMessage::CallError(error)
+        if error.call_id == call_id
+            && error.reason
+                == vacs_protocol::ws::shared::CallErrorReason::PeerConnectionFailed(
+                    client2_id.clone()
+                )),
+        "the eviction should name the peer that could not be reached, got {evicted_messages:?}"
+    );
+    assert!(
+        matches!(&evicted_messages[1], ServerMessage::CallEnd(end)
+            if end.call_id == call_id && end.ending_client_id == client3_id),
+        "the eviction should be followed by CallEnd, got {evicted_messages:?}"
+    );
+
+    for client in [&mut client1, &mut client2] {
+        let updates = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallUpdate(update)
+                    if update.call_id == call_id
+                        && !update.joined_participants.contains_key(&client3_id))
+            })
+            .await;
+        assert_eq!(
+            updates.len(),
+            1,
+            "the survivors of the dead link should only see the roster change"
+        );
+    }
+
+    let active_call = test_app
+        .state()
+        .calls
+        .active_call(&call_id)
+        .expect("the call must survive the eviction");
+    assert_eq!(
+        active_call.participants.len(),
+        2,
+        "only the later joiner of the broken pair may be evicted"
+    );
+
+    Ok(())
+}
+
+/// A peer-scoped failure reason is passed on to the survivors, so their UI can
+/// name the participant that dropped out. The call-scoped counterpart is
+/// covered by `conference_member_call_failure_only_updates_survivors`.
+#[test(tokio::test)]
+async fn conference_member_webrtc_failure_names_the_leaver_to_the_survivors() -> anyhow::Result<()>
+{
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+
+    let client3_id = client3.id().clone();
+    client3
+        .send(ClientMessage::CallError(
+            vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::WebrtcFailure(
+                    client3_id.clone(),
+                ),
+                message: None,
+            },
+        ))
+        .await?;
+
+    for client in [&mut client1, &mut client2] {
+        let messages = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(
+                    m,
+                    ServerMessage::CallUpdate(_)
+                        | ServerMessage::CallError(_)
+                        | ServerMessage::CallEnd(_)
+                )
+            })
+            .await;
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallError(error)
+                if error.call_id == call_id
+                    && error.reason
+                        == vacs_protocol::ws::shared::CallErrorReason::WebrtcFailure(
+                            client3_id.clone()
+                        ))),
+            "survivors should learn which peer failed, got {messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && !update.joined_participants.contains_key(&client3_id))),
+            "survivors should see the failing member leave, got {messages:?}"
+        );
+        assert!(
+            !messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallEnd(_))),
+            "the survivors' own call must continue, got {messages:?}"
+        );
+    }
+
+    let active_call = test_app
+        .state()
+        .calls
+        .active_call(&call_id)
+        .expect("the call must outlive one member's WebRTC failure");
+    assert!(
+        !active_call.participants.contains_key(&client3_id),
+        "the failing member must be removed from the call"
+    );
+
+    Ok(())
+}
+
+/// Invites `targets` into `call_id` on behalf of `caller`.
+async fn invite(
+    caller: &mut TestClient,
+    call_id: CallId,
+    targets: HashSet<CallTarget>,
+) -> anyhow::Result<()> {
+    caller
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: caller.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets,
+                prio: false,
+            },
+        ))
+        .await
+}
+
+/// Every callee of a multi-target invite learns about its co-targets, but is
+/// never listed as a target to itself.
+#[test(tokio::test)]
+async fn multi_target_invitation_lists_the_co_targets() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let client2_target = CallTarget::Client(client2.id().clone());
+    let client3_target = CallTarget::Client(client3.id().clone());
+
+    let call_id = CallId::new();
+    invite(
+        &mut client1,
+        call_id,
+        HashSet::from([client2_target.clone(), client3_target.clone()]),
+    )
+    .await?;
+
+    for (client, own_target, co_target) in [
+        (&mut client2, &client2_target, &client3_target),
+        (&mut client3, &client3_target, &client2_target),
+    ] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(invitation)
+                    if invitation.call_id == call_id)
+            })
+            .await;
+        assert_eq!(invitations.len(), 1, "every target should be rung once");
+
+        let ServerMessage::CallInvitation(invitation) = &invitations[0] else {
+            panic!("Unexpected message: {:?}", invitations[0]);
+        };
+        assert_eq!(
+            &invitation.target, own_target,
+            "the invitation should carry the recipient's own identity"
+        );
+        assert_eq!(
+            invitation.invited_targets,
+            HashSet::from([co_target.clone()]),
+            "the invitation should list the co-target and never the recipient itself"
+        );
+        assert!(
+            invitation.joined_participants.is_empty(),
+            "nobody has joined a freshly placed call yet"
+        );
+        assert_eq!(
+            invitation.conference_leader, None,
+            "a call that is not a conference yet has no leader"
+        );
+    }
+
+    Ok(())
+}
+
+/// A busy co-target only fails its own target: the other target keeps ringing
+/// and can still turn the invite into a call.
+#[test(tokio::test)]
+async fn busy_co_target_fails_without_disturbing_the_other_target() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 4).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+    let mut client4 = clients.remove(0);
+
+    let busy_call_id = CallId::new();
+    join_call(&mut client3, &mut client4, busy_call_id).await?;
+
+    let call_id = CallId::new();
+    invite(
+        &mut client1,
+        call_id,
+        HashSet::from([
+            CallTarget::Client(client2.id().clone()),
+            CallTarget::Client(client3.id().clone()),
+        ]),
+    )
+    .await?;
+
+    for client in [&mut client2, &mut client3] {
+        let invitations = client
+            .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+                matches!(m, ServerMessage::CallInvitation(invitation)
+                    if invitation.call_id == call_id)
+            })
+            .await;
+        assert_eq!(
+            invitations.len(),
+            1,
+            "both targets ring, the busy one included"
+        );
+    }
+
+    client3
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client3.id().clone(),
+            },
+        ))
+        .await?;
+
+    let errors = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(error)
+                if error.call_id == call_id
+                    && error.reason == vacs_protocol::ws::shared::CallErrorReason::CallActive)
+        })
+        .await;
+    assert_eq!(
+        errors.len(),
+        1,
+        "the busy client is told its accept was refused"
+    );
+
+    let cancelled = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallCancelled(cancelled)
+            if cancelled.call_id == call_id
+                && cancelled.targets == HashSet::from([CallTarget::Client(client3.id().clone())])
+                && cancelled.reason
+                    == vacs_protocol::ws::server::CallCancelReason::Errored(
+                        vacs_protocol::ws::shared::CallErrorReason::CallActive
+                    ))
+        })
+        .await;
+    assert_eq!(
+        cancelled.len(),
+        1,
+        "the caller learns that only the busy target failed"
+    );
+
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+
+    let client2_id = client2.id().clone();
+    let updates = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(&client2_id))
+        })
+        .await;
+    assert_eq!(
+        updates.len(),
+        1,
+        "the surviving target can still answer the call"
+    );
+
+    let busy_call_messages = client4
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(_) | ServerMessage::CallEnd(_))
+        })
+        .await;
+    assert!(
+        busy_call_messages.is_empty(),
+        "the busy client's own call is untouched, got {busy_call_messages:?}"
+    );
+
+    Ok(())
+}
