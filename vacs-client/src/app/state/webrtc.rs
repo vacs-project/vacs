@@ -156,6 +156,9 @@ impl WebrtcPeer {
     /// Closes the peer in a detached task: callers hold the app state mutex,
     /// and joining the close there would block every command for its duration.
     pub fn shutdown_detached(self) {
+        // Cancelled before the spawn so events still queued for this peer are
+        // dropped instead of raced against the close.
+        self.events_cancel.cancel();
         tauri::async_runtime::spawn(self.shutdown());
     }
 
@@ -243,13 +246,20 @@ impl WebrtcCall {
     }
 
     pub async fn shutdown(self) {
-        self.cancel.cancel();
+        self.cancel_events();
 
         let mut closing = JoinSet::new();
         for peer in self.into_peers() {
             closing.spawn(peer.shutdown());
         }
         closing.join_all().await;
+    }
+
+    pub fn cancel_events(&self) {
+        self.cancel.cancel();
+        for peer in self.peers.values() {
+            peer.events_cancel.cancel();
+        }
     }
 }
 
@@ -569,6 +579,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         if let Some(old_peer) = old_peer {
             let audio_source_id = old_peer.audio_source_id;
+            old_peer.events_cancel.cancel();
             detach_input_after(self.audio_manager.clone(), old_peer.shutdown());
 
             if let Some(audio_source_id) = audio_source_id {
@@ -641,6 +652,7 @@ impl AppStateWebrtcExt for AppStateInner {
 
         let audio_source_id = peer.audio_source_id;
         let connected = peer.connected;
+        peer.events_cancel.cancel();
         detach_input_after(self.audio_manager.clone(), peer.shutdown());
 
         let left_sound = connected
@@ -685,6 +697,7 @@ impl AppStateWebrtcExt for AppStateInner {
         self.keybind_engine.read().await.set_call_active(false);
 
         let was_connected = webrtc_call.was_connected();
+        webrtc_call.cancel_events();
         // Detached for the same reason as shutdown_detached: this runs under
         // the app state mutex, and a conference teardown joins N peer closes.
         detach_input_after(self.audio_manager.clone(), webrtc_call.shutdown());
@@ -835,6 +848,7 @@ impl AppStateInner {
                 .write()
                 .detach_call_output(audio_source_id);
         }
+        peer.events_cancel.cancel();
         detach_input_after(self.audio_manager.clone(), peer.shutdown());
     }
 
@@ -1321,6 +1335,9 @@ fn spawn_peer_events_task(
 
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
+                            if cancel.is_cancelled() {
+                                break;
+                            }
                             if let Err(err) = state.on_peer_connected(&app, call_id, &peer_id).await
                             {
                                 let reason = err.into_call_error_reason(own_client_id.clone());
@@ -1340,6 +1357,9 @@ fn spawn_peer_events_task(
 
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
+                            if cancel.is_cancelled() {
+                                break;
+                            }
 
                             let mut sender = None;
                             let mut was_connected = false;
@@ -1384,6 +1404,9 @@ fn spawn_peer_events_task(
 
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
+                            if cancel.is_cancelled() {
+                                break;
+                            }
 
                             if let Some(peer) = state.webrtc_peer_mut(call_id, &peer_id) {
                                 peer.established = false;
@@ -1429,6 +1452,9 @@ fn spawn_peer_events_task(
 
                             let app_state = app.state::<AppState>();
                             let mut state = app_state.lock().await;
+                            if cancel.is_cancelled() {
+                                break;
+                            }
 
                             state.cleanup_call_peer(call_id, &peer_id).await;
 
@@ -1445,6 +1471,9 @@ fn spawn_peer_events_task(
                     PeerEvent::IceCandidate(candidate) => {
                         let app_state = app.state::<AppState>();
                         let mut state = app_state.lock().await;
+                        if cancel.is_cancelled() {
+                            break;
+                        }
 
                         if let Err(err) = state
                             .send_signaling_message(shared::WebrtcIceCandidate {
@@ -1463,6 +1492,9 @@ fn spawn_peer_events_task(
 
                         let app_state = app.state::<AppState>();
                         let mut state = app_state.lock().await;
+                        if cancel.is_cancelled() {
+                            break;
+                        }
 
                         match state
                             .try_relay_reconnect(&app, call_id, peer_id.clone(), &own_client_id)
