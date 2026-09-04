@@ -14,11 +14,12 @@ import {useStationKeyInteraction} from "../../src/hooks/station-key-interaction-
 import {useStationsStore} from "../../src/stores/stations-store.ts";
 import {CallDisplay, CallDisplayType, useCallStore} from "../../src/stores/call-store.ts";
 import {useSettingsStore} from "../../src/stores/settings-store.ts";
-import type {ClientId, StationId} from "../../src/types/generic.ts";
+import {useBlinkStore} from "../../src/stores/blink-store.ts";
+import type {CallId, ClientId, PositionId, StationId} from "../../src/types/generic.ts";
 import type {ButtonColor, ButtonHighlightColor} from "../../src/components/ui/Button.tsx";
 import type {StationInfo} from "../../src/types/station.ts";
 import type {CallParticipantsWithConnectionState, CallTarget} from "../../src/types/call.ts";
-import {makeTestCallDisplay} from "../util.ts";
+import {makeTestCall, makeTestCallDisplay} from "../util.ts";
 
 const OWN_STATION = "LOVV_N1" as StationId;
 const OTHER_OWN_STATION = "LOVV_N2" as StationId;
@@ -95,6 +96,7 @@ afterEach(() => {
     vi.clearAllMocks();
     useStationsStore.getState().reset();
     useCallStore.getState().actions.reset();
+    useBlinkStore.setState({blink: false});
     useSettingsStore.setState({
         callConfig: {
             highlightIncomingCallTarget: true,
@@ -688,6 +690,41 @@ describe("useStationKeyInteraction", () => {
             expect(invoke).toHaveBeenCalledTimes(1);
             expect(invoke).toHaveBeenCalledWith("signaling_end_call", {callId: "call0"});
             expect(useCallStore.getState().callDisplay).toBeUndefined();
+        });
+    });
+
+    describe("prio", () => {
+        it("shows priority while an incoming prio call rings during another call", async () => {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+            ]);
+            useCallStore.setState({
+                callDisplay: makeCallDisplay({
+                    type: "accepted",
+                    joinedStations: [OWN_STATION, SECOND_FOREIGN_STATION],
+                }),
+                incomingCalls: [
+                    makeTestCall("incoming", {
+                        callId: "call1" as CallId,
+                        source: {
+                            clientId: "client9" as ClientId,
+                            positionId: "position9" as PositionId,
+                            stationId: FOREIGN_STATION,
+                        },
+                        prio: true,
+                    }),
+                ],
+            });
+            await act(() => {
+                useBlinkStore.setState({blink: true});
+            });
+
+            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+
+            expect(result.current.color).toBe("yellow");
+            expect(result.current.highlight).toBe("green");
         });
     });
 });
