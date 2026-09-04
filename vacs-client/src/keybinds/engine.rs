@@ -1,6 +1,6 @@
 use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::refresh_expired_ice_config;
+use crate::app::state::webrtc::refresh_ice_config;
 use crate::audio::manager::AudioManagerHandle;
 use crate::error::Error;
 use crate::keybinds::joystick::JoystickServiceHandle;
@@ -403,8 +403,8 @@ impl KeybindEngine {
         let is_end = end_call == Some(trigger);
 
         if is_accept {
-            // Outside the app state lock taken below; see refresh_expired_ice_config.
-            refresh_expired_ice_config(app).await;
+            // Outside the app state lock taken below; see refresh_ice_config.
+            refresh_ice_config(app, false).await;
         }
 
         // A trigger bound to both accept and end (the same key configured for
