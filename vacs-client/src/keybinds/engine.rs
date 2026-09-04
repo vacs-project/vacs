@@ -328,25 +328,13 @@ impl KeybindEngine {
     }
 
     pub fn should_attach_input_muted(&self) -> bool {
-        let call_pressed = self.call_pressed.load(Ordering::Relaxed);
-        let radio_pressed = self.radio_pressed.load(Ordering::Relaxed);
-        let radio_prio = self.radio_prio.load(Ordering::Relaxed);
-        let separate_keys = self.radio_trigger.is_some() && !self.radio_shares_call_trigger();
-        match self.call_mic_mode {
-            // Radio prio mutes the call mic in these modes (see set_radio_prio);
-            // an attach while prio is active must not lift that mute.
-            CallMicMode::VoiceActivation => radio_prio,
-            CallMicMode::PushToTalk => {
-                if separate_keys {
-                    // PTT-Diff: call PTT alone determines MIC state; prio has no effect (§8.4)
-                    !call_pressed
-                } else {
-                    // PTT-Same/None: prio can force mute even while key held
-                    !call_pressed || (radio_pressed && radio_prio)
-                }
-            }
-            CallMicMode::PushToMute => call_pressed || radio_prio,
-        }
+        attach_input_muted(
+            self.call_mic_mode,
+            self.call_pressed.load(Ordering::Relaxed),
+            self.radio_pressed.load(Ordering::Relaxed),
+            self.radio_prio.load(Ordering::Relaxed),
+            self.radio_trigger.is_some() && !self.radio_shares_call_trigger(),
+        )
     }
 
     /// Get the external (OS-configured) key for a keybind, if available.
@@ -764,6 +752,32 @@ fn refresh_radio_follows_call(
     }
 }
 
+/// Mute state for a call input attached mid-session, e.g. a peer joining
+/// while radio prio is active.
+fn attach_input_muted(
+    mode: CallMicMode,
+    call_pressed: bool,
+    radio_pressed: bool,
+    radio_prio: bool,
+    separate_keys: bool,
+) -> bool {
+    match mode {
+        // Radio prio mutes the call mic in these modes (see set_radio_prio);
+        // an attach while prio is active must not lift that mute.
+        CallMicMode::VoiceActivation => radio_prio,
+        CallMicMode::PushToTalk => {
+            if separate_keys {
+                // PTT-Diff: call PTT alone determines MIC state; prio has no effect (§8.4)
+                !call_pressed
+            } else {
+                // PTT-Same/None: prio can force mute even while key held
+                !call_pressed || (radio_pressed && radio_prio)
+            }
+        }
+        CallMicMode::PushToMute => call_pressed || radio_prio,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -930,5 +944,85 @@ mod tests {
             classify_trigger(&other, Some(&call()), Some(&radio()), true),
             (false, false)
         );
+    }
+
+    #[test]
+    fn radio_prio_keeps_the_call_mic_muted_when_the_input_attaches() {
+        assert!(attach_input_muted(
+            CallMicMode::VoiceActivation,
+            false,
+            false,
+            true,
+            false
+        ));
+        assert!(!attach_input_muted(
+            CallMicMode::VoiceActivation,
+            false,
+            false,
+            false,
+            false
+        ));
+
+        assert!(attach_input_muted(
+            CallMicMode::PushToMute,
+            false,
+            false,
+            true,
+            false
+        ));
+        assert!(!attach_input_muted(
+            CallMicMode::PushToMute,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(attach_input_muted(
+            CallMicMode::PushToMute,
+            true,
+            false,
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn push_to_talk_attach_mute_follows_the_key_layout() {
+        assert!(attach_input_muted(
+            CallMicMode::PushToTalk,
+            false,
+            false,
+            true,
+            false
+        ));
+        assert!(!attach_input_muted(
+            CallMicMode::PushToTalk,
+            true,
+            false,
+            false,
+            false
+        ));
+        assert!(attach_input_muted(
+            CallMicMode::PushToTalk,
+            true,
+            true,
+            true,
+            false
+        ));
+
+        assert!(!attach_input_muted(
+            CallMicMode::PushToTalk,
+            true,
+            true,
+            true,
+            true
+        ));
+        assert!(attach_input_muted(
+            CallMicMode::PushToTalk,
+            false,
+            true,
+            true,
+            true
+        ));
     }
 }
