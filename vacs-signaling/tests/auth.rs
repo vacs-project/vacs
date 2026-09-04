@@ -6,7 +6,7 @@ use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::LoginFailureReason;
 use vacs_protocol::ws::server::ServerMessage;
-use vacs_server::test_utils::{TestApp, TestClient};
+use vacs_server::test_utils::{TestClient, TestEnv};
 use vacs_signaling::auth::mock::MockTokenProvider;
 use vacs_signaling::client::{SignalingClient, SignalingEvent, State};
 use vacs_signaling::error::SignalingError;
@@ -16,10 +16,11 @@ use vacs_signaling::transport::tokio::TokioTransport;
 #[test(tokio::test)]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login_without_self() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(1).build().await;
+    let token = env.ws_token_for("1000001").await.unwrap();
 
-    let transport = TokioTransport::new(test_app.addr());
-    let token_provider = MockTokenProvider::new(1, None);
+    let transport = TokioTransport::new(env.ws_url());
+    let token_provider = MockTokenProvider::with_token(token, None);
     let shutdown_token = CancellationToken::new();
 
     let client = SignalingClient::new(
@@ -37,7 +38,7 @@ async fn login_without_self() {
     let mut broadcast_rx = client.subscribe();
     let res = client.connect(None).await;
     let connected_event = broadcast_rx.recv_with_timeout(Duration::from_millis(100), |event|
-        matches!(event, SignalingEvent::Connected{ client_info, .. } if client_info.id == ClientId::from("client1") && client_info.display_name == "client1" && client_info.frequency.is_empty()),
+        matches!(event, SignalingEvent::Connected{ client_info, .. } if client_info.id == ClientId::from("1000001") && client_info.display_name == "1000001" && client_info.frequency.is_empty()),
     ).await;
     let client_info_event = broadcast_rx.recv_with_timeout(Duration::from_millis(100), |event| matches!(event, SignalingEvent::Message(ServerMessage::ClientList(vacs_protocol::ws::server::ClientList { clients })) if clients.is_empty())).await;
 
@@ -52,10 +53,12 @@ async fn login_without_self() {
 #[test(tokio::test)]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().default_users(2).build().await;
+    let token1 = env.ws_token_for("1000001").await.unwrap();
+    let token2 = env.ws_token_for("1000002").await.unwrap();
 
-    let transport1 = TokioTransport::new(test_app.addr());
-    let token_provider1 = MockTokenProvider::new(1, None);
+    let transport1 = TokioTransport::new(env.ws_url());
+    let token_provider1 = MockTokenProvider::with_token(token1, None);
     let shutdown_token1 = CancellationToken::new();
 
     let client1 = SignalingClient::new(
@@ -73,7 +76,7 @@ async fn login() {
     let mut broadcast_rx1 = client1.subscribe();
     let res1 = client1.connect(None).await;
     let connected_event1 = broadcast_rx1.recv_with_timeout(Duration::from_millis(100), |event|
-        matches!(event, SignalingEvent::Connected{ client_info, .. } if client_info.id == ClientId::from("client1") && client_info.display_name == "client1" && client_info.frequency.is_empty()),
+        matches!(event, SignalingEvent::Connected{ client_info, .. } if client_info.id == ClientId::from("1000001") && client_info.display_name == "1000001" && client_info.frequency.is_empty()),
     ).await;
     let client_list_event1 = broadcast_rx1.recv_with_timeout(Duration::from_millis(100), |event| matches!(event, SignalingEvent::Message(ServerMessage::ClientList(vacs_protocol::ws::server::ClientList { clients })) if clients.is_empty())).await;
 
@@ -81,8 +84,8 @@ async fn login() {
     assert!(connected_event1.is_ok());
     assert!(client_list_event1.is_ok());
 
-    let transport2 = TokioTransport::new(test_app.addr());
-    let token_provider2 = MockTokenProvider::new(2, None);
+    let transport2 = TokioTransport::new(env.ws_url());
+    let token_provider2 = MockTokenProvider::with_token(token2, None);
     let shutdown_token2 = CancellationToken::new();
 
     let client2 = SignalingClient::new(
@@ -100,9 +103,9 @@ async fn login() {
     let mut broadcast_rx2 = client2.subscribe();
     let res2 = client2.connect(None).await;
     let connected_event2 = broadcast_rx2.recv_with_timeout(Duration::from_millis(100), |event|
-        matches!(event, SignalingEvent::Connected{ client_info, .. } if client_info.id == ClientId::from("client2") && client_info.display_name == "client2" && client_info.frequency.is_empty()),
+        matches!(event, SignalingEvent::Connected{ client_info, .. } if client_info.id == ClientId::from("1000002") && client_info.display_name == "1000002" && client_info.frequency.is_empty()),
     ).await;
-    let client_list_event2 = broadcast_rx2.recv_with_timeout(Duration::from_millis(100), |event| matches!(event, SignalingEvent::Message(ServerMessage::ClientList(vacs_protocol::ws::server::ClientList { clients })) if clients.len() == 1 && clients[0].id == ClientId::from("client1"))).await;
+    let client_list_event2 = broadcast_rx2.recv_with_timeout(Duration::from_millis(100), |event| matches!(event, SignalingEvent::Message(ServerMessage::ClientList(vacs_protocol::ws::server::ClientList { clients })) if clients.len() == 1 && clients[0].id == ClientId::from("1000001"))).await;
 
     assert!(res2.is_ok());
     assert!(connected_event2.is_ok());
@@ -117,9 +120,9 @@ async fn login() {
 #[test(tokio::test)]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login_timeout() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
 
-    let transport = TokioTransport::new(test_app.addr());
+    let transport = TokioTransport::new(env.ws_url());
     let token_provider = MockTokenProvider::new(1, Some(Duration::from_millis(150)));
     let shutdown_token = CancellationToken::new();
 
@@ -146,9 +149,9 @@ async fn login_timeout() {
 
 #[test(tokio::test)]
 async fn login_invalid_credentials() {
-    let test_app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
 
-    let transport = TokioTransport::new(test_app.addr());
+    let transport = TokioTransport::new(env.ws_url());
     let token_provider = MockTokenProvider::new(usize::MAX, None);
     let shutdown_token = CancellationToken::new();
 
@@ -180,8 +183,9 @@ async fn login_invalid_credentials() {
 async fn login_duplicate_id() {
     let test_rig = TestRig::new(1).await;
 
-    let transport = TokioTransport::new(test_rig.server().addr());
-    let token_provider = MockTokenProvider::new(0, None);
+    let token = test_rig.env().ws_token_for("1000001").await.unwrap();
+    let transport = TokioTransport::new(test_rig.env().ws_url());
+    let token_provider = MockTokenProvider::with_token(token, None);
     let shutdown_token = CancellationToken::new();
 
     let client = SignalingClient::new(
@@ -241,7 +245,7 @@ async fn client_disconnects() {
         .client_mut(1)
         .recv_with_timeout_and_filter(
             Duration::from_millis(300),
-            |e| matches!(e, SignalingEvent::Message(ServerMessage::ClientDisconnected(vacs_protocol::ws::server::ClientDisconnected { client_id })) if client_id.as_str() == "client0"),
+            |e| matches!(e, SignalingEvent::Message(ServerMessage::ClientDisconnected(vacs_protocol::ws::server::ClientDisconnected { client_id })) if client_id.as_str() == "1000001"),
         )
         .await;
     assert!(event.is_some());
@@ -260,7 +264,7 @@ async fn client_list_synchronization() {
         .client_mut(2)
         .recv_with_timeout_and_filter(
             Duration::from_millis(300),
-            |e| matches!(e, SignalingEvent::Message(ServerMessage::ClientDisconnected(vacs_protocol::ws::server::ClientDisconnected { client_id })) if client_id.as_str() == "client0"),
+            |e| matches!(e, SignalingEvent::Message(ServerMessage::ClientDisconnected(vacs_protocol::ws::server::ClientDisconnected { client_id })) if client_id.as_str() == "1000001"),
         )
         .await;
     assert!(event.is_some());
@@ -276,7 +280,7 @@ async fn client_list_synchronization() {
         .client_mut(2)
         .recv_with_timeout_and_filter(
             Duration::from_millis(300),
-            |e| matches!(e, SignalingEvent::Message(ServerMessage::ClientList(vacs_protocol::ws::server::ClientList { clients })) if clients.len() == 1 && clients[0].id == ClientId::from("client1")),
+            |e| matches!(e, SignalingEvent::Message(ServerMessage::ClientList(vacs_protocol::ws::server::ClientList { clients })) if clients.len() == 1 && clients[0].id == ClientId::from("1000002")),
         )
         .await;
     assert!(event.is_some());
@@ -286,10 +290,11 @@ async fn client_list_synchronization() {
 async fn client_connected_broadcast() {
     let mut test_rig = TestRig::new(3).await;
 
-    let mut client3 = TestClient::new(test_rig.server().addr(), "client3", "token3")
+    let token = test_rig.env().ws_token_for("1000004").await.unwrap();
+    let mut client4 = TestClient::new(test_rig.env().ws_url(), "1000004", &token)
         .await
         .unwrap();
-    client3
+    client4
         .login(|_, _| Ok(()), |_| Ok(()), |_| Ok(()))
         .await
         .unwrap();
@@ -318,14 +323,14 @@ async fn client_connected_broadcast() {
             }
         }
 
-        let expected_ids: Vec<_> = (i + 1..=3)
-            .map(|i| ClientId::from(format!("client{i}")))
+        let expected_ids: Vec<_> = (1_000_002 + i as u32..=1_000_004)
+            .map(|cid| ClientId::from(cid.to_string()))
             .collect();
         assert_eq!(
             received_client_ids,
             expected_ids,
-            "Client{} did not receive expected broadcasts: {:?}",
-            i + 1,
+            "Client {} did not receive expected broadcasts: {:?}",
+            1_000_001 + i as u32,
             received_client_ids
         );
     }
