@@ -1,8 +1,6 @@
 use crate::app::state::calls::Call;
 use crate::app::state::http::HttpState;
-use crate::app::state::webrtc::{
-    AppStateWebrtcExt, UnansweredCallGuard, refresh_expired_ice_config,
-};
+use crate::app::state::webrtc::{AppStateWebrtcExt, UnansweredCallGuard, refresh_ice_config};
 use crate::app::state::{AppState, AppStateInner, sealed};
 use crate::audio::source_type::SourceType;
 use crate::config::BackendEndpoint;
@@ -764,7 +762,7 @@ impl AppStateInner {
                     "Call update received for call {call_id} (invited targets: {invited_targets:?}, joined participants: {joined_participants:?})"
                 );
 
-                refresh_expired_ice_config(app).await;
+                refresh_ice_config(app, false).await;
 
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
@@ -936,7 +934,7 @@ impl AppStateInner {
             }) => {
                 log::trace!("Received WebRTC offer from peer {from_client_id} for call {call_id}");
 
-                refresh_expired_ice_config(app).await;
+                refresh_ice_config(app, false).await;
 
                 let state = app.state::<AppState>();
                 let mut state = state.lock().await;
