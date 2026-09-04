@@ -263,15 +263,10 @@ impl WebrtcCall {
     }
 }
 
-/// Refreshes an expired ICE config before a call is accepted. Runs outside the
-/// app state mutex: the HTTP fetch must not freeze every other command while
-/// an unreachable backend times out.
-pub async fn refresh_expired_ice_config(app: &AppHandle) {
-    refresh_ice_config(app, false).await;
-}
-
-/// Like [`refresh_expired_ice_config`], but `force` fetches regardless of
-/// expiry: a dead relay path is refreshed on suspicion, not on schedule.
+/// Refreshes the ICE config, an expired one by default and unconditionally with
+/// `force` (a dead relay path is refreshed on suspicion, not on schedule). Runs
+/// outside the app state mutex: the HTTP fetch must not freeze every other
+/// command while an unreachable backend times out.
 pub async fn refresh_ice_config(app: &AppHandle, force: bool) {
     if !force {
         let expired = {
@@ -1488,7 +1483,7 @@ fn spawn_peer_events_task(
                         }
                     }
                     PeerEvent::NoInboundMedia => {
-                        refresh_expired_ice_config(&app).await;
+                        refresh_ice_config(&app, false).await;
 
                         let app_state = app.state::<AppState>();
                         let mut state = app_state.lock().await;
