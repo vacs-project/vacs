@@ -63,9 +63,15 @@ Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 - `helpers/auth.ts` talks to the mock's CRUD API (`seedController`,
   `removeController`, `resetMockState`) to drive datafeed changes mid-test.
 - `helpers/signaling-client.ts` is a raw WebSocket protocol client used as
-  additional call participants beyond the two app instances.
+  additional call participants beyond the two app instances. Its
+  `onMessage`/`autoRejectInvitations` listeners run inside the receive path,
+  which is what lets a reply beat the caller's own IPC reply to an invite.
 - `helpers/server-control.ts` stops/starts the spawned `vacs-server` for
   outage and reconnect tests.
+- `helpers/remote.ts` turns the app's remote control server on and off and
+  points the managed browser at the frontend it serves. Park the browser
+  (`closeRemoteBrowser`) before restarting the app: a page left on the remote
+  frontend keeps reconnecting and would hydrate into the next test's app.
 - Seeded users: CIDs `10000001`-`10000007`; `10000001`-`10000003` also have
   datafeed controllers (LOVV positions), `10000004`+ stay positionless with
   their CID as display name. Note: once a client connected with CID
@@ -85,6 +91,11 @@ Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 
 ## Spec gotchas
 
+- A test that needs more than the 60s default timeout must set it on its
+  `describe` (`function () {this.timeout(...)}`), not on the test: WebdriverIO
+  arms its own timer from the runnable before the test body runs, so a
+  per-test `this.timeout()` is ignored and the run fails with a bare
+  `Error: Timeout`.
 - Do not hold element handles across a re-render that replaces their DOM
   node (the call queue's answer keys, the error overlay): wdio reports the
   stale handle as "not displayed" for the entire wait without refetching.
