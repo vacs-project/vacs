@@ -16,8 +16,11 @@ use serde::{Deserialize, Serialize};
 /// A successful fresh-call invite is not acknowledged directly: the caller
 /// learns of progress through `CallUpdate`/`CallCancelled`/`CallError`
 /// messages. A conference-grow invite is followed immediately by a
-/// `CallUpdate` to the existing participants, the inviter included. Failures
-/// always come back as `CallError`.
+/// `CallUpdate` to the existing participants, the inviter included; a caller
+/// adding targets to its own still-ringing fresh call gets no `CallUpdate`
+/// until someone accepts and tracks that batch locally. Failures come back as
+/// `CallError`, except a rate-limited invite, which is answered with an
+/// `Error` carrying `ErrorReason::RateLimited` and the affected targets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallInvite {
