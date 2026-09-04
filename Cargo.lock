@@ -9200,6 +9200,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "pretty_assertions",
+ "rustls",
  "serde_json",
  "test-log",
  "thiserror 2.0.20",

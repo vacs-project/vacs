@@ -1,6 +1,6 @@
 use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::webrtc::refresh_expired_ice_config;
 use crate::audio::manager::AudioManagerHandle;
 use crate::error::Error;
 use crate::keybinds::joystick::JoystickServiceHandle;
@@ -37,6 +37,7 @@ pub struct KeybindEngine {
     app: AppHandle,
     listener: RwLock<Option<DynKeybindListener>>,
     rx_task: Option<JoinHandle<()>>,
+    control_task: Option<JoinHandle<()>>,
     shutdown_token: CancellationToken,
     stop_token: Option<CancellationToken>,
     /// Whether this configuration lets radio TX fall back to the call trigger
@@ -76,6 +77,7 @@ impl KeybindEngine {
             app,
             listener: RwLock::new(None),
             rx_task: None,
+            control_task: None,
             shutdown_token,
             stop_token: None,
             radio_portal_fallback,
@@ -217,6 +219,10 @@ impl KeybindEngine {
             rx_task.abort();
         }
 
+        if let Some(control_task) = self.control_task.take() {
+            control_task.abort();
+        }
+
         if was_running {
             self.reset_input_state();
         }
@@ -322,7 +328,9 @@ impl KeybindEngine {
         let radio_prio = self.radio_prio.load(Ordering::Relaxed);
         let separate_keys = self.radio_trigger.is_some() && !self.radio_shares_call_trigger();
         match self.call_mic_mode {
-            CallMicMode::VoiceActivation => false,
+            // Radio prio mutes the call mic in these modes (see set_radio_prio);
+            // an attach while prio is active must not lift that mute.
+            CallMicMode::VoiceActivation => radio_prio,
             CallMicMode::PushToTalk => {
                 if separate_keys {
                     // PTT-Diff: call PTT alone determines MIC state; prio has no effect (§8.4)
@@ -332,7 +340,7 @@ impl KeybindEngine {
                     !call_pressed || (radio_pressed && radio_prio)
                 }
             }
-            CallMicMode::PushToMute => call_pressed,
+            CallMicMode::PushToMute => call_pressed || radio_prio,
         }
     }
 
@@ -406,6 +414,11 @@ impl KeybindEngine {
         let is_accept = accept_call == Some(trigger);
         let is_end = end_call == Some(trigger);
 
+        if is_accept {
+            // Outside the app state lock taken below; see refresh_expired_ice_config.
+            refresh_expired_ice_config(app).await;
+        }
+
         // A trigger bound to both accept and end (the same key configured for
         // both, or the shared Wayland portal call-control shortcut) toggles:
         // end the active/outgoing call if there is one, otherwise accept.
@@ -415,8 +428,8 @@ impl KeybindEngine {
             let state = app.state::<AppState>();
             let mut state = state.lock().await;
 
-            if state.active_call_id().is_some() || state.outgoing_call_id().is_some() {
-                match state.end_call(app, None).await {
+            if let Some(call_id) = state.current_call_id() {
+                match state.end_call(app, call_id).await {
                     Ok(found) if !found => log::trace!("No active call to end via keybind"),
                     Err(err) => log::warn!("Failed to end active call via keybind: {err}"),
                     _ => {}
@@ -436,6 +449,11 @@ impl KeybindEngine {
 
             match state.accept_call(app, None).await {
                 Ok(found) if !found => log::trace!("No incoming call to accept via keybind"),
+                Err(Error::Webrtc(err))
+                    if matches!(err.as_ref(), vacs_webrtc::error::WebrtcError::CallActive) =>
+                {
+                    log::debug!("Ignoring accept keybind while another call is active");
+                }
                 Err(err) => log::warn!("Failed to accept incoming call via keybind: {err}"),
                 _ => {}
             }
@@ -445,10 +463,12 @@ impl KeybindEngine {
             let state = app.state::<AppState>();
             let mut state = state.lock().await;
 
-            match state.end_call(app, None).await {
-                Ok(found) if !found => log::trace!("No active call to end via keybind"),
-                Err(err) => log::warn!("Failed to end active call via keybind: {err}"),
-                _ => {}
+            if let Some(call_id) = state.current_call_id() {
+                match state.end_call(app, call_id).await {
+                    Ok(found) if !found => log::trace!("No active call to end via keybind"),
+                    Err(err) => log::warn!("Failed to end active call via keybind: {err}"),
+                    _ => {}
+                }
             }
         } else if toggle_radio_prio == Some(trigger) {
             log::trace!("Toggle radio prio key pressed");
@@ -502,6 +522,26 @@ impl KeybindEngine {
         let implicit_radio_prio = self.implicit_radio_prio.clone();
         let radio_transmitting = self.radio_transmitting.clone();
 
+        let (control_tx, mut control_rx) = tokio::sync::mpsc::channel::<Trigger>(3);
+        self.control_task = Some({
+            let app = app.clone();
+            let accept_call = accept_call.clone();
+            let end_call = end_call.clone();
+            let toggle_radio_prio = toggle_radio_prio.clone();
+            tauri::async_runtime::spawn(async move {
+                while let Some(trigger) = control_rx.recv().await {
+                    Self::handle_call_control_event(
+                        &app,
+                        &trigger,
+                        accept_call.as_ref(),
+                        end_call.as_ref(),
+                        toggle_radio_prio.as_ref(),
+                    )
+                    .await;
+                }
+            })
+        });
+
         let handle = tauri::async_runtime::spawn(async move {
             log::debug!(
                 "Keybind engine starting: mode={mode:?}, transmit={call_trigger:?}, radio={radio_trigger:?}, accept_call={accept_call:?}, end_call={end_call:?}",
@@ -514,8 +554,12 @@ impl KeybindEngine {
                     res = rx.recv() => {
                         let Some(event) = res else { break; };
 
-                        if event.state == KeyState::Down {
-                            Self::handle_call_control_event(&app, &event.trigger, accept_call.as_ref(), end_call.as_ref(), toggle_radio_prio.as_ref()).await;
+                        let is_control_press = event.state == KeyState::Down
+                            && [&accept_call, &end_call, &toggle_radio_prio]
+                                .iter()
+                                .any(|t| t.as_ref() == Some(&event.trigger));
+                        if is_control_press && control_tx.try_send(event.trigger.clone()).is_err() {
+                            log::trace!("Call control handler busy, dropping key press");
                         }
 
                         refresh_radio_follows_call(

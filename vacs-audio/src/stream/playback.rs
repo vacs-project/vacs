@@ -23,6 +23,7 @@ const MIXER_OPS_PER_DATA_CALLBACK: usize = 32;
 pub struct PlaybackStream {
     _stream: cpal::Stream,
     mixer_ops: Mutex<ringbuf::HeapProd<MixerOp>>,
+    removed_sources: Mutex<ringbuf::HeapCons<Box<dyn AudioSource>>>,
     next_audio_source_id: atomic::AtomicUsize,
     deafened: Arc<AtomicBool>,
     device: StreamDevice,
@@ -36,7 +37,9 @@ impl PlaybackStream {
     ) -> Result<Self, AudioError> {
         debug_assert!(matches!(device.device_type, DeviceType::Output));
 
-        let mut mixer = Mixer::default();
+        let (removed_prod, removed_cons) =
+            HeapRb::<Box<dyn AudioSource>>::new(MIXER_OPS_CAPACITY).split();
+        let mut mixer = Mixer::with_deferred_drop(removed_prod);
         let (ops_prod, mut ops_cons) = HeapRb::<MixerOp>::new(MIXER_OPS_CAPACITY).split();
 
         let deafened = Arc::new(AtomicBool::new(false));
@@ -72,6 +75,7 @@ impl PlaybackStream {
         Ok(Self {
             _stream: stream,
             mixer_ops: Mutex::new(ops_prod),
+            removed_sources: Mutex::new(removed_cons),
             next_audio_source_id: atomic::AtomicUsize::new(0),
             deafened: deafened_clone,
             device,
@@ -81,7 +85,21 @@ impl PlaybackStream {
     #[instrument(level = "debug", skip(self))]
     pub async fn stop(self) {
         tracing::info!("Stopping output playback stream");
-        drop(self._stream);
+        let Self {
+            _stream,
+            removed_sources,
+            ..
+        } = self;
+        drop(_stream);
+
+        let mut removed_sources = removed_sources.into_inner();
+        while removed_sources.try_pop().is_some() {}
+    }
+
+    /// Frees sources the audio callback handed back; see [`Mixer::with_deferred_drop`].
+    fn drain_removed_sources(&self) {
+        let mut removed_sources = self.removed_sources.lock();
+        while removed_sources.try_pop().is_some() {}
     }
 
     pub fn set_deafened(&self, muted: bool) {
@@ -94,6 +112,8 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip_all)]
     pub fn add_audio_source(&self, source: Box<dyn AudioSource>) -> AudioSourceId {
+        self.drain_removed_sources();
+
         let id = self
             .next_audio_source_id
             .fetch_add(1, atomic::Ordering::SeqCst);
@@ -114,6 +134,8 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn remove_audio_source(&self, id: AudioSourceId) {
+        self.drain_removed_sources();
+
         if self
             .mixer_ops
             .lock()

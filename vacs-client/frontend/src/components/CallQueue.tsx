@@ -1,9 +1,9 @@
 import Button from "./ui/Button.tsx";
-import {useCallStore} from "../stores/call-store.ts";
-import {invokeStrict} from "../error.ts";
+import {someConnectionState, useCallStore} from "../stores/call-store.ts";
+import {invokeSafe, invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
-import {Call} from "../types/call.ts";
+import {Call, CallDisplayCall, incomingOtherPartyCount, otherPartyCount} from "../types/call.ts";
 import {useProfileStationKeys} from "../stores/profile-store.ts";
 import {DirectAccessKey} from "../types/profile.ts";
 import {ComponentChild} from "preact";
@@ -21,15 +21,13 @@ function CallQueue() {
     const blink = useBlinkStore(state => state.blink);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedCall, dismissErrorCall, removeCall} = useCallStore(
-        state => state.actions,
-    );
+    const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
     const stationKeys = useProfileStationKeys();
     const cid = useAuthStore(state => state.cid);
     const clients = useClientsStore(state => state.clients);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
 
-    const handleCallDisplayClick = async (call: Call) => {
+    const handleCallDisplayClick = async (call: CallDisplayCall) => {
         if (callDisplay?.type === "accepted" || callDisplay?.type === "outgoing") {
             try {
                 await invokeStrict("signaling_end_call", {callId: call.callId});
@@ -46,14 +44,10 @@ function CallQueue() {
         // Can't accept someone's call if something is in your call display
         if (callDisplay !== undefined) return;
 
-        try {
-            await invokeStrict("signaling_accept_call", {callId: call.callId});
-        } catch {
-            removeCall(call.callId);
-        }
+        await invokeSafe("signaling_accept_call", {callId: call.callId});
     };
 
-    const cdPrio = callDisplay?.call.prio === true && enablePrio;
+    const cdPrio = enablePrio && callDisplay !== undefined && callDisplay.prioTargets.length > 0;
 
     const {color: cdColor, highlight: cdHighlight} = getCallStateColors({
         inCall: callDisplay?.type === "accepted",
@@ -61,8 +55,7 @@ function CallQueue() {
         beingCalled: callDisplay?.type === "outgoing",
         isRejected: callDisplay?.type === "rejected",
         isError: callDisplay?.type === "error",
-        outgoingPrio: cdPrio,
-        incomingPrio: false,
+        prio: cdPrio,
         blink,
     });
 
@@ -71,20 +64,21 @@ function CallQueue() {
             {/*Call Display*/}
             {callDisplay !== undefined ? (
                 <div className="relative">
-                    {callDisplay.connectionState === "disconnected" && (
+                    {someConnectionState(callDisplay, "disconnected") && (
                         <img
                             className="absolute top-1 left-1 h-5 w-5"
                             src={unplug}
                             alt="Disconnected"
                         />
                     )}
-                    {callDisplay.connectionState === "degraded" && (
-                        <img
-                            className="absolute top-1 left-1 h-5 w-5"
-                            src={volumeMute}
-                            alt="No incoming audio"
-                        />
-                    )}
+                    {!someConnectionState(callDisplay, "disconnected") &&
+                        someConnectionState(callDisplay, "degraded") && (
+                            <img
+                                className="absolute top-1 left-1 h-5 w-5"
+                                src={volumeMute}
+                                alt="No incoming audio"
+                            />
+                        )}
                     <Button
                         color={cdColor}
                         highlight={cdHighlight}
@@ -111,8 +105,7 @@ function CallQueue() {
                     beingCalled: false,
                     isRejected: false,
                     isError: false,
-                    outgoingPrio: false,
-                    incomingPrio,
+                    prio: incomingPrio,
                     blink,
                 });
                 return (
@@ -126,13 +119,15 @@ function CallQueue() {
                         )}
                         onClick={() => handleAnswerKeyClick(call)}
                     >
-                        {callLabel(
-                            call.source.stationId,
-                            call.source.positionId,
-                            call.source.clientId,
-                            stationKeys,
-                            clients,
-                        )}
+                        {incomingOtherPartyCount(call) > 1
+                            ? "CONF"
+                            : callLabel(
+                                  call.source.stationId,
+                                  call.source.positionId,
+                                  call.source.clientId,
+                                  stationKeys,
+                                  clients,
+                              )}
                     </Button>
                 );
             })}
@@ -144,26 +139,32 @@ function CallQueue() {
 }
 
 function callDisplayLabel(
-    call: Call,
+    call: CallDisplayCall,
     cid: ClientId | undefined,
     stationKeys: DirectAccessKey[],
     clients: ClientInfo[],
 ): ComponentChild {
-    return call.source.clientId === cid
-        ? callLabel(
-              call.target.station,
-              call.target.position,
-              call.target.client,
-              stationKeys,
-              clients,
-          )
-        : callLabel(
-              call.source.stationId,
-              call.source.positionId,
-              call.source.clientId,
-              stationKeys,
-              clients,
-          );
+    if (otherPartyCount(call) >= 2) {
+        return "CONF";
+    }
+
+    if (call.source.clientId === cid) {
+        return callLabel(
+            call.target.station,
+            call.target.position,
+            call.target.client,
+            stationKeys,
+            clients,
+        );
+    }
+
+    return callLabel(
+        call.source.stationId,
+        call.source.positionId,
+        call.source.clientId,
+        stationKeys,
+        clients,
+    );
 }
 
 const callLabel = (

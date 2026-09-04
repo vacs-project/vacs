@@ -77,10 +77,11 @@ export type RemoteCommand =
     | "signaling_add_ignored_client"
     | "signaling_connect"
     | "signaling_disconnect"
+    | "signaling_drop_target"
     | "signaling_end_call"
     | "signaling_get_ignored_clients"
     | "signaling_remove_ignored_client"
-    | "signaling_start_call"
+    | "signaling_invite_to_call"
     | "signaling_terminate";
 
 export type RemoteEvent =
@@ -107,8 +108,9 @@ export type RemoteEvent =
     | "signaling:client-connected"
     | "signaling:client-disconnected"
     | "signaling:client-not-found"
-    | "signaling:call-invite"
-    | "signaling:outgoing-call-accepted"
+    | "signaling:call-invitation"
+    | "signaling:outgoing-call"
+    | "signaling:call-update"
     | "signaling:call-end"
     | "signaling:call-reject"
     | "signaling:force-call-end"

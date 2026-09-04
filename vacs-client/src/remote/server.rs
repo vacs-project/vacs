@@ -37,7 +37,6 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
 use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
-use vacs_signaling::protocol::ws::shared::CallInvite;
 
 const BROADCAST_CHANNEL_SIZE: usize = 256;
 const DISPATCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -301,6 +300,10 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
         }
     });
 
+    // Whether this connection currently holds a user slot of the shared input level
+    // meter; released on disconnect so a vanished browser cannot leave the mic capturing
+    let mut level_meter_user = false;
+
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
             Message::Text(text) => {
@@ -349,6 +352,17 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
                             log::warn!("[{peer}] Remote client command {cmd:?} timed out");
                             DispatchResult::Err(ProblemDetails::timeout())
                         });
+                        if matches!(response, DispatchResult::Ok(_)) {
+                            match cmd {
+                                RemoteCommand::AudioStartInputLevelMeter => {
+                                    level_meter_user = true;
+                                }
+                                RemoteCommand::AudioStopInputLevelMeter => {
+                                    level_meter_user = false;
+                                }
+                                _ => {}
+                            }
+                        }
                         let _ = client_tx.send(response.with_id(id)).await;
                     }
                 }
@@ -362,6 +376,17 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
     }
 
     forward_task.abort();
+
+    if level_meter_user {
+        log::debug!("[{peer}] Releasing input level meter after remote disconnect");
+        let audio_manager = state.app_handle.state::<AudioManagerHandle>();
+        let _ = crate::audio::commands::audio_stop_input_level_meter(
+            audio_manager,
+            state.app_handle.clone(),
+        )
+        .await;
+    }
+
     state.client_count.fetch_sub(1, Ordering::Relaxed);
     if !state.shutdown.is_cancelled() {
         state.emit_status();
@@ -425,8 +450,6 @@ struct SessionStateSnapshot {
     call_config: FrontendCallConfig,
     client_page_settings: FrontendClientPageSettings,
     capabilities: Capabilities,
-    incoming_calls: Vec<CallInvite>,
-    outgoing_call: Option<CallInvite>,
 }
 
 async fn dispatch_command(
@@ -559,7 +582,7 @@ async fn dispatch_command(
         }
         AudioStopInputLevelMeter => {
             let audio_manager = app.state::<AudioManagerHandle>();
-            dispatch(audio_stop_input_level_meter(audio_manager).await)
+            dispatch(audio_stop_input_level_meter(audio_manager, app.clone()).await)
         }
         AudioSetRadioPrio => {
             let prio: bool = args!(args, "prio");
@@ -767,26 +790,22 @@ async fn dispatch_command(
             dispatch(signaling_connect(app.clone(), app_state, http_state, position_id).await)
         }
         SignalingDisconnect => dispatch(signaling_disconnect(app.clone()).await),
+        SignalingDropTarget => {
+            let app_state = app.state::<AppState>();
+            let (call_id, target) = args!(args, "callId", "target");
+            dispatch(signaling_drop_target(app_state, call_id, target).await)
+        }
         SignalingTerminate => {
             let http_state = app.state::<HttpState>();
             dispatch(signaling_terminate(app.clone(), http_state).await)
         }
-        SignalingStartCall => {
-            let (target, source, prio) = args!(args, "target", "source", "prio");
+        SignalingInviteToCall => {
+            let (targets, source, prio) = args!(args, "targets", "source", "prio");
             let app_state = app.state::<AppState>();
             let http_state = app.state::<HttpState>();
-            let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(
-                signaling_start_call(
-                    app.clone(),
-                    app_state,
-                    http_state,
-                    audio_manager,
-                    target,
-                    source,
-                    prio,
-                )
-                .await,
+                signaling_invite_to_call(app.clone(), app_state, http_state, targets, source, prio)
+                    .await,
             )
         }
         SignalingAcceptCall => {
@@ -862,8 +881,6 @@ async fn dispatch_command(
                 call_config: state.config.client.call.clone().into(),
                 client_page_settings: FrontendClientPageSettings::from(&state.config),
                 capabilities: *Capabilities::get(),
-                incoming_calls: state.incoming_calls.values().cloned().collect(),
-                outgoing_call: state.outgoing_call.clone(),
             };
 
             DispatchResult::Ok(serde_json::to_value(snapshot).unwrap_or_default())
@@ -880,5 +897,60 @@ async fn dispatch_command(
         | KeybindsOpenSystemShortcutsSettings => {
             unreachable!("desktop-only commands should have been rejected up front")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::CallConfig;
+    use crate::config::AppConfig;
+    use crate::platform::Platform;
+
+    #[test]
+    fn the_session_state_snapshot_keeps_its_camel_case_shape() {
+        let snapshot = SessionStateSnapshot {
+            connection_state: ConnectionState::default(),
+            session_info: None,
+            default_call_sources: Vec::new(),
+            stations: Vec::new(),
+            clients: Vec::new(),
+            client_id: None,
+            call_config: CallConfig::default().into(),
+            client_page_settings: FrontendClientPageSettings::from(&AppConfig::default()),
+            capabilities: Capabilities {
+                always_on_top: false,
+                keybind_listener: false,
+                keybind_emitter: false,
+                joystick: false,
+                playback: false,
+                platform: Platform::Unknown,
+            },
+        };
+
+        let json = serde_json::to_value(&snapshot).expect("snapshot serializes");
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .expect("snapshot is an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+
+        // The browser destructures exactly these in transport/hydrate.ts.
+        assert_eq!(
+            keys,
+            [
+                "callConfig",
+                "capabilities",
+                "clientId",
+                "clientPageSettings",
+                "clients",
+                "connectionState",
+                "defaultCallSources",
+                "sessionInfo",
+                "stations",
+            ]
+        );
     }
 }

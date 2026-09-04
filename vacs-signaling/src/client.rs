@@ -46,6 +46,7 @@ pub enum State {
 pub enum SignalingEvent {
     /// Emitted after the [`SignalingClient`] successfully connected to the server, including authentication.
     /// The client is ready to send and receive messages.
+    #[non_exhaustive]
     Connected {
         /// Information about the connected client.
         client_info: ClientInfo,
@@ -53,6 +54,8 @@ pub enum SignalingEvent {
         profile: ActiveProfile<Profile>,
         /// The ordered list of default call sources for the current position.
         default_call_sources: Vec<StationId>,
+        /// The maximum call size the server allows, if it advertises one.
+        max_conf_size: Option<u32>,
     },
     /// Emitted for every [`ServerMessage`] received by a connected and authenticated [`SignalingClient`].
     Message(ServerMessage),
@@ -60,6 +63,15 @@ pub enum SignalingEvent {
     /// This includes issues during transmission or other errors received from the server.
     Error(SignalingRuntimeError),
 }
+
+/// Payload of a successful login: client info, active profile, default call
+/// sources and the advertised max conference size.
+type LoginInfo = (
+    ClientInfo,
+    ActiveProfile<Profile>,
+    Vec<StationId>,
+    Option<u32>,
+);
 
 type BoxFutUnit = Pin<Box<dyn Future<Output = ()> + Send>>;
 type OnEventCb = Arc<dyn Fn(SignalingEvent) -> BoxFutUnit + Send + Sync>;
@@ -353,9 +365,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
     }
 
     #[instrument(level = "debug", skip(self), err)]
-    async fn login(
-        &self,
-    ) -> Result<(ClientInfo, ActiveProfile<Profile>, Vec<StationId>), SignalingError> {
+    async fn login(&self) -> Result<LoginInfo, SignalingError> {
         tracing::trace!("Retrieving auth token from token provider");
         let token = self.token_provider.get_token().await?;
 
@@ -378,10 +388,11 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                 client,
                 profile,
                 default_call_sources,
+                max_conf_size,
             }) => {
                 if let SessionProfile::Changed(profile) = profile {
                     tracing::info!(?client, %profile, "Login successful, received session info");
-                    Ok((client, profile, default_call_sources))
+                    Ok((client, profile, default_call_sources, max_conf_size))
                 } else {
                     tracing::error!(
                         ?client,
@@ -455,7 +466,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
         tracing::trace!("Successfully started worker tasks, logging in");
         match self.login().await {
-            Ok((client_info, profile, default_call_sources)) => {
+            Ok((client_info, profile, default_call_sources, max_conf_size)) => {
                 tracing::trace!("Successfully logged in to server");
 
                 self.set_state(State::LoggedIn);
@@ -463,6 +474,7 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                     client_info,
                     profile,
                     default_call_sources,
+                    max_conf_size,
                 }) {
                     tracing::warn!(?err, "Failed to broadcast connected event");
                 }
@@ -555,8 +567,12 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                                 (self.on_event)(event).await;
                             }
                         },
-                        Err(err) => {
-                            tracing::warn!(?err, "Failed to receive broadcast event, exiting supervisor task");
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            // Recoverable: the receiver stays usable after a lag.
+                            tracing::warn!(skipped, "Supervisor lagged behind broadcast events, continuing");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            tracing::warn!("Broadcast event channel closed, exiting supervisor task");
                             self.disconnect(false).await;
                             break;
                         }
@@ -660,9 +676,12 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
 
                     msg = receiver.recv(&send_tx) => {
                         match msg {
+                            Ok(ServerMessage::Unknown) => {
+                                tracing::warn!("Received unknown server message type, skipping");
+                            }
                             Ok(message) => {
                                 tracing::trace!(message_type = message.variant(), "Received message from transport");
-                                matcher.try_match(&message);
+                                matcher.try_match(&message).await;
                                 if broadcast_tx.receiver_count() > 0 {
                                     if let Err(err) = broadcast_tx.send(SignalingEvent::Message(message.clone())) {
                                         tracing::warn!(message_type = message.variant(), ?err, "Failed to broadcast message");
@@ -670,6 +689,14 @@ impl<ST: SignalingTransport, TP: TokenProvider> SignalingClientInner<ST, TP> {
                                 } else {
                                     tracing::trace!(message_type = message.variant(), "No receivers subscribed, not broadcasting message");
                                 }
+                            }
+                            Err(SignalingRuntimeError::SerializationError(err)) => {
+                                // The connection is healthy: skip the message and
+                                // surface the skip as a non-fatal event.
+                                tracing::warn!(?err, "Failed to deserialize server message, skipping");
+                                let _ = broadcast_tx.send(SignalingEvent::Error(
+                                    SignalingRuntimeError::SerializationError(err),
+                                ));
                             }
                             Err(err) => {
                                 Self::emit_task_error(&state_rx, &broadcast_tx, err);
@@ -863,6 +890,7 @@ mod tests {
     use crate::test_utils::RecvWithTimeoutExt;
     use crate::transport::mock::MockTransport;
     use pretty_assertions::{assert_eq, assert_matches};
+    use std::collections::{HashMap, HashSet};
     use test_log::test;
     use tokio::sync::Notify;
     use vacs_protocol::vatsim::{ClientId, PositionId};
@@ -898,6 +926,7 @@ mod tests {
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
+                    max_conf_size: None,
                 }))
                 .unwrap()
                 .into(),
@@ -950,19 +979,106 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn unknown_message_is_skipped_and_stream_continues() {
+        let transport = MockTransport::default();
+        let mock_tx = transport.incoming_tx.clone();
+        let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
+
+        let mut events = client.subscribe();
+
+        mock_tx
+            .send(tungstenite::Message::Text(
+                r#"{"type":"someFutureMessage","value":42}"#.into(),
+            ))
+            .unwrap();
+        let known = ServerMessage::ClientList(server::ClientList {
+            clients: Vec::new(),
+        });
+        mock_tx
+            .send(tungstenite::Message::Text(
+                known.serialize().unwrap().into(),
+            ))
+            .unwrap();
+
+        let received = events
+            .recv_with_timeout(Duration::from_millis(500), |event| {
+                matches!(
+                    event,
+                    SignalingEvent::Message(ServerMessage::ClientList(_))
+                        | SignalingEvent::Error(_)
+                )
+            })
+            .await;
+        assert_matches!(
+            received,
+            Ok(SignalingEvent::Message(ServerMessage::ClientList(_))),
+            "the message following an unknown one must still be delivered"
+        );
+        assert_matches!(client.state(), State::LoggedIn);
+    }
+
+    #[test(tokio::test)]
+    async fn malformed_known_message_is_skipped_and_stream_continues() {
+        let transport = MockTransport::default();
+        let mock_tx = transport.incoming_tx.clone();
+        let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
+
+        let mut events = client.subscribe();
+
+        mock_tx
+            .send(tungstenite::Message::Text(r#"{"type":"callEnd"}"#.into()))
+            .unwrap();
+        let known = ServerMessage::ClientList(server::ClientList {
+            clients: Vec::new(),
+        });
+        mock_tx
+            .send(tungstenite::Message::Text(
+                known.serialize().unwrap().into(),
+            ))
+            .unwrap();
+
+        let received = events
+            .recv_with_timeout(Duration::from_millis(500), |event| {
+                matches!(event, SignalingEvent::Error(_))
+            })
+            .await;
+        assert_matches!(
+            received,
+            Ok(SignalingEvent::Error(
+                SignalingRuntimeError::SerializationError(_)
+            )),
+            "the skipped message must surface as a non-fatal error event"
+        );
+
+        let received = events
+            .recv_with_timeout(Duration::from_millis(500), |event| {
+                matches!(event, SignalingEvent::Message(ServerMessage::ClientList(_)))
+            })
+            .await;
+        assert_matches!(
+            received,
+            Ok(SignalingEvent::Message(ServerMessage::ClientList(_))),
+            "the message following a malformed one must still be delivered"
+        );
+        assert_matches!(client.state(), State::LoggedIn);
+    }
+
+    #[test(tokio::test)]
     async fn send() {
         let transport = MockTransport::default();
         let mut outgoing_rx = transport.outgoing_tx.subscribe();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ClientMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ClientMessage::CallInvite(vacs_protocol::ws::client::CallInvite {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
                 position_id: None,
                 station_id: None,
             },
-            target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
+                ClientId::from("client2"),
+            )]),
             prio: false,
         });
         let serialized = tungstenite::Message::from(ClientMessage::serialize(&msg).unwrap());
@@ -1031,14 +1147,16 @@ mod tests {
         let client_clone = client.clone();
         tokio::spawn(async move {
             transport_ready.notified().await;
-            let msg = ClientMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+            let msg = ClientMessage::CallInvite(vacs_protocol::ws::client::CallInvite {
                 call_id: vacs_protocol::ws::shared::CallId::new(),
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: ClientId::from("client1"),
                     position_id: None,
                     station_id: None,
                 },
-                target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+                targets: HashSet::from([vacs_protocol::ws::shared::CallTarget::Client(
+                    ClientId::from("client2"),
+                )]),
                 prio: false,
             });
 
@@ -1112,7 +1230,7 @@ mod tests {
         let incoming_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
@@ -1120,6 +1238,9 @@ mod tests {
                 station_id: None,
             },
             target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_targets: HashSet::new(),
+            joined_participants: HashMap::new(),
+            conference_leader: None,
             prio: false,
         });
 
@@ -1166,7 +1287,7 @@ mod tests {
         let incoming_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
@@ -1174,6 +1295,9 @@ mod tests {
                 station_id: None,
             },
             target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_targets: HashSet::new(),
+            joined_participants: HashMap::new(),
+            conference_leader: None,
             prio: false,
         });
 
@@ -1195,7 +1319,7 @@ mod tests {
         let incoming_tx = transport.incoming_tx.clone();
         let (client, _shutdown_token) = setup_test_client(transport, false, 0).await;
 
-        let msg = ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+        let msg = ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
             call_id: vacs_protocol::ws::shared::CallId::new(),
             source: vacs_protocol::ws::shared::CallSource {
                 client_id: ClientId::from("client1"),
@@ -1203,6 +1327,9 @@ mod tests {
                 station_id: None,
             },
             target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+            invited_targets: HashSet::new(),
+            joined_participants: HashMap::new(),
+            conference_leader: None,
             prio: false,
         });
 
@@ -1550,6 +1677,7 @@ mod tests {
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
+                    max_conf_size: None,
                 }))
                 .unwrap()
                 .into(),
@@ -1641,6 +1769,7 @@ mod tests {
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
+                    max_conf_size: None,
                 }))
                 .unwrap()
                 .into(),

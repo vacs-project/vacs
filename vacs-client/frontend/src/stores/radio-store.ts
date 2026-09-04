@@ -17,7 +17,7 @@ export const useRadioStore = create<RadioStoreState>()(set => ({
         if (cpl) {
             startBlink();
         } else {
-            tryStopBlink(null, null, false, null);
+            tryStopBlink(null, null, false, null, null);
         }
 
         set({cpl});

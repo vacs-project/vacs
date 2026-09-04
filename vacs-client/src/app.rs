@@ -412,6 +412,12 @@ pub struct CallConfig {
     /// Enables sound effect when the call is ended
     #[serde(default = "default_true")]
     pub enable_call_end_sound: bool,
+    /// Enables sound effect when a participant joined a conference call
+    #[serde(default = "default_true")]
+    pub enable_participant_joined_sound: bool,
+    /// Enables sound effect when a participant left a conference call
+    #[serde(default = "default_true")]
+    pub enable_participant_left_sound: bool,
     /// Enables default call source selection based on the dataset position
     #[serde(default = "default_true")]
     pub use_default_call_sources: bool,
@@ -433,6 +439,8 @@ impl Default for CallConfig {
             enable_priority_calls: true,
             enable_call_start_sound: true,
             enable_call_end_sound: true,
+            enable_participant_joined_sound: true,
+            enable_participant_left_sound: true,
             use_default_call_sources: true,
             force_relay: false,
         }

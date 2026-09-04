@@ -390,6 +390,14 @@ pub async fn app_set_call_config(
             && !state.config.client.call.enable_call_end_sound
         {
             audio_manager.read().restart(SourceType::CallEnd);
+        } else if call_config.enable_participant_joined_sound
+            && !state.config.client.call.enable_participant_joined_sound
+        {
+            audio_manager.read().restart(SourceType::ParticipantJoined);
+        } else if call_config.enable_participant_left_sound
+            && !state.config.client.call.enable_participant_left_sound
+        {
+            audio_manager.read().restart(SourceType::ParticipantLeft);
         }
 
         state.config.client.call = call_config.try_into()?;

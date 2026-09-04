@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true, features = ["unstable"] }
+rustls = { workspace = true }
 test-log = { workspace = true }
 
 [lints]

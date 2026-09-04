@@ -40,7 +40,7 @@ export const usePlaybackStore = create<PlaybackState>()(set => {
                 if (prev?.status !== "paused" && next?.status === "paused") {
                     startBlink();
                 } else if (prev?.status === "paused" && next?.status !== "paused") {
-                    tryStopBlink(null, null, null, false);
+                    tryStopBlink(null, null, null, false, null);
                 }
             }),
             setPlaybackDevice: setter("playbackDevice"),

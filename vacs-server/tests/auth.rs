@@ -361,3 +361,47 @@ async fn logout() {
         _ => panic!("Unexpected message: {message:?}"),
     });
 }
+
+/// The compatibility range from the release policy gates the websocket login:
+/// a client speaking an older protocol is refused before its credentials are
+/// even looked at.
+#[test(tokio::test)]
+async fn incompatible_protocol_version_is_refused() {
+    let test_app = TestApp::new_with_protocol_range(">=3.0.0").await;
+
+    let mut ws_stream = connect_to_websocket(test_app.addr()).await;
+    ws_stream
+        .send(tungstenite::Message::from(
+            ClientMessage::serialize(&ClientMessage::Login(vacs_protocol::ws::client::Login {
+                token: "token1".to_string(),
+                protocol_version: "2.0.0".to_string(),
+                custom_profile: false,
+                position_id: None,
+            }))
+            .unwrap(),
+        ))
+        .await
+        .expect("Failed to send login message");
+
+    assert_raw_message_matches(ws_stream.next().await, |response| match response {
+        ServerMessage::LoginFailure(server::LoginFailure { reason }) => {
+            assert_eq!(
+                reason,
+                server::LoginFailureReason::IncompatibleProtocolVersion,
+                "Unexpected reason for LoginFailure"
+            );
+        }
+        _ => panic!("Unexpected response: {response:?}"),
+    });
+
+    let _client = TestClient::new_with_login(
+        test_app.addr(),
+        "client1",
+        "token1",
+        |_, _| Ok(()),
+        |_| Ok(()),
+        |_| Ok(()),
+    )
+    .await
+    .expect("A client speaking the current protocol version must still log in");
+}

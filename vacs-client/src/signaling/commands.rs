@@ -1,17 +1,14 @@
 use crate::app::PersistedClientConfig;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::AppStateSignalingExt;
-use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::webrtc::{AppStateWebrtcExt, refresh_expired_ice_config};
 use crate::app::state::{AppState, AppStateInner};
-use crate::audio::manager::AudioManagerHandle;
-use crate::audio::source_type::SourceType;
 use crate::config::{BackendEndpoint, CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::{Error, HandleUnauthorizedExt};
 use std::collections::HashSet;
 use tauri::{AppHandle, Manager, State};
 use vacs_signaling::protocol::http::webrtc::IceConfig;
 use vacs_signaling::protocol::vatsim::{ClientId, PositionId};
-use vacs_signaling::protocol::ws::shared;
 use vacs_signaling::protocol::ws::shared::{CallId, CallSource, CallTarget};
 
 #[tauri::command]
@@ -72,36 +69,21 @@ pub async fn signaling_terminate(
 
 #[tauri::command]
 #[vacs_macros::log_err]
-pub async fn signaling_start_call(
+pub async fn signaling_invite_to_call(
     app: AppHandle,
     app_state: State<'_, AppState>,
     http_state: State<'_, HttpState>,
-    audio_manager: State<'_, AudioManagerHandle>,
-    target: CallTarget,
+    targets: HashSet<CallTarget>,
     source: CallSource,
     prio: bool,
 ) -> Result<CallId, Error> {
-    log::debug!("Starting call with {target:?} as {source:?}");
-
     let mut state = app_state.lock().await;
-
-    let call_id = CallId::new();
-    let invite = shared::CallInvite {
-        call_id,
-        target,
-        source,
-        prio,
-    };
-    state.send_signaling_message(invite.clone()).await?;
 
     if state.is_ice_config_expired() {
         refresh_ice_config(&http_state, &mut state).await;
     }
 
-    state.start_unanswered_call_timer(&app, &call_id);
-    state.set_outgoing_call(Some(invite));
-
-    audio_manager.read().restart(SourceType::Ringback);
+    let call_id = state.invite_to_call(&app, source, targets, prio).await?;
 
     Ok(call_id)
 }
@@ -115,8 +97,23 @@ pub async fn signaling_accept_call(
 ) -> Result<(), Error> {
     log::debug!("Accepting call {call_id:?}");
 
+    refresh_expired_ice_config(&app).await;
+
     let mut state = app_state.lock().await;
     state.accept_call(&app, Some(call_id)).await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn signaling_drop_target(
+    app_state: State<'_, AppState>,
+    call_id: CallId,
+    target: CallTarget,
+) -> Result<(), Error> {
+    let mut state = app_state.lock().await;
+    state.drop_target(call_id, target).await?;
 
     Ok(())
 }
@@ -128,10 +125,8 @@ pub async fn signaling_end_call(
     app_state: State<'_, AppState>,
     call_id: CallId,
 ) -> Result<(), Error> {
-    log::debug!("Ending call {call_id:?}");
-
     let mut state = app_state.lock().await;
-    state.end_call(&app, Some(call_id)).await?;
+    state.end_call(&app, call_id).await?;
 
     Ok(())
 }

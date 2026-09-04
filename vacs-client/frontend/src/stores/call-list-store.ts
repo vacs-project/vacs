@@ -4,12 +4,16 @@ import {CallId, ClientId, PositionId, StationId} from "../types/generic.ts";
 import {useShallow} from "zustand/react/shallow";
 import {getProfileStationKeysState} from "./profile-store.ts";
 
+export type CallListTarget = {
+    target: CallTarget;
+    clientId: ClientId | undefined;
+};
+
 export type CallListItem = {
     type: "IN" | "OUT";
     time: string;
     name: string;
-    target: CallTarget;
-    clientId?: ClientId;
+    targets: CallListTarget[];
     answered: boolean | undefined;
 };
 
@@ -20,20 +24,20 @@ export type IncomingCallListEntry = {
 
 export type OutgoingCallListEntry = {
     callId: CallId;
-    target: CallTarget;
+    targets: CallTarget[];
 };
 
 export type CallListUpdate = {
-    clientId?: ClientId | null;
-    answered?: boolean | null;
+    targets?: CallListTarget[];
+    answered?: boolean;
 };
 
 type CallListState = {
     callList: Map<CallId, CallListItem>;
     actions: {
-        addIncomingCall: (entry: IncomingCallListEntry) => void;
-        addOutgoingCall: (entry: OutgoingCallListEntry) => void;
-        updateCall: (
+        addIncomingCallListEntry: (entry: IncomingCallListEntry) => void;
+        addOutgoingCallListEntry: (entry: OutgoingCallListEntry) => void;
+        updateCallListEntry: (
             callId: CallId,
             update: CallListUpdate | ((state: CallListItem) => CallListUpdate),
         ) => void;
@@ -44,7 +48,7 @@ type CallListState = {
 export const useCallListStore = create<CallListState>()((set, get) => ({
     callList: new Map(),
     actions: {
-        addIncomingCall: (entry: IncomingCallListEntry) => {
+        addIncomingCallListEntry: (entry: IncomingCallListEntry) => {
             const callList = new Map(get().callList);
 
             callList.set(entry.callId, {
@@ -55,47 +59,62 @@ export const useCallListStore = create<CallListState>()((set, get) => ({
                     entry.source.positionId,
                     entry.source.clientId,
                 ),
-                target: callSourceToTarget(entry.source),
-                clientId: entry.source.clientId,
+                targets: [
+                    {target: callSourceToTarget(entry.source), clientId: entry.source.clientId},
+                ],
                 answered: undefined,
             });
 
             set({callList});
         },
-        addOutgoingCall: (entry: OutgoingCallListEntry) => {
+        addOutgoingCallListEntry: (entry: OutgoingCallListEntry) => {
+            if (entry.targets.length == 0) return;
+
             const callList = new Map(get().callList);
 
             callList.set(entry.callId, {
                 type: "OUT",
                 time: now(),
-                name: callListName(
-                    entry.target.station,
-                    entry.target.position,
-                    entry.target.client,
-                ),
-                target: entry.target,
-                clientId: entry.target.client,
+                name:
+                    entry.targets.length == 1
+                        ? callListName(
+                              entry.targets[0].station,
+                              entry.targets[0].position,
+                              entry.targets[0].client,
+                          )
+                        : "CONF",
+                targets: entry.targets.map(target => ({target, clientId: target.client})),
                 answered: undefined,
             });
 
             set({callList});
         },
-        updateCall: (callId, update) => {
+        updateCallListEntry: (callId, updateOrFn) => {
             const callList = new Map(get().callList);
-            let item = callList.get(callId);
+            const current = callList.get(callId);
 
-            if (item === undefined) return;
+            if (current === undefined) return;
 
-            if (typeof update === "function") {
-                update = update(item);
+            let update: CallListUpdate;
+            if (typeof updateOrFn === "function") {
+                update = updateOrFn(current);
+            } else {
+                update = updateOrFn;
             }
 
-            if (update.clientId !== undefined) {
-                item.clientId = update.clientId ?? undefined;
+            const item = {...current};
+
+            if (update.targets !== undefined && update.targets.length > 0) {
+                item.targets = [...update.targets];
             }
 
-            if (update.answered !== undefined) {
-                item.answered = update.answered ?? undefined;
+            if (item.targets.length > 1) {
+                item.name = "CONF";
+            }
+
+            const answered = update.answered;
+            if (answered !== undefined) {
+                item.answered = answered;
             }
 
             callList.set(callId, item);
@@ -123,8 +142,11 @@ export const useLastDialledClientId = () =>
         const calls = Array.from(state.callList.values()).reverse();
 
         for (const call of calls) {
-            if (call.type === "OUT") {
-                return call.clientId;
+            if (call.type !== "OUT" || call.targets.length !== 1) continue;
+
+            const clientId = call.targets[0].target.client;
+            if (clientId !== undefined) {
+                return clientId;
             }
         }
     });

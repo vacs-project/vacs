@@ -15,6 +15,7 @@ impl AsMetricLabel for DisconnectReason {
             DisconnectReason::Terminated => "terminated",
             DisconnectReason::NoActiveVatsimConnection => "no_active_vatsim_connection",
             DisconnectReason::AmbiguousVatsimPosition(_) => "ambiguous_vatsim_position",
+            DisconnectReason::Unknown(_) => "unknown",
         }
     }
 }
@@ -39,6 +40,7 @@ impl AsMetricLabel for LoginFailureReason {
             LoginFailureReason::InvalidVatsimPosition => "invalid_vatsim_position",
             LoginFailureReason::Timeout => "timeout",
             LoginFailureReason::IncompatibleProtocolVersion => "incompatible_protocol_version",
+            LoginFailureReason::Unknown(_) => "unknown",
         }
     }
 }
@@ -50,15 +52,32 @@ impl AsMetricLabel for CallAttemptOutcome {
             CallAttemptOutcome::Rejected => "rejected",
             CallAttemptOutcome::Cancelled => "cancelled",
             CallAttemptOutcome::Aborted => "aborted",
-            CallAttemptOutcome::Error(CallErrorReason::AudioFailure) => "error_audio_failure",
+            CallAttemptOutcome::Error(CallErrorReason::AudioFailure(_)) => "error_audio_failure",
             CallAttemptOutcome::Error(CallErrorReason::AutoHangup) => "error_auto_hangup",
-            CallAttemptOutcome::Error(CallErrorReason::WebrtcFailure) => "error_webrtc_failure",
+            CallAttemptOutcome::Error(CallErrorReason::WebrtcFailure(_)) => "error_webrtc_failure",
             CallAttemptOutcome::Error(CallErrorReason::CallActive) => "error_call_active",
             CallAttemptOutcome::Error(CallErrorReason::CallFailure) => "error_call_failure",
-            CallAttemptOutcome::Error(CallErrorReason::SignalingFailure) => {
+            CallAttemptOutcome::Error(CallErrorReason::SignalingFailure(_)) => {
                 "error_signaling_failure"
             }
-            CallAttemptOutcome::Error(CallErrorReason::TargetNotFound) => "error_target_not_found",
+            CallAttemptOutcome::Error(CallErrorReason::TargetsNotFound(_)) => {
+                "error_target_not_found"
+            }
+            CallAttemptOutcome::Error(CallErrorReason::CallNotFound) => "error_call_not_found",
+            CallAttemptOutcome::Error(CallErrorReason::AlreadyParticipant(_)) => {
+                "error_already_participant"
+            }
+            CallAttemptOutcome::Error(CallErrorReason::NotConferenceLeader(_)) => {
+                "error_not_conference_leader"
+            }
+            CallAttemptOutcome::Error(CallErrorReason::NotParticipant) => "error_not_participant",
+            CallAttemptOutcome::Error(CallErrorReason::PeerConnectionFailed(_)) => {
+                "error_peer_connection_failed"
+            }
+            CallAttemptOutcome::Error(CallErrorReason::Unknown(_)) => "error_unknown",
+            CallAttemptOutcome::Error(CallErrorReason::MaxConferenceSizeReached(_)) => {
+                "error_max_conference_size_reached"
+            }
             CallAttemptOutcome::Error(CallErrorReason::Other) => "error_other",
         }
     }
@@ -95,6 +114,7 @@ impl AsMetricLabel for ClientMessage {
             ClientMessage::CallReject(_) => "call_reject",
             ClientMessage::CallEnd(_) => "call_end",
             ClientMessage::CallError(_) => "call_error",
+            ClientMessage::CallDropTarget(_) => "call_drop_target",
             ClientMessage::WebrtcOffer(_) => "webrtc_offer",
             ClientMessage::WebrtcAnswer(_) => "webrtc_answer",
             ClientMessage::WebrtcIceCandidate(_) => "webrtc_ice_candidate",
@@ -110,9 +130,9 @@ impl AsMetricLabel for ServerMessage {
     fn as_metric_label(&self) -> &'static str {
         match self {
             ServerMessage::LoginFailure(_) => "login_failure",
-            ServerMessage::CallInvite(_) => "call_invite",
-            ServerMessage::CallAccept(_) => "call_accept",
+            ServerMessage::CallInvitation(_) => "call_invite",
             ServerMessage::CallEnd(_) => "call_end",
+            ServerMessage::CallUpdate(_) => "call_update",
             ServerMessage::CallCancelled(_) => "call_cancelled",
             ServerMessage::CallError(_) => "call_error",
             ServerMessage::WebrtcOffer(_) => "webrtc_offer",
@@ -127,6 +147,7 @@ impl AsMetricLabel for ServerMessage {
             ServerMessage::StationChanges(_) => "station_changes",
             ServerMessage::Disconnected(_) => "disconnected",
             ServerMessage::Error(_) => "error",
+            ServerMessage::Unknown => "unknown",
         }
     }
 }
@@ -140,6 +161,7 @@ impl AsMetricLabel for ErrorReason {
             ErrorReason::UnexpectedMessage(_) => "unexpected_message",
             ErrorReason::RateLimited { .. } => "rate_limited",
             ErrorReason::ClientNotFound => "client_not_found",
+            ErrorReason::Unknown(_) => "unknown",
         }
     }
 }
@@ -147,14 +169,21 @@ impl AsMetricLabel for ErrorReason {
 impl AsMetricLabel for CallErrorReason {
     fn as_metric_label(&self) -> &'static str {
         match self {
-            CallErrorReason::TargetNotFound => "target_not_found",
+            CallErrorReason::TargetsNotFound(_) => "target_not_found",
+            CallErrorReason::AlreadyParticipant(_) => "already_participant",
+            CallErrorReason::CallNotFound => "call_not_found",
             CallErrorReason::CallActive => "call_active",
-            CallErrorReason::WebrtcFailure => "webrtc_failure",
-            CallErrorReason::AudioFailure => "audio_failure",
+            CallErrorReason::WebrtcFailure(_) => "webrtc_failure",
+            CallErrorReason::AudioFailure(_) => "audio_failure",
             CallErrorReason::CallFailure => "call_failure",
-            CallErrorReason::SignalingFailure => "signaling_failure",
+            CallErrorReason::SignalingFailure(_) => "signaling_failure",
             CallErrorReason::AutoHangup => "auto_hangup",
+            CallErrorReason::NotConferenceLeader(_) => "not_conference_leader",
+            CallErrorReason::NotParticipant => "not_participant",
+            CallErrorReason::MaxConferenceSizeReached(_) => "max_conference_size_reached",
+            CallErrorReason::PeerConnectionFailed(_) => "peer_connection_failed",
             CallErrorReason::Other => "other",
+            CallErrorReason::Unknown(_) => "unknown",
         }
     }
 }
