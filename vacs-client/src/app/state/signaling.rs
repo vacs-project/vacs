@@ -1118,8 +1118,7 @@ impl AppStateInner {
                     | CallErrorReason::NotParticipant
                     | CallErrorReason::CallNotFound
                     | CallErrorReason::CallFailure
-                    | CallErrorReason::Other
-                    | CallErrorReason::Unknown(_) => {
+                    | CallErrorReason::Other => {
                         let state = app.state::<AppState>();
                         let mut state = state.lock().await;
 
@@ -1130,6 +1129,14 @@ impl AppStateInner {
                         }
 
                         state.remove_incoming_call(call_id);
+
+                        state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
+                    }
+                    // A reason from a newer server: notify only. A call this leaves
+                    // ringing locally is cleaned up by the auto-hangup timer.
+                    CallErrorReason::Unknown(_) => {
+                        let state = app.state::<AppState>();
+                        let state = state.lock().await;
 
                         state.emit_call_error(app, call_id, false, CallErrorOrigin::Call, reason);
                     }
