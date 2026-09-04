@@ -74,8 +74,8 @@ pub enum AcceptCallOutcome {
     NotFound,
 }
 
-/// Lock order: when holding more than one lock, acquire them in field order —
-/// `ringing_calls` → `active_calls` → `client_incoming_calls` / `client_active_calls`.
+/// Lock order: when holding more than one lock, acquire them in field order:
+/// `ringing_calls` -> `active_calls` -> `client_incoming_calls` / `client_active_calls`.
 /// Never acquire a lock while holding one that comes later in this order.
 pub struct CallManager {
     ringing_calls: RwLock<HashMap<CallId, RingingCallEntry>>,
