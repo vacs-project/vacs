@@ -10,7 +10,6 @@ use crate::radio::{RadioHandle, RadioState};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_opener::OpenerExt;
 use vacs_audio::sources::wav::WavSource;
 
 #[tauri::command]
@@ -287,7 +286,6 @@ pub async fn playback_seek(
 #[tauri::command]
 #[vacs_macros::log_err]
 pub async fn playback_export(
-    app: AppHandle,
     recorder: State<'_, PlaybackRecorderHandle>,
     id: u64,
 ) -> Result<PathBuf, Error> {
@@ -302,10 +300,15 @@ pub async fn playback_export(
         ))));
     };
 
-    if let Err(err) = app.opener().open_path(path.to_string_lossy(), None::<&str>) {
-        return Err(
-            PlaybackError::Other(anyhow::anyhow!("Cannot open export directory: {err}")).into(),
-        );
+    // The export itself succeeded at this point, so the error must say so and carry the
+    // destination: the frontend discards the returned path and this overlay is the only surface
+    // that can still tell the user where the clip went.
+    if let Err(err) = crate::external::open_path_detached(path.clone()).await {
+        return Err(PlaybackError::Other(anyhow::anyhow!(
+            "Exported the clip to {} but could not open the folder: {err:#}",
+            path.display()
+        ))
+        .into());
     }
 
     Ok(path)

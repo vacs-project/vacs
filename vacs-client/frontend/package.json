@@ -24,7 +24,6 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-deep-link": "^2.4.8",
     "@tauri-apps/plugin-log": "^2.9.0",
-    "@tauri-apps/plugin-opener": "^2",
     "clsx": "^2.1.1",
     "preact": "^10.29.8",
     "react": "npm:@preact/compat@^18.3.1",

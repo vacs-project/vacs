@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "linux": {
+      "appimage": {
+        "files": {
+          "usr/lib/spa-0.2": "/usr/lib/x86_64-linux-gnu/spa-0.2",
+          "usr/lib/pipewire-0.3": "/usr/lib/x86_64-linux-gnu/pipewire-0.3"
+        }
+      }
+    }
+  }
+}

@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
-use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 use vacs_macros::Frontend;
@@ -123,11 +122,12 @@ pub fn open_app_folder(app: &AppHandle, folder: AppFolder) -> Result<(), Error> 
             .app_log_dir()
             .context("Failed to get logs folder")?,
     };
-    let folder_path = folder_path.to_str().context("Folder path is empty")?;
 
-    app.opener()
-        .open_path(folder_path, None::<&str>)
-        .context("Failed to open folder")?;
+    // The config directory only appears once settings are first persisted, so on a fresh install
+    // there is nothing to open and the opener reports a missing path.
+    std::fs::create_dir_all(&folder_path).context("Failed to create folder")?;
+
+    crate::external::open_path(&folder_path).context("Failed to open folder")?;
 
     Ok(())
 }

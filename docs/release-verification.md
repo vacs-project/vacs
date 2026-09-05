@@ -8,7 +8,7 @@ All official `vacs` releases are cryptographically signed so you can verify that
 
 Each GitHub release for `vacs-client` includes:
 
-- Binary bundles/installers (`.exe`, `.deb`, `.rpm`, `.dmg`, `.app.tar.gz`)
+- Binary bundles/installers (`.exe`, `.deb`, `.rpm`, `.AppImage`, `.dmg`, `.app.tar.gz`)
 - Per-bundle signatures created by Tauri, used for the automatic updater (`.sig`)
 - A checksum file containing the sha256 checksums of all bundles and their signatures (`SHA256SUMS-X.Y.Z.txt`)
 - A keyless [cosign](https://github.com/sigstore/cosign) bundle (using a GitHub OIDC Token) for the checksum file (`SHA256SUMS-X.Y.Z.txt.bundle.json`)

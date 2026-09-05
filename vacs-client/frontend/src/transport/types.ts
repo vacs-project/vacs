@@ -9,6 +9,7 @@ export type RemoteCommand =
     | "app_load_extra_client_page_config"
     | "app_load_test_profile"
     | "app_open_folder"
+    | "app_open_url"
     | "app_platform_capabilities"
     | "app_quit"
     | "app_reset_window_size"

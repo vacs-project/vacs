@@ -707,7 +707,7 @@ async fn dispatch_command(
         }
         PlaybackExport => {
             let recorder = app.state::<PlaybackRecorderHandle>();
-            dispatch(playback_export(app.clone(), recorder, args!(args, "id")).await)
+            dispatch(playback_export(recorder, args!(args, "id")).await)
         }
 
         RadioAddStation => {
@@ -870,6 +870,7 @@ async fn dispatch_command(
         }
 
         AppOpenFolder
+        | AppOpenUrl
         | AppQuit
         | AppUpdate
         | AppSetAlwaysOnTop
