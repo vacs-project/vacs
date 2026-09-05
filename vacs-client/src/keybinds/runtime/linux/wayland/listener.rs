@@ -6,7 +6,7 @@
 //! global keyboard events on Wayland. The implementation is split into several helper
 //! functions to keep the code maintainable:
 //!
-//! - `initialize_portal()`: Creates the D-Bus proxy and session
+//! - `initialize_portal()`: Registers the app id, creates the D-Bus proxy and session
 //! - `check_existing_shortcuts()`: Checks if shortcuts are already configured
 //! - `bind_shortcuts()`: Registers new shortcuts with the portal
 //! - `ensure_configuration()`: Shows the configuration UI if needed
@@ -38,7 +38,7 @@
 //! The map is shared between the main struct and the background task to allow querying
 //! the current bindings via `get_external_binding()`.
 
-use crate::keybinds::runtime::linux::wayland::PortalShortcutId;
+use crate::keybinds::runtime::linux::wayland::{PortalShortcutId, registry};
 use crate::keybinds::runtime::{self, KeybindListener};
 use crate::keybinds::{KeyEvent, Keybind, KeybindsError};
 use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut, Shortcut};
@@ -228,7 +228,11 @@ async fn setup_shortcuts_listener(
 async fn initialize_portal(
     startup_tx: &mut Option<oneshot::Sender<Result<(), KeybindsError>>>,
 ) -> ashpd::Result<(GlobalShortcuts, ashpd::desktop::Session<GlobalShortcuts>)> {
-    let proxy = match tokio::time::timeout(Duration::from_secs(5), GlobalShortcuts::new()).await {
+    let connect = async {
+        let connection = registry::connect().await?;
+        GlobalShortcuts::with_connection(connection).await
+    };
+    let proxy = match tokio::time::timeout(Duration::from_secs(5), connect).await {
         Ok(Ok(proxy)) => proxy,
         Ok(Err(err)) => {
             log::error!("Failed to create GlobalShortcuts proxy: {err}");

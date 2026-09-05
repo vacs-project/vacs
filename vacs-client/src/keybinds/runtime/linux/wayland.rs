@@ -34,6 +34,7 @@
 //! 4. User can reconfigure shortcuts in their desktop environment settings
 
 mod listener;
+pub mod registry;
 
 pub use listener::*;
 
