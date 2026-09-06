@@ -92,4 +92,23 @@ describe("store sync", () => {
 
         teardown();
     });
+
+    it("still broadcasts sayAgainEnabled changes after hydration", async () => {
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        hydrateStores(snapshot);
+        invoke.mockClear();
+
+        useSettingsStore.getState().setSayAgainEnabled(true);
+
+        expect(invoke).toHaveBeenCalledWith(
+            "remote_broadcast_store_sync",
+            expect.objectContaining({
+                store: "settings",
+                state: expect.objectContaining({sayAgainEnabled: true}),
+            }),
+        );
+
+        teardown();
+    });
 });

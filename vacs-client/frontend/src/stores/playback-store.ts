@@ -9,6 +9,7 @@ export type PlaybackStatus = {
     id: number;
     status: "playing" | "paused";
     continuously: boolean;
+    sayAgain: boolean;
     progress: number;
 };
 

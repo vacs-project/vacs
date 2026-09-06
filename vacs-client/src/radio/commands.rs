@@ -1,9 +1,11 @@
 use crate::app::PersistedClientConfig;
 use crate::app::state::AppState;
+use crate::audio::manager::AudioManagerHandle;
 use crate::config::{CLIENT_SETTINGS_FILE_NAME, Persistable};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
+use crate::playback::commands::stop_playing_source;
 use crate::playback::recorder::PlaybackRecorderHandle;
 use crate::radio::{
     DynRadio, Frequency, FrontendRadioConfig, RadioConfig, RadioHandle, RadioState, RadioStation,
@@ -56,6 +58,7 @@ pub async fn radio_set_config(
     // `make_source` doesn't support and thus never re-creates it. `shutdown` cancels the
     // recorder's background task and awaits its exit, including the underlying source's
     // capture teardown.
+    stop_playing_source(&playback_recorder, &app.state::<AudioManagerHandle>());
     let old_recorder = playback_recorder.write().take();
     if let Some(recorder) = old_recorder {
         recorder.shutdown().await;

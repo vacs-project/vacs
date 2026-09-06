@@ -4,11 +4,13 @@ import {useCallStore} from "../stores/call-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import Button from "./ui/Button.tsx";
 import LinkButton from "./ui/LinkButton.tsx";
+import SayAgainButton from "./ui/SayAgainButton.tsx";
 
 function FunctionKeys() {
     const prio = useCallStore(state => state.prio);
     const setPrio = useCallStore(state => state.actions.setPrio);
     const disablePrio = useSettingsStore(state => !state.callConfig.enablePriorityCalls);
+    const sayAgainEnabled = useSettingsStore(state => state.sayAgainEnabled);
 
     return (
         <div className="h-20 w-full flex flex-row gap-2 justify-between p-2 [&>button]:shrink-0">
@@ -45,15 +47,19 @@ function FunctionKeys() {
                     BACK
                 </p>
             </LinkButton>
-            <Button color="cyan" className="text-slate-400" disabled={true}>
-                <p>
-                    PLC
-                    <br />
-                    LSP
-                    <br />
-                    on/off
-                </p>
-            </Button>
+            {sayAgainEnabled ? (
+                <SayAgainButton />
+            ) : (
+                <Button color="cyan" className="text-slate-400" disabled={true}>
+                    <p>
+                        PLC
+                        <br />
+                        LSP
+                        <br />
+                        on/off
+                    </p>
+                </Button>
+            )}
             <Button color="cyan" className="text-slate-400" disabled={true}>
                 SPLIT
             </Button>

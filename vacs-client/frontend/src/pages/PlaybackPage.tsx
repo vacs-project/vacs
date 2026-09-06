@@ -99,7 +99,7 @@ function PlaybackPageInner() {
     const prevClip = clips[selected + 1];
     const nextClip = clips[selected - 1];
 
-    const controls = usePlaybackControls({selectedClip, prevClip, nextClip});
+    const controls = usePlaybackControls({clips, selectedClip, prevClip, nextClip});
     const {active, handleStop} = controls;
 
     useEffect(() => {
@@ -129,9 +129,10 @@ function PlaybackPageInner() {
         );
 
         return () => {
+            const ownsPlayback = usePlaybackStore.getState().status?.sayAgain !== true;
             usePlaybackStore.getState().actions.setOpenInstanceIds(prev => {
                 const next = prev.filter(id => id !== INSTANCE_ID);
-                if (next.length === 0) void handleStop();
+                if (next.length === 0 && ownsPlayback) void handleStop();
                 return next;
             });
             unlistenFns.forEach(fn => fn.then(f => f()));

@@ -1,4 +1,6 @@
 use crate::app::state::AppState;
+use crate::audio::manager::AudioManagerHandle;
+use crate::playback::commands::stop_playing_source;
 use crate::playback::recorder::PlaybackRecorderHandle;
 use crate::radio::{
     Frequency, Radio, RadioError, RadioHandle, RadioState, RadioStation, StationStateUpdate,
@@ -216,6 +218,7 @@ impl TrackAudioRadio {
                     }
                     _ => {
                         let handle = app.state::<PlaybackRecorderHandle>();
+                        stop_playing_source(&handle, &app.state::<AudioManagerHandle>());
                         let existing = handle.write().take();
                         if let Some(recorder) = existing {
                             recorder.shutdown().await;

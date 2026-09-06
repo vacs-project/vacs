@@ -82,6 +82,8 @@ pub enum RecordingMode {
 #[serde(default)]
 pub struct PlaybackConfig {
     pub enabled: bool,
+    /// Whether the SAY AGAIN function key is shown.
+    pub say_again: bool,
     pub max_clips: usize,
     pub hangover_ms: u64,
     pub max_clip_duration_s: u64,
@@ -91,6 +93,7 @@ impl Default for PlaybackConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            say_again: false,
             max_clips: 15,
             hangover_ms: 250,
             max_clip_duration_s: 90,

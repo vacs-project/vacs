@@ -224,6 +224,9 @@ pub enum RemoteCommand {
     PlaybackStop,
     PlaybackSeek,
     PlaybackExport,
+    PlaybackGetSayAgain,
+    PlaybackSetSayAgain,
+    PlaybackSayAgain,
 
     RadioAddStation,
     RadioFastCouple,

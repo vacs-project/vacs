@@ -32,6 +32,7 @@ type SettingsSync = {
     clockMode: ClockMode;
     cplMode: CplMode;
     playbackEnabled: boolean;
+    sayAgainEnabled: boolean;
     transmitConfig: TransmitConfigWithLabels | undefined;
     radioConfig: RadioConfigWithLabels | undefined;
 };
@@ -167,6 +168,7 @@ function applySync(payload: SyncPayload) {
                 clockMode: payload.state.clockMode,
                 cplMode: payload.state.cplMode,
                 playbackEnabled: payload.state.playbackEnabled,
+                sayAgainEnabled: payload.state.sayAgainEnabled,
                 transmitConfig: payload.state.transmitConfig,
                 radioConfig: payload.state.radioConfig,
             });
@@ -278,6 +280,7 @@ function startSync(): () => void {
             clockMode: s.clockMode,
             cplMode: s.cplMode,
             playbackEnabled: s.playbackEnabled,
+            sayAgainEnabled: s.sayAgainEnabled,
             transmitConfig: s.transmitConfig,
             radioConfig: s.radioConfig,
         })),
@@ -347,6 +350,7 @@ function broadcastAllStoreState() {
         clockMode: settings.clockMode,
         cplMode: settings.cplMode,
         playbackEnabled: settings.playbackEnabled,
+        sayAgainEnabled: settings.sayAgainEnabled,
         transmitConfig: settings.transmitConfig,
         radioConfig: settings.radioConfig,
     });

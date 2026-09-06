@@ -23,6 +23,7 @@ type SettingsState = {
     clockMode: ClockMode;
     cplMode: CplMode;
     playbackEnabled: boolean;
+    sayAgainEnabled: boolean;
     setCallConfig: (config: CallConfig) => void;
     setClientPageConfig: (config: ClientPageConfig & {name: string}) => void;
     setClientPageSettings: (settings: ClientPageSettings) => void;
@@ -31,6 +32,7 @@ type SettingsState = {
     setClockMode: (mode: ClockMode) => void;
     setCplMode: (mode: CplMode) => void;
     setPlaybackEnabled: (enabled: boolean) => void;
+    setSayAgainEnabled: (enabled: boolean) => void;
 };
 
 const emptyClientPageConfig: ClientPageConfig = {
@@ -57,6 +59,7 @@ export const useSettingsStore = create<SettingsState>()(set => ({
     clockMode: "Realtime",
     cplMode: "Original",
     playbackEnabled: false,
+    sayAgainEnabled: false,
     setCallConfig: config => set({callConfig: config}),
     setClientPageConfig: config => set({selectedClientPageConfig: config}),
     setClientPageSettings: ({selected, configs}) => {
@@ -73,6 +76,7 @@ export const useSettingsStore = create<SettingsState>()(set => ({
     setClockMode: mode => set({clockMode: mode}),
     setCplMode: mode => set({cplMode: mode}),
     setPlaybackEnabled: enabled => set({playbackEnabled: enabled}),
+    setSayAgainEnabled: enabled => set({sayAgainEnabled: enabled}),
 }));
 
 useSettingsStore.subscribe((state, prev) => {
@@ -101,17 +105,23 @@ export async function fetchSettings() {
     if (!isTauri) return;
 
     try {
-        const [callConfig, clockMode, cplMode, transmitConfig, radioConfig, playbackEnabled] =
-            await Promise.all([
-                invokeStrict<CallConfig>("app_get_call_config"),
-                invokeStrict<ClockMode>("app_get_clock_mode"),
-                invokeStrict<CplMode>("app_get_cpl_mode"),
-                invokeStrict<TransmitConfig>("keybinds_get_transmit_config").then(
-                    withTransmitLabels,
-                ),
-                invokeStrict<RadioConfig>("radio_get_config").then(withRadioLabels),
-                invokeStrict<boolean>("playback_get_enabled"),
-            ]);
+        const [
+            callConfig,
+            clockMode,
+            cplMode,
+            transmitConfig,
+            radioConfig,
+            playbackEnabled,
+            sayAgainEnabled,
+        ] = await Promise.all([
+            invokeStrict<CallConfig>("app_get_call_config"),
+            invokeStrict<ClockMode>("app_get_clock_mode"),
+            invokeStrict<CplMode>("app_get_cpl_mode"),
+            invokeStrict<TransmitConfig>("keybinds_get_transmit_config").then(withTransmitLabels),
+            invokeStrict<RadioConfig>("radio_get_config").then(withRadioLabels),
+            invokeStrict<boolean>("playback_get_enabled"),
+            invokeStrict<boolean>("playback_get_say_again"),
+        ]);
 
         useSettingsStore.setState({
             callConfig,
@@ -120,6 +130,7 @@ export async function fetchSettings() {
             transmitConfig,
             radioConfig,
             playbackEnabled,
+            sayAgainEnabled,
         });
     } catch {}
 }
