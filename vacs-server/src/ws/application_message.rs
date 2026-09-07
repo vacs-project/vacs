@@ -1438,6 +1438,65 @@ mod tests {
     }
 
     #[test(tokio::test)]
+    async fn handle_application_message_call_accept_with_unreachable_caller() {
+        let setup = TestSetup::new();
+        let (caller, caller_rx) = setup.register_client(create_client_info(1)).await;
+        let (callee, mut callee_rx) = setup.register_client(create_client_info(2)).await;
+
+        let call_id = CallId::new();
+        let control_flow = handle_application_message(
+            &setup.app_state,
+            &caller,
+            ClientMessage::CallInvite(CallInvite {
+                call_id,
+                source: shared::CallSource {
+                    client_id: caller.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(callee.id().clone())]),
+                prio: false,
+            }),
+        )
+        .await;
+        assert_eq!(control_flow, ControlFlow::Continue(()));
+
+        // The caller's session ended between the invite and the acceptance, so the server can no
+        // longer reach it
+        drop(caller_rx);
+
+        let control_flow = handle_application_message(
+            &setup.app_state,
+            &callee,
+            ClientMessage::CallAccept(CallAccept {
+                call_id,
+                accepting_client_id: callee.id().clone(),
+            }),
+        )
+        .await;
+        assert_eq!(control_flow, ControlFlow::Continue(()));
+
+        assert_eq!(
+            setup.app_state.calls.active_call_count(),
+            0,
+            "A call the caller was never told about must not stay active"
+        );
+        let messages: Vec<_> = std::iter::from_fn(|| callee_rx.try_recv().ok()).collect();
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallError(_))),
+            "Callee should receive a call error, got {messages:?}"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| matches!(m, ServerMessage::CallEnd(_))),
+            "Callee should be told the call ended, got {messages:?}"
+        );
+    }
+
+    #[test(tokio::test)]
     async fn handle_application_message_unknown() {
         let setup = TestSetup::new();
 

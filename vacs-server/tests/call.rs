@@ -2106,6 +2106,47 @@ async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> an
     Ok(())
 }
 
+/// The active call entry owns the `vacs_calls_active` gauge increment, so the entry has to go
+/// with the disconnecting participant or the gauge stays raised forever.
+#[test(tokio::test)]
+async fn disconnect_releases_the_active_call() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 2).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+
+    let call_id = CallId::new();
+    join_call(&mut client1, &mut client2, call_id).await?;
+    assert_eq!(test_app.state().calls.active_call_count(), 1);
+
+    let client1_id = client1.id().clone();
+    client1.close().await;
+
+    let ends = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(500), |m| {
+            matches!(m, ServerMessage::CallEnd(end)
+                if end.call_id == call_id && end.ending_client_id == client1_id)
+        })
+        .await;
+    assert_eq!(ends.len(), 1, "the peer should be told the call ended");
+
+    assert_eq!(
+        test_app.state().calls.active_call_count(),
+        0,
+        "no call may stay active after a participant disconnected from a two-party call"
+    );
+
+    client2.close().await;
+    assert_eq!(
+        test_app.state().calls.active_call_count(),
+        0,
+        "the peer disconnecting afterwards must find nothing left to clean up"
+    );
+
+    Ok(())
+}
+
 /// One dead link between two conference members removes the member that
 /// joined later, and only once both endpoints have reported it.
 #[test(tokio::test)]
