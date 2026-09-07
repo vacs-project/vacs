@@ -126,6 +126,13 @@ impl CallManager {
         self.active_calls.read().get(call_id).map(Into::into)
     }
 
+    /// Number of currently active calls, which is what the `vacs_calls_active` gauge tracks:
+    /// every entry holds a [`CallGuard`](crate::metrics::guards::CallGuard).
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn active_call_count(&self) -> usize {
+        self.active_calls.read().len()
+    }
+
     pub fn invite_exceeds_max_conf_size(
         &self,
         call_id: &CallId,
