@@ -54,6 +54,8 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _| {
             if let Some(url) = argv.get(1) {
                 app::handle_deep_link(app.clone(), url.to_string());
+            } else {
+                log::warn!("Second instance started without a deep link url, ignoring");
             }
         }))
         .plugin(tauri_plugin_deep_link::init())

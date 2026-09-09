@@ -52,6 +52,7 @@
     },
     "linux": {
       "deb": {
+        "desktopTemplate": "bundle/linux/vacs.desktop",
         "depends": [
           "libasound2",
           "libpulse0",
@@ -64,6 +65,7 @@
         "recommends": ["pipewire-pulse", "pipewire-alsa", "libasound2-plugins"]
       },
       "rpm": {
+        "desktopTemplate": "bundle/linux/vacs.desktop",
         "depends": [
           "alsa-lib",
           "pulseaudio-libs",
