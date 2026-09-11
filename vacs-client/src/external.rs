@@ -71,6 +71,12 @@ const BUNDLED_SPA_PLUGIN_DIR: &str = "usr/lib/spa-0.2";
 #[cfg(target_os = "linux")]
 const BUNDLED_PIPEWIRE_MODULE_DIR: &str = "usr/lib/pipewire-0.3";
 
+/// The libpipewire linuxdeploy copies into the bundle. Its excludelist decides whether that
+/// happens, and the bundler fetches it from a rolling upstream tag, so the redirect checks for
+/// the library instead of assuming it.
+#[cfg(target_os = "linux")]
+const BUNDLED_PIPEWIRE_LIB: &str = "usr/lib/libpipewire-0.3.so.0";
+
 /// The AppDir we are running out of, if this process was launched from an AppImage.
 #[cfg(target_os = "linux")]
 fn app_dir() -> Option<PathBuf> {
@@ -139,13 +145,16 @@ pub fn host_command(program: &str) -> std::process::Command {
 /// Points PipeWire at the SPA plugins and modules we ship, when there are any.
 ///
 /// libpipewire resolves both directories through paths compiled in at build time, so a bundle
-/// built on one distribution looks for them in a layout the user's machine does not have. Without
-/// them the client cannot construct even a main loop, `check_pipewire` fails, and playback reports
-/// itself unsupported. An existing value is left alone, and so is a bundle that ships no plugins,
-/// which then falls back to the compiled-in paths exactly as before.
+/// built on one distribution looks for them in a layout the user's machine does not have. This
+/// decides whether there is any audio at all, not just playback recording: cpal is built with
+/// its PipeWire host and prefers it on Linux, and the host's ALSA PipeWire plugin, the fallback,
+/// resolves the same directories. Inside a bundle that ships the plugins they always win over an
+/// inherited value, because the only value this process can inherit is a previous instance's
+/// mount: `app.restart()` after an update passes the environment on, and that mount disappears
+/// as soon as the previous instance exits.
 ///
 /// Locally built AppImages do not carry the CI overlay (its source paths are Debian specific) and
-/// fall through the is_dir check below by design.
+/// fall through to the compiled-in paths by design.
 ///
 /// # Safety
 ///
@@ -156,19 +165,32 @@ pub unsafe fn redirect_bundled_pipewire() {
         return;
     };
 
-    for (key, relative) in [
-        ("SPA_PLUGIN_DIR", BUNDLED_SPA_PLUGIN_DIR),
-        ("PIPEWIRE_MODULE_DIR", BUNDLED_PIPEWIRE_MODULE_DIR),
-    ] {
-        // Empty counts as unset: a placeholder export must not suppress the redirect.
-        if std::env::var_os(key).is_some_and(|value| !value.is_empty()) {
-            continue;
-        }
+    for (key, dir) in bundled_pipewire_dirs(&app_dir) {
+        unsafe { std::env::set_var(key, dir) };
+    }
+}
 
-        let dir = app_dir.join(relative);
-        if dir.is_dir() {
-            unsafe { std::env::set_var(key, &dir) };
-        }
+/// The plugin directories to point PipeWire at, or nothing when the bundle is incomplete. The
+/// modules only load into the libpipewire they were built against, so a bundle without its own
+/// copy of the library must not redirect the host's.
+#[cfg(target_os = "linux")]
+fn bundled_pipewire_dirs(app_dir: &Path) -> Vec<(&'static str, PathBuf)> {
+    if !app_dir.join(BUNDLED_PIPEWIRE_LIB).is_file() {
+        return Vec::new();
+    }
+
+    let dirs = vec![
+        ("SPA_PLUGIN_DIR", app_dir.join(BUNDLED_SPA_PLUGIN_DIR)),
+        (
+            "PIPEWIRE_MODULE_DIR",
+            app_dir.join(BUNDLED_PIPEWIRE_MODULE_DIR),
+        ),
+    ];
+
+    if dirs.iter().all(|(_, dir)| dir.is_dir()) {
+        dirs
+    } else {
+        Vec::new()
     }
 }
 
@@ -256,6 +278,36 @@ pub fn reap_detached(mut child: std::process::Child) {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redirects_pipewire_only_to_a_complete_bundle() {
+        let app_dir = tempfile::tempdir().unwrap();
+        let app_dir = app_dir.path();
+
+        assert!(bundled_pipewire_dirs(app_dir).is_empty());
+
+        std::fs::create_dir_all(app_dir.join(BUNDLED_SPA_PLUGIN_DIR)).unwrap();
+        std::fs::create_dir_all(app_dir.join(BUNDLED_PIPEWIRE_MODULE_DIR)).unwrap();
+        assert!(
+            bundled_pipewire_dirs(app_dir).is_empty(),
+            "plugins without the bundled libpipewire must not redirect the host library"
+        );
+
+        std::fs::write(app_dir.join(BUNDLED_PIPEWIRE_LIB), b"").unwrap();
+        assert_eq!(
+            bundled_pipewire_dirs(app_dir),
+            vec![
+                ("SPA_PLUGIN_DIR", app_dir.join(BUNDLED_SPA_PLUGIN_DIR)),
+                (
+                    "PIPEWIRE_MODULE_DIR",
+                    app_dir.join(BUNDLED_PIPEWIRE_MODULE_DIR)
+                ),
+            ]
+        );
+
+        std::fs::remove_dir(app_dir.join(BUNDLED_PIPEWIRE_MODULE_DIR)).unwrap();
+        assert!(bundled_pipewire_dirs(app_dir).is_empty());
+    }
 
     #[test]
     fn ignores_an_app_dir_the_executable_does_not_live_in() {
