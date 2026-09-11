@@ -278,6 +278,21 @@ jobs:
           args: ${{ matrix.target && format('--target {0}', matrix.target) }} ${{ env.EXTRA_TAURI_ARGS }} ${{ env.CARGO_FEATURES }}
           uploadUpdaterJson: false
 
+      # external.rs redirects PipeWire to the bundled plugins only when the bundle carries
+      # libpipewire itself, and whether linuxdeploy copies it depends on an excludelist fetched
+      # from a rolling upstream tag. Fail the build instead of shipping an AppImage without audio.
+      - name: Verify the AppImage bundles PipeWire (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          appimage=$(find "$PWD/target" -path '*/release/bundle/appimage/*.AppImage' -print -quit)
+          test -n "$appimage"
+          cd "$(mktemp -d)"
+          "$appimage" --appimage-extract > /dev/null
+          test -e squashfs-root/usr/lib/libpipewire-0.3.so.0
+          test -e squashfs-root/usr/lib/spa-0.2/support/libspa-support.so
+          test -e squashfs-root/usr/lib/pipewire-0.3/libpipewire-module-protocol-native.so
+
       - name: Rename macOS bundles to include version & architecture
         if: matrix.platform == 'macos-latest'
         shell: bash
