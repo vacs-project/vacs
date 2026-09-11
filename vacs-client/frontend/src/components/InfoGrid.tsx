@@ -23,9 +23,9 @@ function InfoGrid() {
     const updateAvailableText = newVersion !== undefined ? `UPDATE AVAILABLE (v${newVersion})` : "";
 
     const handleVersionClick = async (version: string) => {
-        await openUrl(`https://github.com/vacs-project/vacs/releases/tag/vacs-client-v${version}`);
         void invokeSafe("audio_play_ui_click");
         openMenu("settings");
+        await openUrl(`https://github.com/vacs-project/vacs/releases/tag/vacs-client-v${version}`);
     };
 
     return (

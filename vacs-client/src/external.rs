@@ -77,6 +77,17 @@ const BUNDLED_PIPEWIRE_MODULE_DIR: &str = "usr/lib/pipewire-0.3";
 #[cfg(target_os = "linux")]
 const BUNDLED_PIPEWIRE_LIB: &str = "usr/lib/libpipewire-0.3.so.0";
 
+/// Openers tried in order until one starts, the list the `open` crate behind the opener plugin
+/// uses on Linux. A program that is missing moves on to the next; one that started has had its
+/// say, whatever it exits with.
+#[cfg(target_os = "linux")]
+const HOST_OPENERS: &[(&str, &[&str])] = &[
+    ("xdg-open", &[]),
+    ("gio", &["open"]),
+    ("gnome-open", &[]),
+    ("kde-open", &["--"]),
+];
+
 /// The AppDir we are running out of, if this process was launched from an AppImage.
 #[cfg(target_os = "linux")]
 fn app_dir() -> Option<PathBuf> {
@@ -215,7 +226,7 @@ pub fn open_url(url: &str) -> Result<()> {
 
     #[cfg(target_os = "linux")]
     if app_dir().is_some() {
-        return xdg_open(url);
+        return host_open(url);
     }
 
     tauri_plugin_opener::open_url(url, None::<&str>).context("Failed to open URL")
@@ -226,7 +237,7 @@ pub fn open_url(url: &str) -> Result<()> {
 pub fn open_path(path: &Path) -> Result<()> {
     #[cfg(target_os = "linux")]
     if app_dir().is_some() {
-        return xdg_open(path);
+        return host_open(path);
     }
 
     tauri_plugin_opener::open_path(path, None::<&str>).context("Failed to open path")
@@ -247,21 +258,35 @@ pub async fn open_path_detached(path: PathBuf) -> Result<()> {
         .context("Path opener task panicked")?
 }
 
-/// Hands `target` to the host `xdg-open`. Takes an `OsStr` so non-UTF8 paths, which are legal on
-/// Linux filesystems, pass through byte for byte instead of being mangled by a lossy conversion.
+/// Hands `target` to the first host opener that starts. Takes an `OsStr` so non-UTF8 paths, which
+/// are legal on Linux filesystems, pass through byte for byte instead of being mangled by a lossy
+/// conversion.
 #[cfg(target_os = "linux")]
-fn xdg_open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
-    let child = host_command("xdg-open")
-        .arg(target)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("Failed to run xdg-open")?;
+fn host_open(target: impl AsRef<std::ffi::OsStr>) -> Result<()> {
+    let target = target.as_ref();
 
-    reap_detached(child);
+    for (program, args) in HOST_OPENERS {
+        match host_command(program)
+            .args(*args)
+            .arg(target)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => {
+                reap_detached(child);
+                return Ok(());
+            }
+            Err(err) => log::debug!("Host opener {program} did not start: {err}"),
+        }
+    }
 
-    Ok(())
+    let tried = HOST_OPENERS
+        .iter()
+        .map(|(program, _)| *program)
+        .collect::<Vec<_>>();
+    anyhow::bail!("None of the host openers {tried:?} could be started");
 }
 
 /// Waits for a detached child on a background thread. The child returns as soon as it has handed
