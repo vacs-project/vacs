@@ -12,12 +12,15 @@
  */
 import {fetchCapabilities} from "./stores/capabilities-store.ts";
 import {useCallStore} from "./stores/call-store.ts";
+import {fetchSettings} from "./stores/settings-store.ts";
 import {useUpdateStore} from "./stores/update-store.ts";
 import {CallId} from "./types/generic.ts";
 
 export type E2eHooks = {
     /** Re-reads `app_platform_capabilities`, honoring any installed mock. */
     refetchCapabilities: () => Promise<void>;
+    /** Re-reads the settings commands, honoring any installed mock. */
+    refetchSettings: () => Promise<void>;
     /** The active call's id, or null when no call is on the display. */
     activeCallId: () => CallId | null;
     /**
@@ -31,6 +34,7 @@ export function installE2eHooks(): void {
     // eslint-disable-next-line no-underscore-dangle
     (window as Window & {__vacs_e2e__?: E2eHooks}).__vacs_e2e__ = {
         refetchCapabilities: fetchCapabilities,
+        refetchSettings: fetchSettings,
         activeCallId: () => useCallStore.getState().callDisplay?.call.callId ?? null,
         setVersion: version => useUpdateStore.getState().actions.setVersions(version),
     };

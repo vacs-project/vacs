@@ -81,6 +81,36 @@ const WAYLAND_CAPABILITIES = {
     platform: "LinuxWayland",
 };
 
+const WAYLAND_NO_PORTAL_CAPABILITIES = {...WAYLAND_CAPABILITIES, keybindListener: false};
+
+// Recordings behind the Playback page images, ending shortly before the
+// frozen clock.
+const CLOCK_SECS = Date.parse(CLOCK) / 1000;
+const CLIPS = [
+    {secsAgo: 46, durationMs: 3500, callsigns: ["AUA2PJ"]},
+    {secsAgo: 56, durationMs: 2200, callsigns: ["AUA2PJ"]},
+    {secsAgo: 88, durationMs: 7200, callsigns: ["AUA25"]},
+    {secsAgo: 92, durationMs: 2900, callsigns: ["EWG1GM"]},
+    {secsAgo: 104, durationMs: 3900, callsigns: ["EWG1GM"]},
+    {secsAgo: 112, durationMs: 5900, callsigns: ["AUA99"]},
+    {secsAgo: 139, durationMs: 5600, callsigns: ["SWR8SW"]},
+].map((clip, index) => {
+    const endedSecs = CLOCK_SECS - clip.secsAgo;
+    const startedSecs = endedSecs - clip.durationMs / 1000;
+    return {
+        id: index + 1,
+        path: `/playback/${index + 1}.wav`,
+        callsigns: clip.callsigns,
+        frequency: 122_125_000,
+        startedAt: {
+            secs_since_epoch: Math.floor(startedSecs),
+            nanos_since_epoch: Math.round((startedSecs % 1) * 1e9),
+        },
+        endedAt: {secs_since_epoch: endedSecs, nanos_since_epoch: 0},
+        durationMs: clip.durationMs,
+    };
+});
+
 // Keys the desktop environment would report for the portal shortcuts. Distinct
 // per action so the Wayland images do not show identical fields.
 const EXTERNAL_BINDINGS = {
@@ -324,6 +354,59 @@ describe("Documentation screenshots", () => {
         );
     });
 
+    it("captures the Hotkeys Config on Wayland without a shortcuts portal", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await mockCommand("clientA", "app_platform_capabilities", {
+            resolve: WAYLAND_NO_PORTAL_CAPABILITIES,
+        });
+        await refetchCapabilities("clientA");
+
+        await openSettings(clientA);
+        await openSettingsPage(clientA, "Hotkeys");
+        const hotkeys = subPage(clientA, "Hotkeys Config");
+        await hotkeys.waitForDisplayed();
+        await clientA
+            .$('//p[contains(., "Keyboard shortcuts are unavailable")]')
+            .waitForDisplayed();
+
+        await captureElement(clientA, hotkeys, "settings/HotkeysConfigPage-wayland-no-portal.png");
+    });
+
+    it("captures the SAY AGAIN function key", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await applyRadioPlaybackMocks("clientA");
+
+        const sayAgain = clientA.$(SAY_AGAIN_BUTTON);
+        await clientA.waitUntil(async () => await sayAgain.isEnabled(), {
+            timeoutMsg: "SAY AGAIN did not become available",
+        });
+
+        await captureElement(
+            clientA,
+            clientA.$(`${SAY_AGAIN_BUTTON}/..`),
+            "playback/say-again-button.png",
+        );
+    });
+
+    it("captures the Playback page", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await applyRadioPlaybackMocks("clientA");
+
+        await click(clientA, clientA.$('//button[.//p[contains(., "PLAY")]]'));
+        await subPage(clientA, "Playback").waitForDisplayed();
+        await clientA
+            .$(`//*[contains(text(), "${CLIPS[CLIPS.length - 1].callsigns[0]}")]`)
+            .waitForDisplayed();
+
+        await captureWindow(clientA, "playback/playback_overview.png");
+    });
+
     it("captures the radio button in its error state", async () => {
         const clientA = getClient("clientA");
         await loginAndConnectAs(clientA, CID_A, POSITION_A);
@@ -431,6 +514,33 @@ async function applyFixtures(browser: WebdriverIO.Browser, instanceName: string)
     await browser.waitUntil(async () => (await clock.getText()).includes("10:10"), {
         timeoutMsg: "Clock did not settle on the frozen time",
     });
+}
+
+/** The SAY AGAIN key in the upper function key row. */
+const SAY_AGAIN_BUTTON = '//button[.//p[contains(., "SAY")]]';
+
+/**
+ * Puts the radio playback UI into its working state without a TrackAudio
+ * instance: a configured integration, recording enabled, a connected radio
+ * and recordings to list.
+ */
+async function applyRadioPlaybackMocks(instanceName: string): Promise<void> {
+    await mockCommand(instanceName, "radio_get_config", {
+        resolve: {
+            integration: "TrackAudio",
+            audioForVatsim: null,
+            trackAudio: {endpoint: "127.0.0.1:49080"},
+        },
+    });
+    await mockCommand(instanceName, "playback_get_enabled", {resolve: true});
+    await mockCommand(instanceName, "playback_list", {resolve: CLIPS});
+    await tauriApi(instanceName).execute(() => {
+        type Hooks = {refetchSettings: () => Promise<void>};
+        const w = window as Window & {__vacs_e2e__?: Hooks};
+        if (w.__vacs_e2e__ === undefined) throw new Error("E2E hooks are not installed");
+        void w.__vacs_e2e__.refetchSettings();
+    });
+    await emitEvent(instanceName, "radio:state", {state: "Connected"});
 }
 
 /** The two key capture fields of the Transmit Config, each next to its select. */
