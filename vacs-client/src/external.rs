@@ -468,6 +468,24 @@ mod tests {
     }
 
     #[test]
+    fn bundle_variable_lists_are_disjoint_and_unique() {
+        let mut all = BUNDLE_SEARCH_PATHS
+            .iter()
+            .chain(BUNDLE_OVERRIDES)
+            .collect::<Vec<_>>();
+        let count = all.len();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), count);
+    }
+
+    #[test]
+    fn release_workflow_applies_the_appimage_overlay() {
+        let workflow = include_str!("../../.github/workflows/release-client.yml");
+        assert!(workflow.contains("--config tauri.appimage.conf.json"));
+    }
+
+    #[test]
     fn bundled_pipewire_dirs_match_the_appimage_overlay() {
         let overlay: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.appimage.conf.json")).unwrap();
