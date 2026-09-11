@@ -3,16 +3,16 @@ import {useCallback, useEffect, useRef, useState} from "preact/hooks";
 export function useAsyncDebounce<TArgs extends unknown[], TResult>(
     fn: (...args: TArgs) => Promise<TResult>,
 ): (...args: TArgs) => Promise<TResult | void> {
-    const loading = useRef<boolean>(false);
+    const loadingRef = useRef<boolean>(false);
 
     return useCallback(
         async (...args: TArgs): Promise<TResult | void> => {
-            if (loading.current) return;
-            loading.current = true;
+            if (loadingRef.current) return;
+            loadingRef.current = true;
             try {
                 return await fn(...args);
             } finally {
-                loading.current = false;
+                loadingRef.current = false;
             }
         },
         [fn],

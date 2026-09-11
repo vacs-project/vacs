@@ -1,5 +1,5 @@
 import {clsx} from "clsx";
-import {useEffect, useRef, useState} from "preact/hooks";
+import {useEffect, useLayoutEffect, useRef, useState} from "preact/hooks";
 import PlaybackActions from "../components/playback/PlaybackActions.tsx";
 import {PlaybackControls} from "../components/playback/PlaybackControls.tsx";
 import PlaybackList from "../components/playback/PlaybackList.tsx";
@@ -91,7 +91,7 @@ function PlaybackPage() {
 function PlaybackPageInner() {
     const [clips, setClips] = useState<ClipMeta[]>([]);
     const clipsRef = useRef<ClipMeta[]>([]);
-    clipsRef.current = clips;
+
     const selected = usePlaybackStore(state => state.selected);
     const {setSelected} = usePlaybackStore(state => state.actions);
 
@@ -101,6 +101,10 @@ function PlaybackPageInner() {
 
     const controls = usePlaybackControls({clips, selectedClip, prevClip, nextClip});
     const {active, handleStop} = controls;
+
+    useLayoutEffect(() => {
+        clipsRef.current = clips;
+    }, [clips]);
 
     useEffect(() => {
         usePlaybackStore.getState().actions.setOpenInstanceIds(prev => [...prev, INSTANCE_ID]);
