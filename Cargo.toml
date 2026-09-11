@@ -114,7 +114,7 @@ tower-sessions = { version = "0.15.0", features = ["signed"] }
 tower-sessions-redis-store = "=0.16.0"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 tracing = { version = "0.1.44", features = ["log"] }
-trackaudio = "0.2.2"
+trackaudio = "0.3.0"
 url = "2.5.8"
 uuid = { version = "1.23.2", features = ["v7", "serde"] }
 vacs-audio = { path = "vacs-audio" }
