@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.7.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.6.0...vacs-client-v2.7.0) (2026-09-11)
+
+
+### Features
+
+* **vacs-client:** add SAY AGAIN function key to replay the last radio transmission ([#1147](https://github.com/vacs-project/vacs/issues/1147)) ([856c424](https://github.com/vacs-project/vacs/commit/856c424353198b6236b789d8248a4f6e677ee47c))
+
+
+### Bug Fixes
+
+* **vacs-client:** keep the selected clip highlighted when a new recording arrives ([856c424](https://github.com/vacs-project/vacs/commit/856c424353198b6236b789d8248a4f6e677ee47c))
+* **vacs-client:** pass deep link urls through the linux desktop entry ([#1145](https://github.com/vacs-project/vacs/issues/1145)) ([64d2ac8](https://github.com/vacs-project/vacs/commit/64d2ac849e3bcc5e5ab79d0a5bef3c57c67109a2))
+* **vacs-client:** skip early tasks that race the app state setup ([#1099](https://github.com/vacs-project/vacs/issues/1099)) ([f77f7bb](https://github.com/vacs-project/vacs/commit/f77f7bb2366b0f7c33c3b4a3ebf6396b35c0240e))
+* **vacs-client:** start on Wayland desktops without a global shortcuts portal ([#1148](https://github.com/vacs-project/vacs/issues/1148)) ([a971692](https://github.com/vacs-project/vacs/commit/a971692a6d44f30d9d52b31d093d9eb2c326f52e))
+
 ## [2.6.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.5.1...vacs-client-v2.6.0) (2026-08-11)
 
 
