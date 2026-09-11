@@ -232,7 +232,7 @@ pub fn open_url(url: &str) -> Result<()> {
         return host_open(url);
     }
 
-    tauri_plugin_opener::open_url(url, None::<&str>).context("Failed to open URL")
+    open::that_detached(url).context("Failed to open URL")
 }
 
 /// Opens a file or directory in the user's default application. Blocks like [`open_url`]; from
@@ -243,7 +243,8 @@ pub fn open_path(path: &Path) -> Result<()> {
         return host_open(path);
     }
 
-    tauri_plugin_opener::open_path(path, None::<&str>).context("Failed to open path")
+    path.metadata().context("Failed to open path")?;
+    open::that_detached(path).context("Failed to open path")
 }
 
 /// Runs [`open_url`] on the blocking pool, keeping the fork and the opener's filesystem probing

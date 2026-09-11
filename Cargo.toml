@@ -56,6 +56,8 @@ objc2-core-foundation = "0.3.1"
 objc2-core-graphics = "0.3.1"
 oauth2 = { version = "5.0.0", default-features = false }
 octocrab = "0.54.0"
+# shellexecute-on-windows keeps cmd.exe out of the URL path, as the opener plugin did.
+open = { version = "5.3.2", features = ["shellexecute-on-windows"] }
 opus = "0.4.0"
 parking_lot = "0.12.5"
 pipewire = "0.10.0"
@@ -97,7 +99,6 @@ tauri = "2.11.2"
 tauri-build = "2.6.1"
 tauri-plugin-deep-link = "2.4.9"
 tauri-plugin-log = "2.8.0"
-tauri-plugin-opener = "2.5.4"
 tauri-plugin-prevent-default = "5.0.0"
 tauri-plugin-single-instance = "2.4.2"
 tauri-plugin-updater = "2.10.1"
