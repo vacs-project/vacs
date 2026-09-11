@@ -85,13 +85,27 @@ impl Default for Capabilities {
 fn check_wayland_global_shortcuts_portal() -> bool {
     log::debug!("Checking availability of Wayland Global Shortcuts portal");
 
+    // ashpd's constructor only reports a portal that answers "unknown interface"; a session bus
+    // with no portal service at all passes it and fails later when the session is created. Read
+    // the version property directly so every failure counts as no portal.
     let probe_portal = async || -> bool {
-        use ashpd::desktop::global_shortcuts::GlobalShortcuts;
+        use ashpd::zbus;
 
-        match tokio::time::timeout(std::time::Duration::from_secs(1), GlobalShortcuts::new()).await
-        {
-            Ok(Ok(_)) => {
-                log::debug!("Wayland Global Shortcuts portal is available");
+        let probe = async {
+            let connection = zbus::Connection::session().await?;
+            let proxy = zbus::Proxy::new(
+                &connection,
+                "org.freedesktop.portal.Desktop",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.portal.GlobalShortcuts",
+            )
+            .await?;
+            proxy.get_property::<u32>("version").await
+        };
+
+        match tokio::time::timeout(std::time::Duration::from_secs(5), probe).await {
+            Ok(Ok(version)) => {
+                log::debug!("Wayland Global Shortcuts portal is available (version {version})");
                 true
             }
             Ok(Err(err)) => {
