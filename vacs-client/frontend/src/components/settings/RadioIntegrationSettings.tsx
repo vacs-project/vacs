@@ -3,7 +3,7 @@ import {TargetedEvent} from "preact";
 import {useEffect, useState} from "preact/hooks";
 import {invokeStrict} from "../../error.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
-import {useCapabilitiesStore} from "../../stores/capabilities-store.ts";
+import {selectPortalShortcuts, useCapabilitiesStore} from "../../stores/capabilities-store.ts";
 import {setPage} from "../../stores/navigation-store.ts";
 import {useRadioStore} from "../../stores/radio-store.ts";
 import {callMicModeToKeybind, KeybindType} from "../../types/keybinds.ts";
@@ -39,7 +39,7 @@ function RadioIntegrationSettings({
     setTransmitConfig,
     setRadioConfig,
 }: RadioIntegrationSettingsProps) {
-    const capPlatform = useCapabilitiesStore(state => state.platform);
+    const usesPortalShortcuts = useCapabilitiesStore(selectPortalShortcuts);
     const capKeybindEmitter = useCapabilitiesStore(state => state.keybindEmitter);
     const [trackAudioEndpoint, setTrackAudioEndpoint] = useState<string>(
         radioConfig.trackAudio?.endpoint ?? "",
@@ -179,10 +179,10 @@ function RadioIntegrationSettings({
             } catch {}
         };
 
-        if (capPlatform === "LinuxWayland") {
+        if (usesPortalShortcuts) {
             void setWaylandRadioKeybind();
         }
-    }, [transmitConfig.callMicMode, radioConfig.integration, capPlatform]);
+    }, [transmitConfig.callMicMode, radioConfig.integration, usesPortalShortcuts]);
 
     return (
         <div className="w-full px-3 flex flex-col gap-2 items-center justify-center">
@@ -200,7 +200,7 @@ function RadioIntegrationSettings({
                     selected={radioConfig.integration ?? "None"}
                     onChange={handleOnRadioIntegrationChange}
                 />
-                {capPlatform === "LinuxWayland" ? (
+                {usesPortalShortcuts ? (
                     <ExternalKeybindField
                         type={waylandRadioKeybindType}
                         binding={

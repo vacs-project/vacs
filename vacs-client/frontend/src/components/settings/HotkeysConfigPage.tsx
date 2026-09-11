@@ -3,7 +3,7 @@ import {InputBinding, inputToLabel} from "../../types/transmit.ts";
 import {useEffect, useState} from "preact/hooks";
 import {KeybindsConfig, KeybindType} from "../../types/keybinds.ts";
 import {invokeStrict} from "../../error.ts";
-import {useCapabilitiesStore} from "../../stores/capabilities-store.ts";
+import {selectPortalShortcuts, useCapabilitiesStore} from "../../stores/capabilities-store.ts";
 import SettingsSubPage from "./SettingsSubPage.tsx";
 import ExternalKeybindField from "./ExternalKeybindField.tsx";
 import KeybindPageActions from "./KeybindPageActions.tsx";
@@ -18,6 +18,8 @@ async function inputToKeybind(input: InputBinding | null): Promise<Keybind> {
 }
 
 function HotkeysConfigPage() {
+    const capPlatform = useCapabilitiesStore(state => state.platform);
+    const capKeybindListener = useCapabilitiesStore(state => state.keybindListener);
     const [acceptCall, setAcceptCall] = useState<Keybind | undefined>(undefined);
     const [endCall, setEndCall] = useState<Keybind | undefined>(undefined);
     const [toggleRadioPrio, setToggleRadioPrio] = useState<Keybind | undefined>(undefined);
@@ -42,6 +44,12 @@ function HotkeysConfigPage() {
             actions={<KeybindPageActions />}
             className="py-3 px-4"
         >
+            {capPlatform === "LinuxWayland" && !capKeybindListener && (
+                <p className="pb-3 text-sm text-gray-700">
+                    Keyboard shortcuts are unavailable on this desktop: its portal offers no global
+                    shortcuts. Joystick buttons can still be bound.
+                </p>
+            )}
             <div className="grid grid-cols-[auto_1fr] gap-4 items-center">
                 <KeybindField
                     type="AcceptCall"
@@ -74,7 +82,7 @@ type KeybindFieldProps = {
 };
 
 function KeybindField({type, label, keybind, setKeybind}: KeybindFieldProps) {
-    const hasExternal = useCapabilitiesStore(state => state.platform === "LinuxWayland");
+    const hasExternal = useCapabilitiesStore(selectPortalShortcuts);
 
     const handleOnCapture = async (input: InputBinding | null) => {
         try {
