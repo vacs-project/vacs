@@ -139,22 +139,27 @@ impl KeybindEngine {
         // reads the merged stream directly.
         let (key_event_tx, key_event_rx) = unbounded_channel();
 
-        // A keyboard listener failure (e.g. portal unavailable on Wayland) must
-        // not disable joystick bindings, and vice versa: start whichever sources
-        // are available and only fail if none are.
+        // A keyboard listener failure is never fatal: a Wayland desktop without the
+        // GlobalShortcuts portal must still start, with keyboard bindings reported as
+        // unavailable through the platform capability. Joystick bindings keep working.
         let keyboard_ok = match PlatformListener::start(key_event_tx.clone()).await {
             Ok(listener) => {
                 *self.listener.write() = Some(Arc::new(listener));
                 true
             }
-            Err(err) if any_button => {
-                log::error!(
-                    "Keybind listener failed to start, continuing with joystick bindings only: {err}"
+            Err(err) => {
+                log::warn!(
+                    "Keyboard listener unavailable, continuing without keyboard bindings: {err}"
                 );
                 false
             }
-            Err(err) => return Err(err.into()),
         };
+
+        if !keyboard_ok && !any_button {
+            log::warn!("No input source available, keybind engine not starting");
+            self.stop_token = None;
+            return Ok(());
+        }
 
         if any_button
             && let Err(err) = self

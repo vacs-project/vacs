@@ -1,10 +1,10 @@
 import {invokeSafe} from "../../error";
-import {useCapabilitiesStore} from "../../stores/capabilities-store";
+import {selectPortalShortcuts, useCapabilitiesStore} from "../../stores/capabilities-store";
 import {openSettingsSubmenu} from "../../stores/navigation-store";
 import Button from "../ui/Button";
 
 function KeybindPageActions() {
-    const capPlatform = useCapabilitiesStore(state => state.platform);
+    const usesPortalShortcuts = useCapabilitiesStore(selectPortalShortcuts);
 
     const handleOpenSystemShortcutsOnClick = async () => {
         void invokeSafe("audio_play_ui_click");
@@ -24,7 +24,7 @@ function KeybindPageActions() {
                     Devices
                 </p>
             </Button>
-            {capPlatform === "LinuxWayland" && (
+            {usesPortalShortcuts && (
                 <Button
                     color="gray"
                     className="w-24 text-sm"

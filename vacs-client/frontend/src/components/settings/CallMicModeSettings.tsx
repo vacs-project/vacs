@@ -1,5 +1,5 @@
 import {invokeStrict} from "../../error.ts";
-import {useCapabilitiesStore} from "../../stores/capabilities-store.ts";
+import {selectPortalShortcuts, useCapabilitiesStore} from "../../stores/capabilities-store.ts";
 import {callMicModeToKeybind} from "../../types/keybinds.ts";
 import {
     InputBinding,
@@ -19,7 +19,7 @@ type CallMicModeSettingsProps = {
 };
 
 function CallMicModeSettings({transmitConfig, setTransmitConfig}: CallMicModeSettingsProps) {
-    const capPlatform = useCapabilitiesStore(state => state.platform);
+    const usesPortalShortcuts = useCapabilitiesStore(selectPortalShortcuts);
 
     const handleOnTransmitCapture = async (input: InputBinding) => {
         if (transmitConfig.callMicMode === "VoiceActivation") return;
@@ -105,7 +105,7 @@ function CallMicModeSettings({transmitConfig, setTransmitConfig}: CallMicModeSet
                 selected={transmitConfig.callMicMode}
                 onChange={handleOnTransmitModeChange}
             />
-            {capPlatform === "LinuxWayland" ? (
+            {usesPortalShortcuts ? (
                 <ExternalKeybindField
                     type={callMicModeToKeybind(transmitConfig.callMicMode)}
                     binding={activeCallBinding}

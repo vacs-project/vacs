@@ -23,3 +23,9 @@ export const fetchCapabilities = async () => {
         useCapabilitiesStore.getState().setCapabilities(capabilities);
     } catch {}
 };
+
+/// Wayland desktops bind keys through the portal, but only when the portal offers global
+/// shortcuts; without it the fields fall back to joystick-only capture.
+export function selectPortalShortcuts(state: CapabilitiesState): boolean {
+    return state.platform === "LinuxWayland" && state.keybindListener;
+}
