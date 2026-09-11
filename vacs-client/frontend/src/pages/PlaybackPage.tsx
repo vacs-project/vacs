@@ -118,16 +118,22 @@ function PlaybackPageInner() {
         const unlistenFns: Promise<UnlistenFn>[] = [];
         unlistenFns.push(
             listen<{recorded: ClipMeta; evicted: ClipMeta[]}>("playback:clips-modified", event => {
-                const status = usePlaybackStore.getState().status;
+                const {status, selected} = usePlaybackStore.getState();
                 const evictedIds = new Set(event.payload.evicted.map(c => c.id));
                 const filtered = clipsRef.current.filter(c => !evictedIds.has(c.id));
                 const playingEvicted = status !== undefined && evictedIds.has(status.id);
+                const newClips = sortClips([...filtered, event.payload.recorded]);
 
                 if (playingEvicted && isPlaybackRoot()) void handleStop();
-                if (filtered.length > 0 && status !== undefined && !playingEvicted) {
+                if (
+                    filtered.length > 0 &&
+                    !playingEvicted &&
+                    clipsRef.current[selected] !== undefined &&
+                    newClips.length > selected + 1
+                ) {
                     setSelected(prev => prev + 1);
                 }
-                setClips(sortClips([...filtered, event.payload.recorded]));
+                setClips(newClips);
             }),
         );
 
