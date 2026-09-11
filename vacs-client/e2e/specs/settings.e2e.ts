@@ -10,6 +10,13 @@ async function openSettings(browser: WebdriverIO.Browser): Promise<void> {
     await click(browser, settingsButton);
 }
 
+async function openAdvancedSettings(browser: WebdriverIO.Browser): Promise<void> {
+    await openSettings(browser);
+    const advancedButton = await browser.$("button*=Advanced");
+    await advancedButton.waitForDisplayed();
+    await click(browser, advancedButton);
+}
+
 describe("Settings", () => {
     beforeEach(async () => {
         await resetMockState();
@@ -60,11 +67,7 @@ describe("Settings", () => {
 
     it("should switch the couple mode in the advanced settings", async () => {
         const clientA = getClient("clientA");
-        await openSettings(clientA);
-
-        const advancedButton = await clientA.$("button*=Advanced");
-        await advancedButton.waitForDisplayed();
-        await click(clientA, advancedButton);
+        await openAdvancedSettings(clientA);
 
         // The mock audio host is offered and couple mode can be changed.
         const hostOption = await clientA.$(
@@ -78,6 +81,33 @@ describe("Settings", () => {
         await clientA.pause(500);
         if ((await cplSelect.getValue()) !== "Fast") {
             throw new Error("Couple mode selection was not applied");
+        }
+    });
+
+    it("should show a disabled SAY AGAIN function key without a radio connection", async () => {
+        const clientA = getClient("clientA");
+
+        const sayAgainKey = await clientA.$("button*=SAY");
+        await sayAgainKey.waitForDisplayed();
+
+        // The harness has no TrackAudio mock, so no radio integration is
+        // configured and the key can only render disabled.
+        if (await sayAgainKey.isEnabled()) {
+            throw new Error("SAY AGAIN is enabled without a radio connection");
+        }
+
+        if (await clientA.$("button*=PLC").isExisting()) {
+            throw new Error("PLC LSP placeholder is still rendered next to SAY AGAIN");
+        }
+
+        await openAdvancedSettings(clientA);
+
+        // Wait for the playback section itself, so the missing checkbox below
+        // cannot just be a page that has not rendered yet.
+        const playbackCheckbox = await clientA.$('input[name="playback-enabled"]');
+        await playbackCheckbox.waitForDisplayed();
+        if (await clientA.$('input[name="say-again-enabled"]').isExisting()) {
+            throw new Error("The SAY AGAIN setting is still offered in the advanced settings");
         }
     });
 
