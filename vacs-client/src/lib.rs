@@ -58,7 +58,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .plugin(tauri_plugin_prevent_default::debug())
         .setup(|app| {
