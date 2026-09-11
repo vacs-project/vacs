@@ -65,7 +65,6 @@ afterEach(() => {
     useSettingsStore.setState({
         radioConfig: undefined,
         playbackEnabled: false,
-        sayAgainEnabled: false,
     });
     useRadioStore.setState({radioState: undefined});
     usePlaybackStore.setState({

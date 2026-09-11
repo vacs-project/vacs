@@ -78,37 +78,6 @@ pub async fn playback_set_enabled(
 
 #[tauri::command]
 #[vacs_macros::log_err]
-pub async fn playback_get_say_again(app_state: State<'_, AppState>) -> Result<bool, Error> {
-    Ok(app_state.lock().await.config.client.playback.say_again)
-}
-
-#[tauri::command]
-#[vacs_macros::log_err]
-pub async fn playback_set_say_again(
-    app: AppHandle,
-    app_state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<(), Error> {
-    let persisted_client_config = {
-        let mut state = app_state.lock().await;
-        if state.config.client.playback.say_again == enabled {
-            return Ok(());
-        }
-        state.config.client.playback.say_again = enabled;
-        PersistedClientConfig::from(state.config.client.clone())
-    };
-
-    let config_dir = app
-        .path()
-        .app_config_dir()
-        .expect("Cannot get config directory");
-    persisted_client_config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
-
-    Ok(())
-}
-
-#[tauri::command]
-#[vacs_macros::log_err]
 pub async fn playback_list(
     recorder: State<'_, PlaybackRecorderHandle>,
 ) -> Result<Vec<ClipMeta>, Error> {

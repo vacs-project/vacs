@@ -13,27 +13,17 @@ const {invoke, listen} = vi.hoisted(() => ({
 vi.mock("../../src/transport", () => ({invoke, listen, isTauri: true, isRemote: () => false}));
 
 import FunctionKeys from "../../src/components/FunctionKeys.tsx";
-import {useSettingsStore} from "../../src/stores/settings-store.ts";
 
 afterEach(() => {
-    useSettingsStore.setState({sayAgainEnabled: false});
     vi.clearAllMocks();
     cleanup();
 });
 
 describe("FunctionKeys", () => {
-    it("renders the SAY AGAIN button when the setting is enabled", () => {
-        useSettingsStore.setState({sayAgainEnabled: true});
+    it("renders the SAY AGAIN key instead of the PLC LSP placeholder", () => {
         render(<FunctionKeys />);
 
         expect(screen.getByRole("button", {name: "SAYAGAIN"})).toBeDefined();
-    });
-
-    it("renders the disabled PLC LSP placeholder when the setting is disabled", () => {
-        useSettingsStore.setState({sayAgainEnabled: false});
-        render(<FunctionKeys />);
-
-        const btn = screen.getByRole("button", {name: "PLCLSPon/off"}) as HTMLButtonElement;
-        expect(btn.disabled).toBe(true);
+        expect(screen.queryByRole("button", {name: "PLCLSPon/off"})).toBeNull();
     });
 });

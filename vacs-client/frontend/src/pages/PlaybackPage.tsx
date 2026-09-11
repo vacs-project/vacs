@@ -91,7 +91,6 @@ function PlaybackPage() {
 function PlaybackPageInner() {
     const [clips, setClips] = useState<ClipMeta[]>([]);
     const clipsRef = useRef<ClipMeta[]>([]);
-
     const selected = usePlaybackStore(state => state.selected);
     const {setSelected} = usePlaybackStore(state => state.actions);
 

@@ -320,7 +320,6 @@ mod tests {
     fn cfg() -> PlaybackConfig {
         PlaybackConfig {
             enabled: true,
-            say_again: false,
             max_clips: 10,
             hangover_ms: 500,
             max_clip_duration_s: 5,

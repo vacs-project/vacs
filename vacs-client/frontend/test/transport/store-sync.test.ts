@@ -49,24 +49,6 @@ const snapshot: SessionStateSnapshot = {
     outgoingCall: null,
 };
 
-const snapshotSettings = {
-    callConfig: snapshot.callConfig,
-    selectedClientPageConfig: {
-        include: [],
-        exclude: [],
-        priority: [],
-        frequencies: "ShowAll",
-        grouping: "FirAndIcao",
-        name: "None",
-    },
-    clockMode: "Realtime",
-    cplMode: "Original",
-    playbackEnabled: true,
-    sayAgainEnabled: false,
-    transmitConfig: undefined,
-    radioConfig: undefined,
-};
-
 // setupStoreSync enables syncing asynchronously; in the app, hydration happens
 // long after (a WS round-trip), so tests must let the subscriptions settle first.
 function flushMicrotasks(): Promise<void> {
@@ -81,6 +63,7 @@ function findStoreSyncCallback() {
 
 describe("store sync", () => {
     afterEach(() => {
+        useSettingsStore.setState({playbackEnabled: false});
         vi.clearAllMocks();
     });
 
@@ -119,40 +102,30 @@ describe("store sync", () => {
         teardown();
     });
 
-    it("still broadcasts sayAgainEnabled changes after hydration", async () => {
-        const teardown = setupStoreSync();
-        await flushMicrotasks();
-        hydrateStores(snapshot);
-        invoke.mockClear();
-
-        useSettingsStore.getState().setSayAgainEnabled(true);
-
-        expect(invoke).toHaveBeenCalledWith(
-            "remote_broadcast_store_sync",
-            expect.objectContaining({
-                store: "settings",
-                state: expect.objectContaining({sayAgainEnabled: true}),
-            }),
-        );
-
-        teardown();
-    });
-
-    it("applies sayAgainEnabled from an inbound settings sync", async () => {
-        useSettingsStore.setState({sayAgainEnabled: false});
+    it("applies an inbound settings sync without echoing it back", async () => {
+        useSettingsStore.setState({playbackEnabled: false});
         const teardown = setupStoreSync();
         await flushMicrotasks();
         invoke.mockClear();
 
+        const settings = useSettingsStore.getState();
         findStoreSyncCallback()({
             payload: {
                 store: "settings",
                 sourceId: "other",
-                state: {...snapshotSettings, sayAgainEnabled: true},
+                state: {
+                    callConfig: settings.callConfig,
+                    selectedClientPageConfig: settings.selectedClientPageConfig,
+                    clockMode: settings.clockMode,
+                    cplMode: settings.cplMode,
+                    transmitConfig: settings.transmitConfig,
+                    radioConfig: settings.radioConfig,
+                    playbackEnabled: true,
+                },
             },
         });
 
-        expect(useSettingsStore.getState().sayAgainEnabled).toBe(true);
+        expect(useSettingsStore.getState().playbackEnabled).toBe(true);
         expect(invoke).not.toHaveBeenCalledWith("remote_broadcast_store_sync", expect.anything());
 
         teardown();
