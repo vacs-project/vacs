@@ -129,12 +129,17 @@ fn strip_app_dir(value: &OsString, app_dir: &Path) -> Option<OsString> {
 pub fn host_command(program: &str) -> Command {
     let mut command = Command::new(program);
 
-    let Some(app_dir) = app_dir() else {
-        return command;
-    };
+    if let Some(app_dir) = app_dir() {
+        scrub_bundle_env(&mut command, &app_dir, |key| std::env::var_os(key));
+    }
 
+    command
+}
+
+#[cfg(target_os = "linux")]
+fn scrub_bundle_env(command: &mut Command, app_dir: &Path, var: impl Fn(&str) -> Option<OsString>) {
     for key in BUNDLE_SEARCH_PATHS {
-        match std::env::var_os(key).and_then(|value| strip_app_dir(&value, &app_dir)) {
+        match var(key).and_then(|value| strip_app_dir(&value, app_dir)) {
             Some(value) => command.env(key, value),
             None => command.env_remove(key),
         };
@@ -143,8 +148,6 @@ pub fn host_command(program: &str) -> Command {
     for key in BUNDLE_OVERRIDES {
         command.env_remove(key);
     }
-
-    command
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -300,9 +303,69 @@ pub fn reap_detached(mut child: std::process::Child) {
     });
 }
 
+#[cfg(test)]
+mod scheme_tests {
+    use super::*;
+
+    #[test]
+    fn refuses_schemes_outside_the_web_and_mail_allowlist() {
+        for url in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "tel:+491234",
+            "data:text/html,x",
+            "ftp://example.com/x",
+            "not a url",
+        ] {
+            assert!(open_url(url).is_err(), "{url} must be refused");
+        }
+    }
+
+    #[tokio::test]
+    async fn detached_opener_propagates_the_refusal() {
+        assert!(open_url_detached("file:///tmp".into()).await.is_err());
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    #[allow(clippy::disallowed_methods)] // a bare command is the fixture, nothing is spawned
+    fn scrubs_the_bundle_from_a_host_command() {
+        let app_dir = Path::new("/tmp/.mount_vacs");
+        let env = BTreeMap::from([
+            ("APPDIR", "/tmp/.mount_vacs"),
+            ("PATH", "/tmp/.mount_vacs/usr/bin:/usr/bin"),
+            ("LD_LIBRARY_PATH", "/tmp/.mount_vacs/usr/lib"),
+            (
+                "GSETTINGS_SCHEMA_DIR",
+                "/tmp/.mount_vacs/usr/share/glib-2.0/schemas",
+            ),
+            ("GTK_THEME", "Adwaita"),
+            ("HOME", "/home/controller"),
+        ]);
+
+        let mut command = Command::new("true");
+        scrub_bundle_env(&mut command, app_dir, |key| {
+            env.get(key).map(OsString::from)
+        });
+
+        let mut expected = BTreeMap::new();
+        for key in BUNDLE_SEARCH_PATHS.iter().chain(BUNDLE_OVERRIDES) {
+            expected.insert(OsString::from(key), None);
+        }
+        expected.insert(OsString::from("PATH"), Some(OsString::from("/usr/bin")));
+
+        let actual = command
+            .get_envs()
+            .map(|(key, value)| (key.to_os_string(), value.map(OsString::from)))
+            .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn redirects_pipewire_only_to_a_complete_bundle() {
