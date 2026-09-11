@@ -1,5 +1,5 @@
 import {clsx} from "clsx";
-import {useEffect, useRef, useState} from "preact/hooks";
+import {useEffect, useLayoutEffect, useRef, useState} from "preact/hooks";
 import PlaybackActions from "../components/playback/PlaybackActions.tsx";
 import {PlaybackControls} from "../components/playback/PlaybackControls.tsx";
 import PlaybackList from "../components/playback/PlaybackList.tsx";
@@ -91,7 +91,6 @@ function PlaybackPage() {
 function PlaybackPageInner() {
     const [clips, setClips] = useState<ClipMeta[]>([]);
     const clipsRef = useRef<ClipMeta[]>([]);
-    clipsRef.current = clips;
     const selected = usePlaybackStore(state => state.selected);
     const {setSelected} = usePlaybackStore(state => state.actions);
 
@@ -99,8 +98,12 @@ function PlaybackPageInner() {
     const prevClip = clips[selected + 1];
     const nextClip = clips[selected - 1];
 
-    const controls = usePlaybackControls({selectedClip, prevClip, nextClip});
+    const controls = usePlaybackControls({clips, selectedClip, prevClip, nextClip});
     const {active, handleStop} = controls;
+
+    useLayoutEffect(() => {
+        clipsRef.current = clips;
+    }, [clips]);
 
     useEffect(() => {
         usePlaybackStore.getState().actions.setOpenInstanceIds(prev => [...prev, INSTANCE_ID]);
@@ -115,23 +118,30 @@ function PlaybackPageInner() {
         const unlistenFns: Promise<UnlistenFn>[] = [];
         unlistenFns.push(
             listen<{recorded: ClipMeta; evicted: ClipMeta[]}>("playback:clips-modified", event => {
-                const status = usePlaybackStore.getState().status;
+                const {status, selected} = usePlaybackStore.getState();
                 const evictedIds = new Set(event.payload.evicted.map(c => c.id));
                 const filtered = clipsRef.current.filter(c => !evictedIds.has(c.id));
                 const playingEvicted = status !== undefined && evictedIds.has(status.id);
+                const newClips = sortClips([...filtered, event.payload.recorded]);
 
                 if (playingEvicted && isPlaybackRoot()) void handleStop();
-                if (filtered.length > 0 && status !== undefined && !playingEvicted) {
+                if (
+                    filtered.length > 0 &&
+                    !playingEvicted &&
+                    clipsRef.current[selected] !== undefined &&
+                    newClips.length > selected + 1
+                ) {
                     setSelected(prev => prev + 1);
                 }
-                setClips(sortClips([...filtered, event.payload.recorded]));
+                setClips(newClips);
             }),
         );
 
         return () => {
+            const ownsPlayback = usePlaybackStore.getState().status?.sayAgain !== true;
             usePlaybackStore.getState().actions.setOpenInstanceIds(prev => {
                 const next = prev.filter(id => id !== INSTANCE_ID);
-                if (next.length === 0) void handleStop();
+                if (next.length === 0 && ownsPlayback) void handleStop();
                 return next;
             });
             unlistenFns.forEach(fn => fn.then(f => f()));

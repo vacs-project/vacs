@@ -99,6 +99,11 @@ impl ClipStore {
         self.clips.iter().find(|c| c.id == id).cloned()
     }
 
+    /// The most recently committed clip, if any.
+    pub fn latest(&self) -> Option<ClipMeta> {
+        self.clips.back().cloned()
+    }
+
     /// Delete a clip from the deque and its file. Returns whether the clip existed.
     pub fn delete(&mut self, id: u64) -> Result<bool, PlaybackError> {
         let Some(pos) = self.clips.iter().position(|c| c.id == id) else {
@@ -296,6 +301,25 @@ mod tests {
         assert!(!paths[0].exists(), "oldest file should have been evicted");
         assert!(paths[1].exists());
         assert!(paths[2].exists());
+    }
+
+    #[test]
+    fn latest_returns_newest_committed_clip() {
+        let dir = tempdir().unwrap();
+        let mut store = ClipStore::open(dir.path().to_path_buf(), 2).unwrap();
+        assert!(store.latest().is_none());
+
+        for id in 1_u64..=3 {
+            let path = store.allocate(TapId::Headset, SystemTime::now());
+            write_dummy_clip(&path);
+            let _ = store.commit(fresh_meta(id, path));
+            assert_eq!(store.latest().unwrap().id, id);
+        }
+
+        assert!(store.delete(3).unwrap());
+        assert_eq!(store.latest().unwrap().id, 2);
+        store.clear().unwrap();
+        assert!(store.latest().is_none());
     }
 
     #[test]

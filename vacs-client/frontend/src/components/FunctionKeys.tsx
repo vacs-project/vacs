@@ -4,6 +4,7 @@ import {useCallStore} from "../stores/call-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import Button from "./ui/Button.tsx";
 import LinkButton from "./ui/LinkButton.tsx";
+import SayAgainButton from "./ui/SayAgainButton.tsx";
 
 function FunctionKeys() {
     const prio = useCallStore(state => state.prio);
@@ -45,15 +46,7 @@ function FunctionKeys() {
                     BACK
                 </p>
             </LinkButton>
-            <Button color="cyan" className="text-slate-400" disabled={true}>
-                <p>
-                    PLC
-                    <br />
-                    LSP
-                    <br />
-                    on/off
-                </p>
-            </Button>
+            <SayAgainButton />
             <Button color="cyan" className="text-slate-400" disabled={true}>
                 SPLIT
             </Button>

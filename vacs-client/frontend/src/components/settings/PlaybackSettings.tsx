@@ -1,6 +1,7 @@
 import {TargetedEvent} from "preact";
 import {invokeStrict} from "../../error.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
+import {usePlaybackStore} from "../../stores/playback-store.ts";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import Checkbox from "../ui/Checkbox.tsx";
 
@@ -13,6 +14,7 @@ function PlaybackSettings() {
         setEnabled(next);
         try {
             await invokeStrict("playback_set_enabled", {enabled: next});
+            if (!next) usePlaybackStore.getState().actions.setStatus(undefined);
         } catch {
             setEnabled(!next);
         }

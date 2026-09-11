@@ -71,6 +71,7 @@ export type RemoteCommand =
     | "playback_stop"
     | "playback_get_enabled"
     | "playback_list"
+    | "playback_say_again"
     | "playback_seek"
     | "playback_set_enabled"
     | "signaling_accept_call"

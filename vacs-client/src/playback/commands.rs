@@ -65,6 +65,7 @@ pub async fn playback_set_enabled(
         // Stop any currently running recorder. The slot stays in place; future
         // PlaybackConfig::start calls will be no-ops while playback is disabled.
         let handle = app.state::<PlaybackRecorderHandle>();
+        stop_playing_source(&handle, &app.state::<AudioManagerHandle>());
         let existing = handle.write().take();
         if let Some(recorder) = existing {
             recorder.shutdown().await;
@@ -121,58 +122,126 @@ pub async fn playback_start(
     initial_progress: Option<f64>, // 0.0 to 1.0
     start_paused: Option<bool>,
 ) -> Result<(), Error> {
-    stop_playing_source(&recorder, &audio_manager);
-
     let clip = recorder.read().as_ref().and_then(|r| r.get(id));
     let Some(clip) = clip else {
         return Err(PlaybackError::Other(anyhow::anyhow!("clip {id} not found")).into());
     };
 
-    let audio_manager = audio_manager.read();
-
-    let (source_id, actual_device_type) = audio_manager.add_audio_source(
-        move |sample_rate, channels| {
-            let source = WavSource::from_file(
-                clip.path,
-                sample_rate,
-                channels as usize,
-                1.0,
-                None,
-                Some(Box::new(move |progress| {
-                    app.emit(CLIP_PROGRESS_EVENT, progress).ok();
-                    if progress >= 1.0 {
-                        let recorder = app.state::<PlaybackRecorderHandle>();
-                        if let Some(r) = recorder.write().as_mut() {
-                            r.set_playing_source_id(None);
-                        }
-                    }
-                })),
-            )
-            .map_err(PlaybackError::Other)?;
-            Ok(Box::new(source))
-        },
+    start_clip(
+        app,
+        &recorder,
+        &audio_manager,
+        clip,
         device_type,
+        initial_progress.unwrap_or(0.0),
+        start_paused.unwrap_or(false),
+    )
+}
+
+/// Replay the newest recorded clip from the start, replacing whatever is playing.
+/// Returns the clip that was started, or `None` when nothing has been recorded yet.
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn playback_say_again(
+    app: AppHandle,
+    recorder: State<'_, PlaybackRecorderHandle>,
+    audio_manager: State<'_, AudioManagerHandle>,
+    device_type: PlaybackDeviceType,
+) -> Result<Option<ClipMeta>, Error> {
+    let Some(clip) = recorder.read().as_ref().and_then(|r| r.latest()) else {
+        log::info!("say again requested but no clip has been recorded yet");
+        return Ok(None);
+    };
+
+    start_clip(
+        app,
+        &recorder,
+        &audio_manager,
+        clip.clone(),
+        device_type,
+        0.0,
+        false,
     )?;
 
-    let initial_progress = initial_progress.unwrap_or(0.0);
-    if initial_progress > 0.0 {
-        audio_manager.skip_in_audio_source(
-            source_id,
-            Duration::from_millis((clip.duration_ms as f64 * initial_progress).round() as u64),
-            actual_device_type,
-        );
-    }
+    Ok(Some(clip))
+}
 
-    let start_paused = start_paused.unwrap_or(false);
-    if !start_paused {
-        audio_manager.start_audio_source(source_id, actual_device_type);
+/// Replace whatever is playing with `clip`.
+///
+/// Lock order is recorder, then audio manager; the recorder lock is not held across the
+/// clip load. A finished source stays registered until the next start or stop removes
+/// it, so a late completion can never clear a newer source's id.
+fn start_clip(
+    app: AppHandle,
+    recorder: &State<'_, PlaybackRecorderHandle>,
+    audio_manager: &State<'_, AudioManagerHandle>,
+    clip: ClipMeta,
+    device_type: PlaybackDeviceType,
+    initial_progress: f64,
+    start_paused: bool,
+) -> Result<(), Error> {
+    if recorder.read().is_none() {
+        return Err(recorder_not_running());
     }
+    stop_playing_source(recorder, audio_manager);
 
-    if let Some(r) = recorder.write().as_mut() {
-        r.set_playing_source_id(Some((source_id, actual_device_type)));
+    let duration_ms = clip.duration_ms;
+    let (source_id, actual_device_type) = {
+        let audio_manager = audio_manager.read();
+        let (source_id, actual_device_type) = audio_manager.add_audio_source(
+            move |sample_rate, channels| {
+                let source = WavSource::from_file(
+                    clip.path,
+                    sample_rate,
+                    channels as usize,
+                    1.0,
+                    None,
+                    Some(Box::new(move |progress| {
+                        app.emit(CLIP_PROGRESS_EVENT, progress).ok();
+                    })),
+                )
+                .map_err(PlaybackError::Other)?;
+                Ok(Box::new(source))
+            },
+            device_type,
+        )?;
+
+        if initial_progress > 0.0 {
+            audio_manager.skip_in_audio_source(
+                source_id,
+                Duration::from_millis((duration_ms as f64 * initial_progress).round() as u64),
+                actual_device_type,
+            );
+        }
+
+        if !start_paused {
+            audio_manager.start_audio_source(source_id, actual_device_type);
+        }
+
+        (source_id, actual_device_type)
+    };
+
+    // Another start may have registered its own source during the load; the later
+    // one wins and removes the other so only one clip is ever audible.
+    let mut recorder = recorder.write();
+    let Some(recorder) = recorder.as_mut() else {
+        audio_manager
+            .read()
+            .remove_audio_source(source_id, actual_device_type);
+        return Err(recorder_not_running());
+    };
+    if let Some((other_id, other_device_type)) = recorder.take_playing_source_id() {
+        audio_manager
+            .read()
+            .remove_audio_source(other_id, other_device_type);
     }
+    recorder.set_playing_source_id(Some((source_id, actual_device_type)));
 
     Ok(())
+}
+
+fn recorder_not_running() -> Error {
+    Error::Other(Box::new(anyhow::anyhow!("recorder not running")))
 }
 
 #[tauri::command]
@@ -228,7 +297,7 @@ pub async fn playback_stop(
     Ok(())
 }
 
-fn stop_playing_source(
+pub(crate) fn stop_playing_source(
     recorder: &State<PlaybackRecorderHandle>,
     audio_manager: &State<AudioManagerHandle>,
 ) -> bool {
@@ -297,9 +366,7 @@ pub async fn playback_export(
         .map(|r| r.export(id, None))
         .transpose()?
     else {
-        return Err(Error::Other(Box::new(anyhow::anyhow!(
-            "recorder not running"
-        ))));
+        return Err(recorder_not_running());
     };
 
     if let Err(err) = app.opener().open_path(path.to_string_lossy(), None::<&str>) {

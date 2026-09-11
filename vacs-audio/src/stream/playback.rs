@@ -20,10 +20,12 @@ type MixerOp = Box<dyn FnOnce(&mut Mixer) + Send>;
 const MIXER_OPS_CAPACITY: usize = 256;
 const MIXER_OPS_PER_DATA_CALLBACK: usize = 32;
 
+// Process-wide so an id kept from a torn-down stream never aliases a source on its replacement.
+static NEXT_AUDIO_SOURCE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
+
 pub struct PlaybackStream {
     _stream: cpal::Stream,
     mixer_ops: Mutex<ringbuf::HeapProd<MixerOp>>,
-    next_audio_source_id: atomic::AtomicUsize,
     deafened: Arc<AtomicBool>,
     device: StreamDevice,
 }
@@ -72,7 +74,6 @@ impl PlaybackStream {
         Ok(Self {
             _stream: stream,
             mixer_ops: Mutex::new(ops_prod),
-            next_audio_source_id: atomic::AtomicUsize::new(0),
             deafened: deafened_clone,
             device,
         })
@@ -94,9 +95,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip_all)]
     pub fn add_audio_source(&self, source: Box<dyn AudioSource>) -> AudioSourceId {
-        let id = self
-            .next_audio_source_id
-            .fetch_add(1, atomic::Ordering::SeqCst);
+        let id = NEXT_AUDIO_SOURCE_ID.fetch_add(1, atomic::Ordering::SeqCst);
 
         if self
             .mixer_ops
@@ -222,5 +221,48 @@ impl PlaybackStream {
 
     pub fn device_name(&self) -> String {
         self.device.name()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::DeviceSelector;
+
+    struct Silence;
+
+    impl AudioSource for Silence {
+        fn mix_into(&mut self, _output: &mut [f32]) {}
+        fn start(&mut self) {}
+        fn stop(&mut self) {}
+        fn set_volume(&mut self, _volume: f32) {}
+        fn skip(&mut self, _duration: Duration) {}
+        fn rewind(&mut self, _duration: Duration) {}
+    }
+
+    fn open_output_stream() -> PlaybackStream {
+        let (device, _) = DeviceSelector::open(DeviceType::Output, None, None, None)
+            .expect("an output device is required for this test");
+        let (error_tx, _error_rx) = mpsc::channel(1);
+        PlaybackStream::start(device, error_tx).expect("playback stream should start")
+    }
+
+    #[test]
+    #[ignore = "opens the real default output device"]
+    fn source_ids_stay_unique_across_streams() {
+        let first = open_output_stream();
+        let first_ids: Vec<_> = (0..3)
+            .map(|_| first.add_audio_source(Box::new(Silence)))
+            .collect();
+
+        let second = open_output_stream();
+        let second_id = second.add_audio_source(Box::new(Silence));
+        assert!(!first_ids.contains(&second_id));
+
+        drop(first);
+        let rebuilt = open_output_stream();
+        let rebuilt_id = rebuilt.add_audio_source(Box::new(Silence));
+        assert!(!first_ids.contains(&rebuilt_id));
+        assert_ne!(rebuilt_id, second_id);
     }
 }

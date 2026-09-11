@@ -4,7 +4,9 @@ const {invoke, listen} = vi.hoisted(() => ({
     invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
         Promise.resolve(undefined),
     ),
-    listen: vi.fn<() => Promise<() => void>>(() => Promise.resolve(() => {})),
+    listen: vi.fn<
+        (event: string, callback: (event: {payload: unknown}) => void) => Promise<() => void>
+    >(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("../../src/transport", () => ({
@@ -53,8 +55,15 @@ function flushMicrotasks(): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, 0));
 }
 
+function findStoreSyncCallback() {
+    const call = listen.mock.calls.find(([event]) => event === "store:sync");
+    if (call === undefined) throw new Error("store:sync was never registered");
+    return call[1];
+}
+
 describe("store sync", () => {
     afterEach(() => {
+        useSettingsStore.setState({playbackEnabled: false});
         vi.clearAllMocks();
     });
 
@@ -89,6 +98,35 @@ describe("store sync", () => {
                 state: expect.objectContaining({playbackEnabled: true}),
             }),
         );
+
+        teardown();
+    });
+
+    it("applies an inbound settings sync without echoing it back", async () => {
+        useSettingsStore.setState({playbackEnabled: false});
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        invoke.mockClear();
+
+        const settings = useSettingsStore.getState();
+        findStoreSyncCallback()({
+            payload: {
+                store: "settings",
+                sourceId: "other",
+                state: {
+                    callConfig: settings.callConfig,
+                    selectedClientPageConfig: settings.selectedClientPageConfig,
+                    clockMode: settings.clockMode,
+                    cplMode: settings.cplMode,
+                    transmitConfig: settings.transmitConfig,
+                    radioConfig: settings.radioConfig,
+                    playbackEnabled: true,
+                },
+            },
+        });
+
+        expect(useSettingsStore.getState().playbackEnabled).toBe(true);
+        expect(invoke).not.toHaveBeenCalledWith("remote_broadcast_store_sync", expect.anything());
 
         teardown();
     });
