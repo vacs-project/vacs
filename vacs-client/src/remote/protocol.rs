@@ -166,6 +166,7 @@ pub enum ClientMessage {
 pub enum RemoteCommand {
     AppFrontendReady,
     AppOpenFolder,
+    AppOpenUrl,
     AppCheckForUpdate,
     AppQuit,
     AppUpdate,
@@ -257,6 +258,7 @@ impl RemoteCommand {
         matches!(
             self,
             Self::AppOpenFolder
+                | Self::AppOpenUrl
                 | Self::AppQuit
                 | Self::AppUpdate
                 | Self::AppSetAlwaysOnTop

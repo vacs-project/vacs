@@ -25,6 +25,7 @@ Releases are provided for:
 - Windows (`*.exe`)
 - Debian-based Linux distributions (`*.deb`)
 - Red Hat-based Linux distributions (`*.rpm`)
+- Other Linux distributions (`*.AppImage`)
 - macOS Apple Silicon (`*aarch64.dmg`)
 - macOS Intel (`*x64.dmg`)
 

@@ -33,7 +33,3 @@ vi.mock("@tauri-apps/plugin-log", () => ({
     debug: vi.fn<(message: string, options?: any) => Promise<void>>(),
     trace: vi.fn<(message: string, options?: any) => Promise<void>>(),
 }));
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-    openUrl: vi.fn<(url: string | URL, openWith?: string) => Promise<void>>(),
-}));

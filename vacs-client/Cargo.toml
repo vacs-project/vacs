@@ -41,6 +41,7 @@ keyboard-types = { workspace = true }
 keyring = { workspace = true }
 log = { workspace = true }
 notify-debouncer-full = { workspace = true }
+open = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
 rfd = { workspace = true }
@@ -52,7 +53,6 @@ serde_json = { workspace = true }
 tauri = { workspace = true, features = [] }
 tauri-plugin-deep-link = { workspace = true }
 tauri-plugin-log = { workspace = true }
-tauri-plugin-opener = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 tauri-plugin-updater = { workspace = true }
 thiserror = { workspace = true }

@@ -213,6 +213,44 @@ jobs:
         if: matrix.platform == 'ubuntu-24.04'
         uses: $/.github/actions/install-linux-deps
 
+      # Kept out of tauri.conf.json because the source paths are Debian specific and the bundler
+      # aborts when one is missing, which would break AppImage builds on any other distribution.
+      - name: Bundle the PipeWire plugins into the AppImage (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: echo "EXTRA_TAURI_ARGS=${EXTRA_TAURI_ARGS} --config tauri.appimage.conf.json" >> "$GITHUB_ENV"
+
+      # tauri-bundler fetches these from rolling upstream tags with no checksum and runs them in
+      # the Build step next to the signing key; it skips the download when the file is already in
+      # its cache. A changed upstream file fails here instead of shipping under our signature.
+      - name: Pin the AppImage bundler tools (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$HOME/.cache/tauri"
+          mkdir -p "$cache"
+          fetch() {
+            curl -fsSL --retry 3 -o "$cache/$1" "$2"
+            echo "$3  $cache/$1" | sha256sum --check --quiet
+            chmod +x "$cache/$1"
+          }
+          fetch AppRun-x86_64 \
+            https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64 \
+            f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+          fetch linuxdeploy-x86_64.AppImage \
+            https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage \
+            e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef
+          fetch linuxdeploy-plugin-gtk.sh \
+            https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/b5eb8d05b4c0ed40107fe2158c5d8527f94568ef/linuxdeploy-plugin-gtk.sh \
+            cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a
+          fetch linuxdeploy-plugin-gstreamer.sh \
+            https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gstreamer/2a2e67491c32995a3f279ad0ecbe77abd512b42a/linuxdeploy-plugin-gstreamer.sh \
+            c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94
+          fetch linuxdeploy-plugin-appimage.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage \
+            0441769ab38009504d2678c38cd7e526955388dd30a215b4a20afaa5471652f2
+
       - name: Install build dependencies (macOS, aarch64)
         if: matrix.platform == 'macos-latest' && matrix.arch == 'aarch64'
         run: |
@@ -270,6 +308,21 @@ jobs:
           projectPath: vacs-client
           args: ${{ matrix.target && format('--target {0}', matrix.target) }} ${{ env.EXTRA_TAURI_ARGS }} ${{ env.CARGO_FEATURES }}
           uploadUpdaterJson: false
+
+      # external.rs redirects PipeWire to the bundled plugins only when the bundle carries
+      # libpipewire itself, and whether linuxdeploy copies it depends on an excludelist fetched
+      # from a rolling upstream tag. Fail the build instead of shipping an AppImage without audio.
+      - name: Verify the AppImage bundles PipeWire (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          appimage=$(find "$PWD/target" -path '*/release/bundle/appimage/*.AppImage' -print -quit)
+          test -n "$appimage"
+          cd "$(mktemp -d)"
+          "$appimage" --appimage-extract > /dev/null
+          test -e squashfs-root/usr/lib/libpipewire-0.3.so.0
+          test -e squashfs-root/usr/lib/spa-0.2/support/libspa-support.so
+          test -e squashfs-root/usr/lib/pipewire-0.3/libpipewire-module-protocol-native.so
 
       - name: Rename macOS bundles to include version & architecture
         if: matrix.platform == 'macos-latest'

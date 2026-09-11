@@ -4,8 +4,9 @@ mod auth;
 mod build;
 mod config;
 mod error;
+pub mod external;
 mod keybinds;
-mod platform;
+pub mod platform;
 mod playback;
 mod radio;
 mod remote;
@@ -59,7 +60,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .plugin(tauri_plugin_prevent_default::debug())
         .setup(|app| {
@@ -171,6 +171,7 @@ pub fn run() {
             app::commands::app_load_extra_client_page_config,
             app::commands::app_load_test_profile,
             app::commands::app_open_folder,
+            app::commands::app_open_url,
             app::commands::app_platform_capabilities,
             app::commands::app_quit,
             app::commands::app_reset_window_size,
