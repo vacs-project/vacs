@@ -43,7 +43,7 @@ pub async fn connect() -> zbus::Result<zbus::Connection> {
                     "Desktop portal has no app registry, relying on the launcher's app id: {}",
                     message.unwrap_or_default()
                 );
-                break;
+                return zbus::Connection::session().await;
             }
             Err(err) => {
                 log::debug!("Desktop portal rejected app id {app_id}: {err}");
