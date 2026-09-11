@@ -587,6 +587,12 @@ async function bindKey(
     code: string,
 ): Promise<void> {
     await click(browser, browser.$(fieldSelector));
+    // The field attaches its key listener in an effect after the click
+    // re-renders it; a keydown dispatched before that is lost.
+    await browser.waitUntil(
+        async () => (await browser.$(`${fieldSelector}/p`).getText()).startsWith("Press"),
+        {timeoutMsg: "Capture field did not start capturing"},
+    );
     await browser.execute((keyCode: string) => {
         document.dispatchEvent(
             new KeyboardEvent("keydown", {code: keyCode, key: keyCode, bubbles: true}),
