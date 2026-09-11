@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {act, renderHook} from "@testing-library/preact";
+import {act, renderHook, waitFor} from "@testing-library/preact";
 
 const {invoke, listen} = vi.hoisted(() => ({
     invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
@@ -106,6 +106,31 @@ describe("usePlaybackControls", () => {
         rerender(clips);
 
         expect(invoke).toHaveBeenCalledWith("playback_stop", undefined);
+    });
+
+    it("marks a page-started clip as not owned by say again", async () => {
+        const clips = [makeClip({id: 9}), makeClip({id: 2})];
+        usePlaybackStore.setState({
+            selected: 0,
+            status: undefined,
+            openInstanceIds: [INSTANCE_ID],
+        });
+        const {result} = renderHook((c: ClipMeta[]) => useTestControls(c), {initialProps: clips});
+
+        await act(async () => {
+            await result.current.handlePlayPause(false);
+        });
+
+        await waitFor(() =>
+            expect(usePlaybackStore.getState().status).toEqual({
+                id: 9,
+                status: "playing",
+                continuously: false,
+                sayAgain: false,
+                progress: 0,
+            }),
+        );
+        expect(invoke).toHaveBeenCalledWith("playback_start", {id: 9, deviceType: "Output"});
     });
 
     it("leaves selection and playback alone when the status clip is not in the list", () => {

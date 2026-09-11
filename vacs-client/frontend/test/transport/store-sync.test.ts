@@ -4,7 +4,9 @@ const {invoke, listen} = vi.hoisted(() => ({
     invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
         Promise.resolve(undefined),
     ),
-    listen: vi.fn<() => Promise<() => void>>(() => Promise.resolve(() => {})),
+    listen: vi.fn<
+        (event: string, callback: (event: {payload: unknown}) => void) => Promise<() => void>
+    >(() => Promise.resolve(() => {})),
 }));
 
 vi.mock("../../src/transport", () => ({
@@ -47,10 +49,34 @@ const snapshot: SessionStateSnapshot = {
     outgoingCall: null,
 };
 
+const snapshotSettings = {
+    callConfig: snapshot.callConfig,
+    selectedClientPageConfig: {
+        include: [],
+        exclude: [],
+        priority: [],
+        frequencies: "ShowAll",
+        grouping: "FirAndIcao",
+        name: "None",
+    },
+    clockMode: "Realtime",
+    cplMode: "Original",
+    playbackEnabled: true,
+    sayAgainEnabled: false,
+    transmitConfig: undefined,
+    radioConfig: undefined,
+};
+
 // setupStoreSync enables syncing asynchronously; in the app, hydration happens
 // long after (a WS round-trip), so tests must let the subscriptions settle first.
 function flushMicrotasks(): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function findStoreSyncCallback() {
+    const call = listen.mock.calls.find(([event]) => event === "store:sync");
+    if (call === undefined) throw new Error("store:sync was never registered");
+    return call[1];
 }
 
 describe("store sync", () => {
@@ -108,6 +134,26 @@ describe("store sync", () => {
                 state: expect.objectContaining({sayAgainEnabled: true}),
             }),
         );
+
+        teardown();
+    });
+
+    it("applies sayAgainEnabled from an inbound settings sync", async () => {
+        useSettingsStore.setState({sayAgainEnabled: false});
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        invoke.mockClear();
+
+        findStoreSyncCallback()({
+            payload: {
+                store: "settings",
+                sourceId: "other",
+                state: {...snapshotSettings, sayAgainEnabled: true},
+            },
+        });
+
+        expect(useSettingsStore.getState().sayAgainEnabled).toBe(true);
+        expect(invoke).not.toHaveBeenCalledWith("remote_broadcast_store_sync", expect.anything());
 
         teardown();
     });
