@@ -1,6 +1,7 @@
 import {listen, UnlistenFn} from "../transport";
 import {RadioState} from "../types/radio.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
+import {usePlaybackStore} from "../stores/playback-store.ts";
 import {invokeStrict} from "../error.ts";
 
 export function setupRadioListener() {
@@ -12,6 +13,12 @@ export function setupRadioListener() {
         unlistenFns.push(
             listen<RadioState>("radio:state", event => {
                 setRadioState(event.payload);
+                if (
+                    event.payload.state === "Disconnected" ||
+                    event.payload.state === "NotConfigured"
+                ) {
+                    usePlaybackStore.getState().actions.setStatus(undefined);
+                }
             }),
         );
     };

@@ -6,6 +6,8 @@ pub mod data_feed;
 pub mod slurper;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::str::FromStr;
 use thiserror::Error;
 use vacs_protocol::vatsim::ClientId;
@@ -39,14 +41,89 @@ pub struct ControllerInfo {
     pub callsign: String,
     pub frequency: String,
     pub facility_type: FacilityType,
+    /// Visibility range in nautical miles, if the data source reports one.
+    pub visual_range: Option<u32>,
+}
+
+impl ControllerInfo {
+    /// Indexes controllers by CID.
+    ///
+    /// A CID can hold several connections at once, for example a controller
+    /// staffing a position while also running TowerView as an observer. Only
+    /// one of those is the position the controller is working: core facilities
+    /// (ramp through flight service station) win over auxiliary ones (radio,
+    /// traffic flow), which win over [`FacilityType::Unknown`]. Within a
+    /// class, a confirmed visibility range beats a missing one, which beats a
+    /// zero one, then the higher facility type wins. Remaining ties are
+    /// broken by callsign, so the result never depends on the order of
+    /// entries in the feed.
+    ///
+    /// Supervisor (`_SUP`) connections are dropped entirely.
+    pub fn index_by_cid<I>(controllers: I) -> HashMap<ClientId, ControllerInfo>
+    where
+        I: IntoIterator<Item = ControllerInfo>,
+    {
+        fn rank(controller: &ControllerInfo) -> (u8, u8, FacilityType, &str) {
+            let class = match controller.facility_type {
+                FacilityType::Unknown => 0,
+                FacilityType::TrafficFlow | FacilityType::Radio => 1,
+                FacilityType::Ramp
+                | FacilityType::Delivery
+                | FacilityType::Ground
+                | FacilityType::Tower
+                | FacilityType::Approach
+                | FacilityType::Departure
+                | FacilityType::Enroute
+                | FacilityType::FlightServiceStation => 2,
+            };
+            let range = match controller.visual_range {
+                Some(0) => 0,
+                None => 1,
+                Some(_) => 2,
+            };
+            (
+                class,
+                range,
+                controller.facility_type,
+                controller.callsign.as_str(),
+            )
+        }
+
+        let mut by_cid: HashMap<ClientId, ControllerInfo> = HashMap::new();
+
+        for controller in controllers {
+            if controller.callsign.ends_with("_SUP") {
+                continue;
+            }
+
+            match by_cid.entry(controller.cid.clone()) {
+                Entry::Occupied(mut entry) => {
+                    if rank(&controller) > rank(entry.get()) {
+                        entry.insert(controller);
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(controller);
+                }
+            }
+        }
+
+        by_cid
+    }
 }
 
 /// Enum representing the different VATSIM facility types as parsed from their respective callsign suffixes
 /// (in accordance with the [VATSIM GCAP](https://vatsim.net/docs/policy/global-controller-administration-policy).
+///
+/// Variants are declared in ascending priority order: the derived [`Ord`] picks
+/// the worked position among simultaneous connections, with auxiliary
+/// facilities below the core controlling hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub enum FacilityType {
     #[default]
     Unknown,
+    TrafficFlow,
+    Radio,
     Ramp,
     Delivery,
     Ground,
@@ -55,8 +132,6 @@ pub enum FacilityType {
     Departure,
     Enroute,
     FlightServiceStation,
-    Radio,
-    TrafficFlow,
 }
 
 impl FacilityType {
@@ -167,6 +242,222 @@ impl<'de> Deserialize<'de> for FacilityType {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    fn controller(cid: &str, callsign: &str) -> ControllerInfo {
+        ControllerInfo {
+            cid: ClientId::from(cid),
+            callsign: callsign.to_string(),
+            frequency: "119.400".to_string(),
+            facility_type: FacilityType::from(callsign),
+            visual_range: None,
+        }
+    }
+
+    fn controller_with_range(
+        cid: &str,
+        callsign: &str,
+        visual_range: Option<u32>,
+    ) -> ControllerInfo {
+        ControllerInfo {
+            visual_range,
+            ..controller(cid, callsign)
+        }
+    }
+
+    #[test]
+    fn index_by_cid_prefers_a_known_facility_type_over_an_observer() {
+        for entries in [
+            vec![
+                controller("1000001", "LOWW_OBS"),
+                controller("1000001", "LOWW_TWR"),
+            ],
+            vec![
+                controller("1000001", "LOWW_TWR"),
+                controller("1000001", "LOWW_OBS"),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid.len(), 1);
+            assert_eq!(
+                by_cid[&ClientId::from("1000001")].callsign,
+                "LOWW_TWR",
+                "the worked position must win over the observer connection"
+            );
+        }
+    }
+
+    #[test]
+    fn index_by_cid_resolves_known_facility_duplicates_order_independently() {
+        for entries in [
+            vec![
+                controller("1000001", "LOWW_GND"),
+                controller("1000001", "LOWW_TWR"),
+            ],
+            vec![
+                controller("1000001", "LOWW_TWR"),
+                controller("1000001", "LOWW_GND"),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid.len(), 1);
+            assert_eq!(
+                by_cid[&ClientId::from("1000001")].callsign,
+                "LOWW_TWR",
+                "the highest facility type must win regardless of feed order"
+            );
+        }
+    }
+
+    #[test]
+    fn index_by_cid_ranks_auxiliary_facilities_below_the_core_hierarchy() {
+        for entries in [
+            vec![
+                controller("1000001", "LOVV_FMP"),
+                controller("1000001", "LOVV_CTR"),
+            ],
+            vec![
+                controller("1000001", "LOVV_CTR"),
+                controller("1000001", "LOVV_FMP"),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOVV_CTR");
+        }
+    }
+
+    #[test]
+    fn index_by_cid_ranks_flight_service_station_above_enroute() {
+        for entries in [
+            vec![
+                controller("1000001", "LOVV_CTR"),
+                controller("1000001", "LOVV_FSS"),
+            ],
+            vec![
+                controller("1000001", "LOVV_FSS"),
+                controller("1000001", "LOVV_CTR"),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOVV_FSS");
+        }
+    }
+
+    #[test]
+    fn index_by_cid_breaks_facility_ties_by_callsign() {
+        for entries in [
+            vec![
+                controller("1000001", "LOWW_TWR"),
+                controller("1000001", "LOWW_W_TWR"),
+            ],
+            vec![
+                controller("1000001", "LOWW_W_TWR"),
+                controller("1000001", "LOWW_TWR"),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOWW_W_TWR");
+        }
+    }
+
+    #[test]
+    fn index_by_cid_deprioritizes_zero_visibility_range_connections() {
+        for entries in [
+            vec![
+                controller_with_range("1000001", "LOWW_APP", Some(50)),
+                controller_with_range("1000001", "LOWW_DEP", Some(0)),
+            ],
+            vec![
+                controller_with_range("1000001", "LOWW_DEP", Some(0)),
+                controller_with_range("1000001", "LOWW_APP", Some(50)),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOWW_APP");
+        }
+    }
+
+    #[test]
+    fn index_by_cid_prefers_a_zero_range_core_facility_over_an_auxiliary() {
+        for entries in [
+            vec![
+                controller_with_range("1000001", "LOWW_GND", Some(0)),
+                controller_with_range("1000001", "LOWW_FMP", Some(50)),
+            ],
+            vec![
+                controller_with_range("1000001", "LOWW_FMP", Some(50)),
+                controller_with_range("1000001", "LOWW_GND", Some(0)),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOWW_GND");
+        }
+    }
+
+    #[test]
+    fn index_by_cid_prefers_a_confirmed_range_over_a_missing_one() {
+        for entries in [
+            vec![
+                controller_with_range("1000001", "LOWW_TWR", Some(50)),
+                controller_with_range("1000001", "LOWW_APP", None),
+            ],
+            vec![
+                controller_with_range("1000001", "LOWW_APP", None),
+                controller_with_range("1000001", "LOWW_TWR", Some(50)),
+            ],
+        ] {
+            let by_cid = ControllerInfo::index_by_cid(entries);
+
+            assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOWW_TWR");
+        }
+    }
+
+    #[test]
+    fn index_by_cid_keeps_a_zero_range_connection_over_an_observer() {
+        let by_cid = ControllerInfo::index_by_cid(vec![
+            controller_with_range("1000001", "LOWW_TWR", Some(0)),
+            controller_with_range("1000001", "LOWW_OBS", Some(300)),
+        ]);
+
+        assert_eq!(by_cid[&ClientId::from("1000001")].callsign, "LOWW_TWR");
+    }
+
+    #[test]
+    fn index_by_cid_keeps_an_observer_when_it_is_the_only_connection() {
+        let by_cid = ControllerInfo::index_by_cid(vec![controller("1000001", "LOWW_OBS")]);
+
+        assert_eq!(
+            by_cid[&ClientId::from("1000001")].facility_type,
+            FacilityType::Unknown
+        );
+    }
+
+    #[test]
+    fn index_by_cid_drops_supervisor_connections() {
+        let by_cid = ControllerInfo::index_by_cid(vec![
+            controller("1000001", "XX_SUP"),
+            controller("1000000", "LOWW_TWR"),
+        ]);
+
+        assert_eq!(by_cid.len(), 1);
+        assert!(!by_cid.contains_key(&ClientId::from("1000001")));
+    }
+
+    #[test]
+    fn index_by_cid_keeps_separate_cids_apart() {
+        let by_cid = ControllerInfo::index_by_cid(vec![
+            controller("1000001", "LOWW_TWR"),
+            controller("1000000", "LOWW_GND"),
+        ]);
+
+        assert_eq!(by_cid.len(), 2);
+    }
 
     #[test]
     fn facility_type_parse_valid() {

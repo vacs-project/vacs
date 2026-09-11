@@ -1,5 +1,13 @@
 # Changelog 
 
+## [2.3.5](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.4...vacs-server-v2.3.5) (2026-08-24)
+
+
+### Bug Fixes
+
+* **vacs-server:** apply datafeed grace period to absent clients ([ac43c5f](https://github.com/vacs-project/vacs/commit/ac43c5ffd1be208b1cfea5c3ae2faa5aaeb3b73b))
+* **vacs-vatsim:** prefer the worked position over an observer connection ([#1112](https://github.com/vacs-project/vacs/issues/1112)) ([ac43c5f](https://github.com/vacs-project/vacs/commit/ac43c5ffd1be208b1cfea5c3ae2faa5aaeb3b73b))
+
 ## [2.3.4](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.3...vacs-server-v2.3.4) (2026-06-16)
 
 

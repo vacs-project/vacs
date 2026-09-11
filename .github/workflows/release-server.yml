@@ -18,11 +18,17 @@ on:
 
 permissions: {}
 
+# Never cancel a half-finished release.
+concurrency:
+  group: release-server-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
+      artifact-metadata: write
       attestations: write
       contents: read
       id-token: write
@@ -43,7 +49,7 @@ jobs:
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -70,6 +76,28 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }},match=(\d+\.\d+\.\d+.*),enable=${{ github.event_name == 'workflow_dispatch' }}
             type=semver,pattern={{major}},value=${{ inputs.version }},match=(\d+\.\d+\.\d+.*),enable=${{ github.event_name == 'workflow_dispatch' }}
 
+      # Scan before pushing, so a CRITICAL/HIGH finding never reaches GHCR; the pushed
+      # build below reuses this build's layers from the buildx cache.
+      - name: Build image for scan
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: vacs-server/Dockerfile
+          load: true
+          push: false
+          tags: vacs-server:scan
+          cache-from: type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:latest
+
+      - name: Trivy scan (pre-push gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: vacs-server:scan
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
       - name: Build and push
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -84,18 +112,8 @@ jobs:
           cache-from: type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:latest
           cache-to: type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:latest,mode=max
 
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-          format: "table"
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: "os,library"
-          severity: "CRITICAL,HIGH"
-
       - name: Attest build provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}

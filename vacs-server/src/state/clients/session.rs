@@ -32,6 +32,8 @@ pub struct ClientSession {
     client_shutdown_tx: watch::Sender<Option<DisconnectReason>>,
     client_connection_guard: Arc<Mutex<ClientConnectionGuard>>,
     connected_at: Instant,
+    /// Only the copy in `ClientManager::clients` is authoritative; clones go stale.
+    pending_disconnect: bool,
 }
 
 impl ClientSession {
@@ -49,6 +51,7 @@ impl ClientSession {
             client_shutdown_tx,
             client_connection_guard: Arc::new(Mutex::new(client_connection_guard)),
             connected_at: Instant::now(),
+            pending_disconnect: false,
         }
     }
 
@@ -62,12 +65,29 @@ impl ClientSession {
         self.client_info.position_id.as_ref()
     }
 
-    /// Returns `true` if the client connected recently enough that position
-    /// changes from the datafeed should be ignored (the datafeed may not have
-    /// caught up with the slurper-derived position yet).
+    /// Returns `true` if the client connected recently enough that the datafeed
+    /// may not have caught up with the slurper yet. During this window, position
+    /// changes are ignored and missing-connection disconnects are suppressed.
     #[inline]
     pub fn is_within_position_grace_period(&self, grace_period: &Duration) -> bool {
         self.connected_at.elapsed() < *grace_period
+    }
+
+    /// Marks the session for disconnect. The mark dies with the session, so a
+    /// reconnect always starts unmarked.
+    #[inline]
+    pub fn mark_pending_disconnect(&mut self) {
+        self.pending_disconnect = true;
+    }
+
+    /// Clears a pending disconnect mark, returning whether one was set.
+    #[inline]
+    pub fn take_pending_disconnect(&mut self) -> bool {
+        std::mem::take(&mut self.pending_disconnect)
+    }
+
+    pub fn is_pending_disconnect(&self) -> bool {
+        self.pending_disconnect
     }
 
     #[inline]
@@ -498,8 +518,10 @@ impl ClientSession {
     }
 
     #[cfg(test)]
-    pub fn expire_position_grace_period(&mut self) {
-        self.connected_at = Instant::now() - Duration::from_secs(90);
+    pub fn expire_position_grace_period(&mut self, grace_period: &Duration) {
+        self.connected_at = Instant::now()
+            .checked_sub(*grace_period)
+            .expect("monotonic clock too young to rewind past the grace period");
     }
 }
 
@@ -508,6 +530,8 @@ impl Debug for ClientSession {
         f.debug_struct("ClientSession")
             .field("client_info", &self.client_info)
             .field("active_profile", &self.active_profile)
+            .field("connected_at", &self.connected_at)
+            .field("pending_disconnect", &self.pending_disconnect)
             .finish_non_exhaustive()
     }
 }

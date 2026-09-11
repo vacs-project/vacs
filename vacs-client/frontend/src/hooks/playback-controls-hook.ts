@@ -9,12 +9,13 @@ import {useEventCallback} from "./event-callback-hook.ts";
 import {PlaybackDeviceType} from "../types/audio.ts";
 
 type Params = {
+    clips: ClipMeta[];
     selectedClip: ClipMeta | undefined;
     prevClip: ClipMeta | undefined;
     nextClip: ClipMeta | undefined;
 };
 
-export function usePlaybackControls({selectedClip, prevClip, nextClip}: Params) {
+export function usePlaybackControls({clips, selectedClip, prevClip, nextClip}: Params) {
     const status = usePlaybackStore(
         useShallow(state => {
             const s = state.status;
@@ -23,6 +24,7 @@ export function usePlaybackControls({selectedClip, prevClip, nextClip}: Params) 
                 id: s.id,
                 status: s.status,
                 continuously: s.continuously,
+                sayAgain: s.sayAgain,
             } satisfies PlaybackStatusBase;
         }),
     );
@@ -35,7 +37,7 @@ export function usePlaybackControls({selectedClip, prevClip, nextClip}: Params) 
         async (id: number, deviceType: PlaybackDeviceType, continuously: boolean = false) => {
             try {
                 await invokeStrict("playback_start", {id, deviceType});
-                setStatus({id, status: "playing", continuously, progress: 0});
+                setStatus({id, status: "playing", continuously, sayAgain: false, progress: 0});
             } catch {
                 setStatus(undefined);
             }
@@ -133,6 +135,19 @@ export function usePlaybackControls({selectedClip, prevClip, nextClip}: Params) 
         if (nextClip !== undefined)
             void handleStart(nextClip.id, playbackDevice, status?.continuously);
     };
+
+    // A clip started elsewhere (SAY AGAIN, another instance) moves the selection to it
+    // instead of tripping the stop below.
+    const statusId = status?.id;
+    useEffect(() => {
+        if (statusId === undefined) return;
+        const {selected} = usePlaybackStore.getState();
+        if (clips[selected]?.id === statusId) return;
+        const index = clips.findIndex(c => c.id === statusId);
+        if (index === -1) return;
+        intendedClipChangeRef.current = true;
+        setSelected(index);
+    }, [statusId, clips, setSelected]);
 
     useEffect(() => {
         if (!isPlaybackRoot()) return;

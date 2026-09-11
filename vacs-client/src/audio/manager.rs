@@ -609,6 +609,13 @@ async fn handle_playback_stream_error(
     device_type: PlaybackDeviceType,
     app: AppHandle,
 ) {
+    if app.try_state::<AppState>().is_none() {
+        log::warn!(
+            "Dropping {device_type} stream error, app startup has not finished yet: {err:?}"
+        );
+        return;
+    }
+
     let device_changed = matches!(err, AudioError::StreamInvalidated);
     let in_restart_cooldown = restarted_at.is_some_and(|t| t.elapsed() < RESTART_COOLDOWN);
 

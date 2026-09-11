@@ -10,7 +10,7 @@ publish.workspace = true
 [features]
 default = []
 test-utils = ["coverage"]
-data-feed = ["dep:async-trait", "dep:parking_lot", "dep:reqwest"]
+data-feed = ["dep:async-trait", "dep:parking_lot", "dep:reqwest", "dep:serde_json"]
 slurper = ["dep:bytes", "dep:csv", "dep:reqwest"]
 coverage = ["dep:regex", "dep:serde_json", "dep:toml", "vacs-protocol/profile"]
 

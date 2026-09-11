@@ -58,6 +58,7 @@ impl Default for MockDataFeed {
             callsign: "client1".to_string(),
             frequency: "100.000".to_string(),
             facility_type: FacilityType::Enroute,
+            visual_range: None,
         }])
     }
 }

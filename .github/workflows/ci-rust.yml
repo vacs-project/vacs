@@ -85,7 +85,7 @@ jobs:
           persist-credentials: false
 
       - name: Install build dependencies (Linux)
-        uses: ./.github/actions/install-linux-deps
+        uses: $/.github/actions/install-linux-deps
 
       - name: Free disk space on runner
         run: rm -rf /opt/hostedtoolcache
@@ -94,7 +94,7 @@ jobs:
         run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Tests
         run: cargo test --locked --workspace --all-targets --all-features
@@ -144,7 +144,7 @@ jobs:
 
       - name: Install build dependencies (Linux)
         if: matrix.platform == 'ubuntu-24.04'
-        uses: ./.github/actions/install-linux-deps
+        uses: $/.github/actions/install-linux-deps
 
       - name: Install build dependencies (macOS, aarch64)
         if: matrix.platform == 'macos-latest' && matrix.arch == 'aarch64'
@@ -154,7 +154,7 @@ jobs:
 
       - name: Install build dependencies (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: ./.github/actions/install-windows-deps
+        uses: $/.github/actions/install-windows-deps
 
       - name: Rust toolchain
         run: |
@@ -162,7 +162,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ${{ matrix.platform }}-${{ matrix.arch }}
 

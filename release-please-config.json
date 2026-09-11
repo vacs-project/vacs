@@ -4,7 +4,6 @@
   "include-component-in-tag": true,
   "include-v-in-tag": true,
   "tag-separator": "-",
-  "last-release-sha": "faeed8f557c1eb6a047766342b8c3778fac365c0",
   "packages": {
     "vacs-client": {
       "release-type": "rust",

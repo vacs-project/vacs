@@ -78,7 +78,7 @@ const ActiveButtonColors: Record<ButtonColor, string> = {
 export const ForceDisabledButtonColors: Record<ButtonColor, string> = {
     cyan: "border-cyan-900! border!",
     green: "border-green-950! border!",
-    gray: "border-gray-700! border! outline-none!",
+    gray: "border-gray-300! border-2! outline-gray-700!",
     blue: "border-blue-950! border!",
     cornflower: "border-blue-950! border!",
     emerald: "border-emerald-950! border!",

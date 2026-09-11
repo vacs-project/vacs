@@ -85,13 +85,27 @@ impl Default for Capabilities {
 fn check_wayland_global_shortcuts_portal() -> bool {
     log::debug!("Checking availability of Wayland Global Shortcuts portal");
 
+    // ashpd's constructor only reports a portal that answers "unknown interface"; a session bus
+    // with no portal service at all passes it and fails later when the session is created. Read
+    // the version property directly so every failure counts as no portal.
     let probe_portal = async || -> bool {
-        use ashpd::desktop::global_shortcuts::GlobalShortcuts;
+        use ashpd::zbus;
 
-        match tokio::time::timeout(std::time::Duration::from_secs(1), GlobalShortcuts::new()).await
-        {
-            Ok(Ok(_)) => {
-                log::debug!("Wayland Global Shortcuts portal is available");
+        let probe = async {
+            let connection = zbus::Connection::session().await?;
+            let proxy = zbus::Proxy::new(
+                &connection,
+                "org.freedesktop.portal.Desktop",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.portal.GlobalShortcuts",
+            )
+            .await?;
+            proxy.get_property::<u32>("version").await
+        };
+
+        match tokio::time::timeout(std::time::Duration::from_secs(5), probe).await {
+            Ok(Ok(version)) => {
+                log::debug!("Wayland Global Shortcuts portal is available (version {version})");
                 true
             }
             Ok(Err(err)) => {
@@ -392,7 +406,8 @@ impl DesktopEnvironment {
     pub fn open_keyboard_shortcuts_settings(&self) -> Result<(), String> {
         #[cfg(target_os = "linux")]
         {
-            use std::process::Command;
+            // These all live on the host, so they must not inherit our bundle's environment.
+            use crate::external::host_command as command;
 
             log::debug!("Opening keyboard shortcuts settings for {:?}", self);
 
@@ -400,23 +415,23 @@ impl DesktopEnvironment {
                 DesktopEnvironment::Kde => {
                     // KDE Plasma: Open System Settings to Shortcuts page
                     log::debug!("Opening KDE System Settings shortcuts page");
-                    Command::new("systemsettings5")
+                    command("systemsettings5")
                         .arg("kcm_keys")
                         .spawn()
                         .or_else(|_| {
                             // Fallback for KDE 6
-                            Command::new("systemsettings").arg("kcm_keys").spawn()
+                            command("systemsettings").arg("kcm_keys").spawn()
                         })
                 }
                 DesktopEnvironment::Gnome => {
                     // GNOME: Open Settings to Keyboard Shortcuts
                     log::debug!("Opening GNOME Settings keyboard shortcuts");
-                    Command::new("gnome-control-center").arg("keyboard").spawn()
+                    command("gnome-control-center").arg("keyboard").spawn()
                 }
                 DesktopEnvironment::Xfce => {
                     // XFCE: Open Keyboard Settings
                     log::debug!("Opening XFCE keyboard settings");
-                    Command::new("xfce4-keyboard-settings").spawn()
+                    command("xfce4-keyboard-settings").spawn()
                 }
                 DesktopEnvironment::Hyprland => {
                     // Hyprland: Open config file in default editor
@@ -432,19 +447,19 @@ impl DesktopEnvironment {
                         "~/.config/hypr/hyprland.conf".to_string()
                     };
 
-                    Command::new("xdg-open").arg(&config_path).spawn()
+                    command("xdg-open").arg(&config_path).spawn()
                 }
                 DesktopEnvironment::Unknown => {
                     // Unknown DE: Try generic approaches
                     log::debug!("Unknown DE, trying generic keyboard settings");
 
                     // Try xdg-open with settings:// URI (some DEs support this)
-                    Command::new("xdg-open")
+                    command("xdg-open")
                         .arg("settings://keyboard")
                         .spawn()
                         .or_else(|_| {
                             // Fallback: just open system settings
-                            Command::new("xdg-settings")
+                            command("xdg-settings")
                                 .arg("get")
                                 .arg("default-url-scheme-handler")
                                 .arg("settings")
@@ -454,7 +469,8 @@ impl DesktopEnvironment {
             };
 
             match result {
-                Ok(_) => {
+                Ok(child) => {
+                    crate::external::reap_detached(child);
                     log::info!("Successfully opened keyboard shortcuts settings");
                     Ok(())
                 }

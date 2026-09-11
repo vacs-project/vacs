@@ -1,6 +1,6 @@
 [package]
 name = "vacs-server"
-version = "2.3.4"
+version = "2.3.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

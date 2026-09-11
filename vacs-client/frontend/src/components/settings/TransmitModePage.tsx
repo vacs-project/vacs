@@ -32,6 +32,12 @@ function TransmitModePage() {
                         <p className="font-semibold uppercase">Call Mic Mode</p>
                         <HelpIcon url="https://docs.vacs.network/settings/transmit#call-mic-mode" />
                     </div>
+                    {capPlatform === "LinuxWayland" && !capKeybindListener && (
+                        <p className="px-3 py-1 text-sm text-gray-700">
+                            Keyboard shortcuts are unavailable on this desktop: its portal offers no
+                            global shortcuts. Joystick buttons can still be bound.
+                        </p>
+                    )}
                     {!capAnyInput ? (
                         <div className="w-full px-3 flex flex-row gap-3 items-center justify-center">
                             <p

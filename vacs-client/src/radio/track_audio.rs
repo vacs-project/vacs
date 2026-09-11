@@ -1,4 +1,6 @@
 use crate::app::state::AppState;
+use crate::audio::manager::AudioManagerHandle;
+use crate::playback::commands::stop_playing_source;
 use crate::playback::recorder::PlaybackRecorderHandle;
 use crate::radio::{
     Frequency, Radio, RadioError, RadioHandle, RadioState, RadioStation, StationStateUpdate,
@@ -48,6 +50,7 @@ impl TrackAudioRadio {
     const VOICE_CONNECTED_STATE_TIMEOUT: Duration = Duration::from_millis(250);
     const STATION_STATES_TIMEOUT: Duration = Duration::from_millis(250);
     const STATION_STATE_TIMEOUT: Duration = Duration::from_millis(250);
+    const ADD_STATION_TIMEOUT: Duration = Duration::from_millis(500);
 
     pub async fn new(
         app: AppHandle,
@@ -216,6 +219,7 @@ impl TrackAudioRadio {
                     }
                     _ => {
                         let handle = app.state::<PlaybackRecorderHandle>();
+                        stop_playing_source(&handle, &app.state::<AudioManagerHandle>());
                         let existing = handle.write().take();
                         if let Some(recorder) = existing {
                             recorder.shutdown().await;
@@ -384,7 +388,7 @@ impl Radio for TrackAudioRadio {
     async fn add_station(&self, callsign: &str) -> Result<RadioStation, RadioError> {
         self.client
             .api()
-            .add_station(callsign, Some(Self::STATION_STATE_TIMEOUT))
+            .add_station(callsign, Some(Self::ADD_STATION_TIMEOUT))
             .await
             .map(|s| RadioStation::from(&s))
             .map_err(|err| RadioError::Integration(format!("Failed to add station: {err}")))

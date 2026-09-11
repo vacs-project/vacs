@@ -13,7 +13,6 @@ use crate::state::calls::CallManager;
 use crate::state::clients::{ClientManager, ClientSession};
 use crate::store::{Store, StoreBackend};
 use anyhow::Context;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, watch};
@@ -98,10 +97,7 @@ impl AppState {
 
         if self.clients.is_empty().await {
             tracing::debug!("First client connected, triggering initial VATSIM controller sync");
-            if let Err(err) = self
-                .update_vatsim_controllers(&mut HashSet::new(), false)
-                .await
-            {
+            if let Err(err) = self.update_vatsim_controllers(false).await {
                 tracing::warn!(?err, "Initial VATSIM controller sync failed");
             }
         }
@@ -291,7 +287,6 @@ impl AppState {
                 ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
                 let mut shutdown = state.shutdown_rx.clone();
-                let mut pending_disconnect = HashSet::new();
                 loop {
                     tokio::select! {
                         biased;
@@ -305,7 +300,7 @@ impl AppState {
                                 continue;
                             }
 
-                            if let Err(err) = state.update_vatsim_controllers(&mut pending_disconnect, state.config.vatsim.require_active_connection).await {
+                            if let Err(err) = state.update_vatsim_controllers(state.config.vatsim.require_active_connection).await {
                                 tracing::warn!(?err, "Failed to update controller info");
                             }
                         }
@@ -316,10 +311,9 @@ impl AppState {
         )
     }
 
-    #[tracing::instrument(level = "debug", skip(self, pending_disconnect), fields(pending_disconnect = pending_disconnect.len()), err)]
+    #[tracing::instrument(level = "debug", skip(self), err)]
     async fn update_vatsim_controllers(
         &self,
-        pending_disconnect: &mut HashSet<ClientId>,
         require_active_connection: bool,
     ) -> anyhow::Result<()> {
         tracing::debug!("Updating VATSIM controllers");
@@ -331,21 +325,24 @@ impl AppState {
         tracing::trace!(elapsed = ?fetch_elapsed, "Finished retrieving VATSIM controllers");
 
         let start_sync = std::time::Instant::now();
-        let current: HashMap<ClientId, ControllerInfo> = controllers
-            .into_iter()
-            .filter(|c| !c.callsign.ends_with("_SUP"))
-            .map(|c| (c.cid.clone(), c))
-            .collect();
+        let current = ControllerInfo::index_by_cid(controllers);
 
         VatsimSyncMetrics::set_controllers_seen(current.len());
 
         let disconnected_clients = self
             .clients
-            .sync_vatsim_state(&current, pending_disconnect, require_active_connection)
+            .sync_vatsim_state(&current, require_active_connection)
             .await;
         let sync_elapsed = start_sync.elapsed();
         VatsimSyncMetrics::sync_phase("sync", sync_elapsed.as_secs_f64());
         tracing::trace!(elapsed = ?sync_elapsed, "Finished syncing VATSIM state");
+
+        let pending_disconnect = self.clients.pending_disconnect_count().await;
+        VatsimSyncMetrics::set_clients_pending_disconnect(pending_disconnect);
+        tracing::debug!(
+            pending_disconnect,
+            "Clients marked for disconnect after sync"
+        );
 
         let start_unregister = std::time::Instant::now();
         for (cid, disconnect_reason) in disconnected_clients {

@@ -4,8 +4,9 @@ mod auth;
 mod build;
 mod config;
 mod error;
+pub mod external;
 mod keybinds;
-mod platform;
+pub mod platform;
 mod playback;
 mod radio;
 mod remote;
@@ -51,7 +52,6 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .plugin(tauri_plugin_prevent_default::debug())
         .setup(|app| {
@@ -166,6 +166,7 @@ pub fn run() {
             app::commands::app_load_extra_client_page_config,
             app::commands::app_load_test_profile,
             app::commands::app_open_folder,
+            app::commands::app_open_url,
             app::commands::app_platform_capabilities,
             #[cfg(feature = "e2e")]
             app::commands::app_process_id,
@@ -213,6 +214,7 @@ pub fn run() {
             playback::commands::playback_pause,
             playback::commands::playback_get_enabled,
             playback::commands::playback_list,
+            playback::commands::playback_say_again,
             playback::commands::playback_seek,
             playback::commands::playback_set_enabled,
             playback::commands::playback_start,
@@ -247,6 +249,8 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _| {
             if let Some(url) = argv.get(1) {
                 app::handle_deep_link(app.clone(), url.to_string());
+            } else {
+                log::warn!("Second instance started without a deep link url, ignoring");
             }
         }));
     }

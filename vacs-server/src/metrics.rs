@@ -391,6 +391,10 @@ impl VatsimSyncMetrics {
         gauge!("vacs_vatsim_controllers_total").set(count as f64);
     }
 
+    pub fn set_clients_pending_disconnect(count: usize) {
+        gauge!("vacs_vatsim_clients_pending_disconnect").set(count as f64);
+    }
+
     pub fn position_match(result: &str) {
         counter!("vacs_vatsim_position_matches_total", "result" => result.to_string()).increment(1);
     }
@@ -415,6 +419,11 @@ impl VatsimSyncMetrics {
             "vacs_vatsim_controllers_total",
             Unit::Count,
             "Number of VATSIM controllers seen in the last sync cycle"
+        );
+        describe_gauge!(
+            "vacs_vatsim_clients_pending_disconnect",
+            Unit::Count,
+            "Clients marked for disconnect pending datafeed confirmation"
         );
         describe_counter!(
             "vacs_vatsim_position_matches_total",

@@ -13,7 +13,6 @@ use rfd::{MessageButtons, MessageDialogResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
-use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 use vacs_macros::Frontend;
@@ -33,6 +32,11 @@ pub fn handle_deep_link(app: AppHandle, url: String) {
 
     let url = url.to_string();
     tauri::async_runtime::spawn(async move {
+        if app.try_state::<AppState>().is_none() {
+            log::warn!("Ignoring deep link, app startup has not finished yet");
+            return;
+        }
+
         if let Err(err) = crate::auth::handle_auth_callback(&app, &url).await {
             app.emit("auth:error", serde_json::Value::Null).ok();
             app.emit::<crate::error::FrontendError>("error", err.into())
@@ -120,11 +124,12 @@ pub fn open_app_folder(app: &AppHandle, folder: AppFolder) -> Result<(), Error> 
             .app_log_dir()
             .context("Failed to get logs folder")?,
     };
-    let folder_path = folder_path.to_str().context("Folder path is empty")?;
 
-    app.opener()
-        .open_path(folder_path, None::<&str>)
-        .context("Failed to open folder")?;
+    // The config directory only appears once settings are first persisted, so on a fresh install
+    // there is nothing to open and the opener reports a missing path.
+    std::fs::create_dir_all(&folder_path).context("Failed to create folder")?;
+
+    crate::external::open_path(&folder_path).context("Failed to open folder")?;
 
     Ok(())
 }

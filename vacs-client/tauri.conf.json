@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "targets": ["deb", "rpm", "nsis", "app", "dmg"],
+    "targets": ["deb", "rpm", "appimage", "nsis", "app", "dmg"],
     "icon": [
       "frontend/icons/32x32.png",
       "frontend/icons/128x128.png",
@@ -52,6 +52,7 @@
     },
     "linux": {
       "deb": {
+        "desktopTemplate": "bundle/linux/vacs.desktop",
         "depends": [
           "libasound2",
           "libpulse0",
@@ -64,6 +65,7 @@
         "recommends": ["pipewire-pulse", "pipewire-alsa", "libasound2-plugins"]
       },
       "rpm": {
+        "desktopTemplate": "bundle/linux/vacs.desktop",
         "depends": [
           "alsa-lib",
           "pulseaudio-libs",

@@ -75,7 +75,7 @@ impl AudioSource for WavSource {
             return;
         }
 
-        if self.samples.is_empty() {
+        if self.pos >= self.samples.len() {
             if let Some(on_update) = &self.on_update {
                 on_update(1.0);
             }
@@ -174,7 +174,37 @@ fn resample(samples: &[f32], in_rate: usize, out_rate: usize) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::resample;
+    use super::{WavSource, resample};
+    use crate::sources::AudioSource;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn finished_source_stays_silent_when_started_again() {
+        let updates = Arc::new(Mutex::new(Vec::new()));
+        let sink = updates.clone();
+        let mut source = WavSource {
+            samples: vec![0.5; 8],
+            pos: 0,
+            sample_rate: 48_000,
+            output_channels: 1,
+            volume: 1.0,
+            active: true,
+            update_interval: 500,
+            on_update: Some(Box::new(move |p| sink.lock().unwrap().push(p))),
+        };
+
+        let mut out = vec![0.0f32; 16];
+        source.mix_into(&mut out);
+        assert!(!source.active);
+        assert_eq!(updates.lock().unwrap().as_slice(), &[1.0]);
+
+        source.start();
+        let mut out = vec![0.0f32; 16];
+        source.mix_into(&mut out);
+        assert!(out.iter().all(|s| *s == 0.0));
+        assert!(!source.active);
+        assert_eq!(updates.lock().unwrap().as_slice(), &[1.0, 1.0]);
+    }
 
     /// Generate a mono sine of `freq` Hz at `rate` for `secs` seconds.
     fn sine(freq: f32, rate: usize, secs: f32) -> Vec<f32> {

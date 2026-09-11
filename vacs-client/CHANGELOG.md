@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.6.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.5.1...vacs-client-v2.6.0) (2026-08-11)
+
+
+### Features
+
+* **vacs-client:** add joystick support ([#1024](https://github.com/vacs-project/vacs/issues/1024)) ([3a8f911](https://github.com/vacs-project/vacs/commit/3a8f911862f0a1b91d3c4ebbebacae3c9a7edf3f))
+* **vacs-client:** add X11 keybind listener and emitter ([#1026](https://github.com/vacs-project/vacs/issues/1026)) ([e6a7205](https://github.com/vacs-project/vacs/commit/e6a7205e79b017582f443f7a99cbecae3f2fbc0e))
+* **vacs-client:** reconnect calls via relay when inbound media stalls ([#1023](https://github.com/vacs-project/vacs/issues/1023)) ([d264512](https://github.com/vacs-project/vacs/commit/d264512584f703e2964e6f224f2bf861a6f4a73d))
+
+
+### Bug Fixes
+
+* **vacs-client:** apply WebKit rendering workarounds on X11 too ([e6a7205](https://github.com/vacs-project/vacs/commit/e6a7205e79b017582f443f7a99cbecae3f2fbc0e))
+* **vacs-client:** fix inconsistent border for disabled gray button ([#1096](https://github.com/vacs-project/vacs/issues/1096)) ([9599ddd](https://github.com/vacs-project/vacs/commit/9599ddd0bf6595095947a9e6cf42afc99db45b51))
+* **vacs-client:** recover from stuck TrackAudio radio transmissions ([#1076](https://github.com/vacs-project/vacs/issues/1076)) ([da0f9ef](https://github.com/vacs-project/vacs/commit/da0f9eff81c3ca351a733e71e2a80ad4fa26af53))
+* **vacs-client:** register Wayland portal shortcuts reliably and resolve the radio PTT fallback at runtime ([#1078](https://github.com/vacs-project/vacs/issues/1078)) ([a5dc3d2](https://github.com/vacs-project/vacs/commit/a5dc3d220264a195df1c254d97a19a22f2f3d21d))
+* **vacs-client:** stop radio TX when the keybind engine is reconfigured ([#1079](https://github.com/vacs-project/vacs/issues/1079)) ([11fd604](https://github.com/vacs-project/vacs/commit/11fd604b0166e4562b9595900a3f90b8015ca059))
+
 ## [2.5.1](https://github.com/vacs-project/vacs/compare/vacs-client-v2.5.0...vacs-client-v2.5.1) (2026-07-28)
 
 

@@ -314,6 +314,7 @@ impl SlurperClient {
             callsign: callsign.to_string(),
             frequency: frequency.to_string(),
             facility_type,
+            visual_range: u32::try_from(visibility_range).ok(),
         }))
     }
 }

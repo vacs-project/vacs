@@ -18,6 +18,11 @@ on:
 
 permissions: {}
 
+# Never cancel a half-finished release.
+concurrency:
+  group: release-client-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   prep:
     runs-on: ubuntu-latest
@@ -103,12 +108,13 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      # No cargo/npm cache restore in release jobs: caches are writable by ordinary CI
+      # runs, and a poisoned cache would end up inside signed, attested artifacts.
       - name: Setup Node (LTS)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "lts/*"
-          cache: "npm"
-          cache-dependency-path: vacs-client/package-lock.json
+          package-manager-cache: false
 
       - name: Install npm dependencies
         working-directory: vacs-client
@@ -117,13 +123,9 @@ jobs:
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --no-self-update
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: licenses
-
+      # Keep the version pin in step with vacs-data's release-tools.yml.
       - name: Install cargo-about
-        run: cargo install cargo-about --locked --features="cli"
+        run: cargo install cargo-about --locked --features="cli" --version 0.9.2
 
       - name: Generate third-party licenses
         run: python3 scripts/generate-licenses.py --output THIRD_PARTY_LICENSES.html
@@ -157,6 +159,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
+    environment: release-client
     permissions:
       contents: read
       attestations: write
@@ -208,7 +211,45 @@ jobs:
 
       - name: Install build dependencies (Linux)
         if: matrix.platform == 'ubuntu-24.04'
-        uses: ./.github/actions/install-linux-deps
+        uses: $/.github/actions/install-linux-deps
+
+      # Kept out of tauri.conf.json because the source paths are Debian specific and the bundler
+      # aborts when one is missing, which would break AppImage builds on any other distribution.
+      - name: Bundle the PipeWire plugins into the AppImage (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: echo "EXTRA_TAURI_ARGS=${EXTRA_TAURI_ARGS} --config tauri.appimage.conf.json" >> "$GITHUB_ENV"
+
+      # tauri-bundler fetches these from rolling upstream tags with no checksum and runs them in
+      # the Build step next to the signing key; it skips the download when the file is already in
+      # its cache. A changed upstream file fails here instead of shipping under our signature.
+      - name: Pin the AppImage bundler tools (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache="$HOME/.cache/tauri"
+          mkdir -p "$cache"
+          fetch() {
+            curl -fsSL --retry 3 -o "$cache/$1" "$2"
+            echo "$3  $cache/$1" | sha256sum --check --quiet
+            chmod +x "$cache/$1"
+          }
+          fetch AppRun-x86_64 \
+            https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64 \
+            f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+          fetch linuxdeploy-x86_64.AppImage \
+            https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage \
+            e762bea85c8eb0d4b3508d46e5c1f037f717d0f9303ae3b4aafc8b04991fa1ef
+          fetch linuxdeploy-plugin-gtk.sh \
+            https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/b5eb8d05b4c0ed40107fe2158c5d8527f94568ef/linuxdeploy-plugin-gtk.sh \
+            cb379f9b0733e9ad9f8bd78f8c2fa038aef2478523bb7d4c8e64ff6a1ea3501a
+          fetch linuxdeploy-plugin-gstreamer.sh \
+            https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gstreamer/2a2e67491c32995a3f279ad0ecbe77abd512b42a/linuxdeploy-plugin-gstreamer.sh \
+            c107b49d84edbffc6ab226ed1007e0626a4f7aa2c3a36b7782bef62351d49e94
+          fetch linuxdeploy-plugin-appimage.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage \
+            0441769ab38009504d2678c38cd7e526955388dd30a215b4a20afaa5471652f2
 
       - name: Install build dependencies (macOS, aarch64)
         if: matrix.platform == 'macos-latest' && matrix.arch == 'aarch64'
@@ -216,11 +257,13 @@ jobs:
           brew update
           brew install opus
 
+      # Intel Homebrew under Rosetta is the only way to get an x86_64 opus onto the
+      # arm64 runner; the SHA pin keeps this from executing a mutable ref.
       - name: Install build dependencies (macOS, x86_64)
         if: matrix.platform == 'macos-latest' && matrix.arch == 'x86_64'
         run: |
           if [ ! -f /usr/local/bin/brew ]; then
-            arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/cced90146ea6d3057c03a636b668fef177415eb3/install.sh)"
           fi
 
           arch -x86_64 /usr/local/bin/brew update
@@ -231,24 +274,19 @@ jobs:
 
       - name: Install build dependencies (Windows)
         if: matrix.platform == 'windows-latest'
-        uses: ./.github/actions/install-windows-deps
+        uses: $/.github/actions/install-windows-deps
 
+      # No cargo/npm cache restore here either - see the licenses job.
       - name: Setup Node (LTS)
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "lts/*"
-          cache: "npm"
-          cache-dependency-path: vacs-client/package-lock.json
+          package-manager-cache: false
 
       - name: Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup target add ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          shared-key: ${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: Install frontend dependencies
         working-directory: vacs-client
@@ -270,6 +308,21 @@ jobs:
           projectPath: vacs-client
           args: ${{ matrix.target && format('--target {0}', matrix.target) }} ${{ env.EXTRA_TAURI_ARGS }} ${{ env.CARGO_FEATURES }}
           uploadUpdaterJson: false
+
+      # external.rs redirects PipeWire to the bundled plugins only when the bundle carries
+      # libpipewire itself, and whether linuxdeploy copies it depends on an excludelist fetched
+      # from a rolling upstream tag. Fail the build instead of shipping an AppImage without audio.
+      - name: Verify the AppImage bundles PipeWire (Linux)
+        if: matrix.platform == 'ubuntu-24.04'
+        shell: bash
+        run: |
+          appimage=$(find "$PWD/target" -path '*/release/bundle/appimage/*.AppImage' -print -quit)
+          test -n "$appimage"
+          cd "$(mktemp -d)"
+          "$appimage" --appimage-extract > /dev/null
+          test -e squashfs-root/usr/lib/libpipewire-0.3.so.0
+          test -e squashfs-root/usr/lib/spa-0.2/support/libspa-support.so
+          test -e squashfs-root/usr/lib/pipewire-0.3/libpipewire-module-protocol-native.so
 
       - name: Rename macOS bundles to include version & architecture
         if: matrix.platform == 'macos-latest'
@@ -322,7 +375,7 @@ jobs:
             target/**/release/bundle/dmg/*.dmg.sig
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           format: spdx-json
           output-file: sbom.spdx.json
@@ -330,7 +383,7 @@ jobs:
           artifact-name: sbom-${{ matrix.platform }}-${{ matrix.arch }}.spdx.json
 
       - name: Attest build provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             target/**/release/bundle/**/*.msi
@@ -349,7 +402,7 @@ jobs:
             target/**/release/bundle/dmg/*.dmg.sig
 
       - name: Attest SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             target/**/release/bundle/**/*.msi
@@ -365,6 +418,7 @@ jobs:
     needs: [prep, build]
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    environment: release-client
     permissions:
       contents: read # write access for the release is via the App token below
       attestations: write
@@ -406,20 +460,30 @@ jobs:
             "SHA256SUMS-${VERSION}.txt"
 
       - name: Attest release artifacts
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: dist/SHA256SUMS-${{ needs.prep.outputs.version }}.txt
+
+      - name: Upload checksums artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: checksums
+          path: dist/SHA256SUMS-${{ needs.prep.outputs.version }}.txt
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Generate GitHub token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: generate-token
         with:
-          client-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
 
+      # Release-body content is contributor-controlled; it must only ever flow through
+      # `with:` parameters, never through a shell.
       - name: Create/update GitHub release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           token: ${{ steps.generate-token.outputs.token }}
           tag_name: ${{ needs.prep.outputs.tag }}
@@ -447,26 +511,24 @@ jobs:
       needs.prep.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: release-client
     permissions: {}
 
     steps:
-      - name: Download SHA256SUMS from release
-        env:
-          VERSION: ${{ needs.prep.outputs.version }}
-        run: |
-          curl -fsSL \
-            "https://github.com/vacs-project/vacs/releases/download/vacs-client-v${VERSION}/SHA256SUMS-${VERSION}.txt" \
-            -o SHA256SUMS.txt
-          echo "Downloaded checksums:"
-          cat SHA256SUMS.txt
+      # Same-run artifact rather than the public release URL, so the tap update can
+      # only ever describe the checksums this run produced.
+      - name: Download checksums artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: checksums
 
       - name: Extract checksums for macOS DMG files
         id: hashes
         env:
           VERSION: ${{ needs.prep.outputs.version }}
         run: |
-          AARCH64=$(grep "vacs_${VERSION}_aarch64.dmg$" SHA256SUMS.txt | awk '{print $1}')
-          X64=$(grep  "vacs_${VERSION}_x64.dmg$"  SHA256SUMS.txt | awk '{print $1}')
+          AARCH64=$(grep "vacs_${VERSION}_aarch64.dmg$" "SHA256SUMS-${VERSION}.txt" | awk '{print $1}')
+          X64=$(grep  "vacs_${VERSION}_x64.dmg$"  "SHA256SUMS-${VERSION}.txt" | awk '{print $1}')
 
           if [[ -z "$AARCH64" || -z "$X64" ]]; then
             echo "ERROR: Could not parse one or both DMG hashes from SHA256SUMS.txt" >&2
@@ -482,19 +544,19 @@ jobs:
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: generate-token
         with:
-          client-id: ${{ secrets.APP_ID }}
+          client-id: ${{ secrets.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           # Scope token to the tap repo only
           owner: vacs-project
           repositories: homebrew-tap
           permission-contents: write
 
+      # The commit goes through ghcommit's API, so the checkout needs no credentials.
       - name: Checkout tap repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: vacs-project/homebrew-tap
-          token: ${{ steps.generate-token.outputs.token }}
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Update cask version and hashes
         env:

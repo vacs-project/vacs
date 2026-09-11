@@ -118,6 +118,21 @@ struct VatsimDataFeedController {
     cid: i32,
     callsign: String,
     frequency: String,
+    #[serde(default, deserialize_with = "lenient_visual_range")]
+    visual_range: Option<u32>,
+}
+
+// A malformed value must degrade to None instead of failing the whole feed.
+fn lenient_visual_range<'de, D>(deserializer: D) -> std::result::Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let range = value.as_u64().and_then(|v| u32::try_from(v).ok());
+    if range.is_none() && !value.is_null() {
+        tracing::warn!(%value, "Unexpected visual_range in data feed, ignoring");
+    }
+    Ok(range)
 }
 
 impl From<VatsimDataFeedController> for ControllerInfo {
@@ -127,6 +142,52 @@ impl From<VatsimDataFeedController> for ControllerInfo {
             frequency: value.frequency,
             facility_type: FacilityType::from(value.callsign.as_str()),
             callsign: value.callsign,
+            visual_range: value.visual_range,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn fetch_controller_info_parses_visual_range_leniently() -> Result<()> {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                r#"{
+                    "controllers": [
+                        {"cid": 1000001, "callsign": "LOWW_TWR", "frequency": "119.400", "visual_range": 50},
+                        {"cid": 1000001, "callsign": "LOWW_ATIS", "frequency": "121.725", "visual_range": 0},
+                        {"cid": 1000000, "callsign": "LOVV_CTR", "frequency": "132.600"},
+                        {"cid": 1000002, "callsign": "LOVV_FSS", "frequency": "128.950", "visual_range": -1}
+                    ]
+                }"#,
+                "application/json",
+            ))
+            .mount(&server)
+            .await;
+
+        let feed = VatsimDataFeed::new(&server.uri(), Duration::from_secs(1))?;
+        let controllers = feed.fetch_controller_info().await?;
+
+        let ranges: Vec<(&str, Option<u32>)> = controllers
+            .iter()
+            .map(|c| (c.callsign.as_str(), c.visual_range))
+            .collect();
+        assert_eq!(
+            ranges,
+            vec![
+                ("LOWW_TWR", Some(50)),
+                ("LOWW_ATIS", Some(0)),
+                ("LOVV_CTR", None),
+                ("LOVV_FSS", None),
+            ]
+        );
+        Ok(())
     }
 }

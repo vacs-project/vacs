@@ -6,7 +6,9 @@ runs:
   steps:
     - name: Import Visual Studio developer environment
       shell: pwsh
-      run: |
+      # zizmor flags bulk GITHUB_ENV writes; accepted here because every value comes
+      # from Microsoft's VsDevShell on a hosted runner, not from untrusted input.
+      run: | # zizmor: ignore[github-env]
         $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 

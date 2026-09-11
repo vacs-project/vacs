@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
@@ -58,17 +58,50 @@ jobs:
   rust:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    uses: ./.github/workflows/ci-rust.yml
+    uses: $/.github/workflows/ci-rust.yml
     permissions:
       contents: read
 
   node:
     needs: changes
     if: needs.changes.outputs.node == 'true'
-    uses: ./.github/workflows/ci-node.yml
+    uses: $/.github/workflows/ci-node.yml
     permissions:
       contents: read
 
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
+        with:
+          advanced-security: false
+          min-severity: low
+          inputs: .github/
+
+  # Blocks known-vulnerable dependencies; cargo-deny's advisories check is advisory.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
   e2e:
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.node == 'true' || needs.changes.outputs.e2e == 'true'
@@ -78,7 +111,9 @@ jobs:
 
   gate:
     name: "CI \u2713"
-    needs: [rust, node, e2e]
+    # `changes` is listed so a failure there (which skips the sub-workflows) fails the
+    # gate instead of green-lighting a PR that ran no checks.
+    needs: [changes, rust, node, zizmor, dependency-review, e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -86,12 +121,23 @@ jobs:
     steps:
       - name: Evaluate results
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           RUST_RESULT: ${{ needs.rust.result }}
           NODE_RESULT: ${{ needs.node.result }}
+          ZIZMOR_RESULT: ${{ needs.zizmor.result }}
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           failed=false
-          for name in rust node e2e; do
+
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "::error::changes: $CHANGES_RESULT (path detection must succeed)"
+            failed=true
+          else
+            echo "changes: $CHANGES_RESULT"
+          fi
+
+          for name in rust node zizmor dependency_review e2e; do
             var="${name^^}_RESULT"
             result="${!var}"
             case "$result" in
@@ -114,6 +160,8 @@ jobs:
         env:
           RUST_RESULT: ${{ needs.rust.result }}
           NODE_RESULT: ${{ needs.node.result }}
+          ZIZMOR_RESULT: ${{ needs.zizmor.result }}
+          DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency-review.result }}
           E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           icon() { case "$1" in success) echo "✅";; skipped) echo "⏭️";; *) echo "❌";; esac }
@@ -124,4 +172,6 @@ jobs:
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Rust | $(icon "$RUST_RESULT") $RUST_RESULT |" >> $GITHUB_STEP_SUMMARY
           echo "| Node | $(icon "$NODE_RESULT") $NODE_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| zizmor | $(icon "$ZIZMOR_RESULT") $ZIZMOR_RESULT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency review | $(icon "$DEPENDENCY_REVIEW_RESULT") $DEPENDENCY_REVIEW_RESULT |" >> $GITHUB_STEP_SUMMARY
           echo "| E2E | $(icon "$E2E_RESULT") $E2E_RESULT |" >> $GITHUB_STEP_SUMMARY

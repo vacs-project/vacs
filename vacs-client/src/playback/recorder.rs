@@ -153,6 +153,11 @@ impl PlaybackRecorder {
         self.store.lock().get(id)
     }
 
+    /// The most recently finished clip, if any.
+    pub fn latest(&self) -> Option<ClipMeta> {
+        self.store.lock().latest()
+    }
+
     pub fn set_playing_source_id(&mut self, id: Option<(AudioSourceId, PlaybackDeviceType)>) {
         self.playing_source_id = id;
     }

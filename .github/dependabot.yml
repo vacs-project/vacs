@@ -14,6 +14,17 @@ updates:
     rebase-strategy: auto
     versioning-strategy: auto
     labels: ["dependencies", "rust"]
+    allow:
+      - dependency-type: "direct"
+      - dependency-name: "libspa*"
+        dependency-type: "all"
+      - dependency-name: "pipewire-sys"
+        dependency-type: "all"
+    groups:
+      pipewire:
+        patterns:
+          - "pipewire*"
+          - "libspa*"
 
   - package-ecosystem: "npm"
     directory: "/vacs-client"

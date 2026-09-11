@@ -8,8 +8,8 @@ use crate::keybinds::engine::KeybindEngineHandle;
 use crate::platform::Capabilities;
 use crate::playback::commands::{
     playback_clear, playback_continue, playback_delete, playback_export, playback_get_enabled,
-    playback_list, playback_pause, playback_seek, playback_set_enabled, playback_start,
-    playback_stop,
+    playback_list, playback_pause, playback_say_again, playback_seek, playback_set_enabled,
+    playback_start, playback_stop,
 };
 use crate::playback::recorder::PlaybackRecorderHandle;
 use crate::radio::RadioHandle;
@@ -708,7 +708,20 @@ async fn dispatch_command(
         }
         PlaybackExport => {
             let recorder = app.state::<PlaybackRecorderHandle>();
-            dispatch(playback_export(app.clone(), recorder, args!(args, "id")).await)
+            dispatch(playback_export(recorder, args!(args, "id")).await)
+        }
+        PlaybackSayAgain => {
+            let recorder = app.state::<PlaybackRecorderHandle>();
+            let audio_manager = app.state::<AudioManagerHandle>();
+            dispatch(
+                playback_say_again(
+                    app.clone(),
+                    recorder,
+                    audio_manager,
+                    args!(args, "deviceType"),
+                )
+                .await,
+            )
         }
 
         RadioAddStation => {
@@ -871,6 +884,7 @@ async fn dispatch_command(
         }
 
         AppOpenFolder
+        | AppOpenUrl
         | AppQuit
         | AppUpdate
         | AppSetAlwaysOnTop
