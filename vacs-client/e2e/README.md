@@ -68,9 +68,16 @@ Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
   `10000001`-`10000003` leaves the 2s grace period, the server assigns it
   the corresponding position and CID-based selectors stop matching; use
   `removeController` when such CIDs must stay positionless.
-- The `browser.tauri.*` API (`tauri-plugin-wdio`) is available in specs for
-  IPC mocking, event emission and log capture; backend/frontend log capture
-  is enabled in CI.
+- IPC command mocks go through `helpers/browser.ts` (`mockCommand`,
+  `unmockCommand`), which write the wdio mock registry directly into the
+  page; the transport consults it in e2e builds (`withGlobalTauri` is
+  enabled in `tauri.e2e.conf.json` for the plugin's globals). Do not use
+  `browser.tauri.mock`: its worker-side store reuses mock objects across
+  sessions and breaks after `restartApps()`. `browser.tauri.emitEvent` is
+  equally off-limits with the embedded provider (its eval wrapper exposes
+  only the core API); emit through `tauriApi(...).execute` and
+  `window.__TAURI__.event.emit` instead. `browser.tauri.execute` and log
+  capture work as documented; backend/frontend log capture is enabled in CI.
 
 ## Spec gotchas
 
@@ -81,6 +88,70 @@ Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 - `restartApps()` waits for the app document before returning; keep it that
   way, since a script executed mid-navigation loses its result and burns the
   full 30s script timeout.
+
+## Documentation screenshots
+
+`npm run -w e2e screenshots` runs `wdio.docs.ts` over `specs-docs/`, which
+captures the images the user manual needs into `e2e/screenshots/` (override
+with `VACS_SCREENSHOT_DIR`, e.g. the docs repo's `static/img`). It reuses the
+regular config's servers and app instances and is kept out of `npm test`,
+since these specs produce artifacts rather than assert behavior.
+
+Everything that would otherwise differ between runs is pinned, so a single
+re-captured image still matches the rest of the set: both clients log in with
+fixed CIDs and positions (`10000001`/`LOVV_E_CTR`), the webview's clock is
+frozen at 10:10:10Z, the version in the header is set explicitly, and the
+platform capabilities the UI renders from are mocked to `LinuxX11`. That last
+one matters more than it looks: the keybind pages have a separate Wayland
+layout, so capturing on a Wayland desktop would otherwise put the System
+Shortcuts button and desktop-managed key fields into images meant to show the
+ordinary one. The version defaults to `vacs-client/package.json`; export
+`VACS_SCREENSHOT_VERSION=2.6.0` when capturing for a release that has not been
+cut yet.
+
+Image names follow the manual's convention: `XConfig.png` is the settings page
+with callouts showing how to open X, `XConfigPage.png` is the dialog itself,
+and Transmit dialog crops are named after the combination they show
+(`Transmit-<mic mode>-<integration>.png`), with `-wayland` appended for the
+Wayland variant.
+
+Two properties of the setup shape what the images look like:
+
+- The embedded driver snapshots the **webview only**, so captures carry no
+  title bar or window border. Existing manual images that were taken with a
+  window manager screenshot are 32px taller for that reason.
+- Element screenshots return the full frame with the element scrolled into
+  view, so `helpers/screenshot.ts` crops the PNG itself from the element's
+  bounding rect.
+
+Callouts come from `helpers/annotate.ts`, in the manual's established style:
+a red box around the element and a numbered badge on one of its corners, with
+the numbers explained in the prose beside the image. Both are drawn as an SVG
+overlay positioned from the target's bounding rect, so re-capturing keeps them
+on the right element instead of leaving them where the layout used to be.
+`place` picks the corner or side the badge sits on, which is how you keep it clear
+of neighboring UI. Call `clearAnnotations()` before capturing anything else in
+the same test.
+
+States that need hardware, another platform or a broken network are driven
+through IPC mocks and emitted events (joystick devices, the Wayland layout,
+a degraded call, the radio error state). That is honest for a layout
+screenshot and useless as verification: an image says the UI renders that
+state, never that the underlying platform behavior works.
+
+### Capturing on Windows or macOS
+
+The **Documentation screenshots** workflow runs the same command on a runner of
+your choice and uploads the result as a `screenshots-<platform>` artifact. It
+takes a version to stamp into the header, and shares its cargo cache with the
+E2E workflow, so a capture run usually skips the cold workspace build.
+
+Use it when the images should match the platform most users are on: the UI
+bundles its own font and the capability mock pins the layout, so what still
+differs between platforms is glyph rasterization and the native form controls
+each webview draws. Nothing about the capture needs a visible desktop, on any
+platform - the driver renders inside the webview rather than grabbing the
+screen.
 
 ## Known gaps (deliberately untested here)
 

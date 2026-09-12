@@ -53,6 +53,7 @@ jobs:
             e2e:
               - "vacs-client/e2e/**"
               - ".github/workflows/ci-e2e.yml"
+              - ".github/actions/setup-e2e/**"
 
   rust:
     needs: changes

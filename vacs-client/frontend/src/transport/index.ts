@@ -31,6 +31,18 @@ import {getRemoteTransport} from "./remote.ts";
  * In remote mode sends an RPC message over WebSocket.
  */
 export async function invoke<T>(cmd: RemoteCommand, args?: InvokeArgs): Promise<T> {
+    if (import.meta.env.MODE === "e2e" && isTauri) {
+        // The wdio plugin's IPC mocks only intercept the global
+        // window.__TAURI__.core.invoke, which this bundled transport
+        // bypasses; consult its mock registry directly. Statically
+        // eliminated outside e2e builds.
+        type MockRegistry = Record<string, (args?: InvokeArgs) => unknown>;
+        // eslint-disable-next-line no-underscore-dangle
+        const mockFn = (window as Window & {__wdio_mocks__?: MockRegistry}).__wdio_mocks__?.[cmd];
+        if (mockFn !== undefined) {
+            return mockFn(args) as Promise<T>;
+        }
+    }
     if (isTauri) {
         await ensureTauri();
         return getTauriInvoke()(cmd, args) as Promise<T>;
