@@ -1,0 +1,612 @@
+{
+  "description": "LOVV CTR: client switches position while another VATSIM controller keeps the old position online; its stations must go offline for vacs clients (vacs -> VATSIM-only without coverage change)",
+  "dataset": "tests/fixtures/scenarios/datasets/full",
+  "steps": [
+    {
+      "_comment": "Client and a second VATSIM-only controller both staff LOVV_E_CTR."
+    },
+    {
+      "connect": {
+        "client_id": "10000000",
+        "position_id": "LOVV_E_CTR",
+        "frequency": "134.440"
+      }
+    },
+    {
+      "expire_grace_period": {
+        "client_id": "10000000"
+      }
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          {
+            "cid": 10000000,
+            "callsign": "LOVV_E_CTR",
+            "frequency": "134.440"
+          },
+          {
+            "cid": 10000009,
+            "callsign": "LOVV_E_CTR",
+            "frequency": "134.440"
+          }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": [
+          "LOVV_E_CTR"
+        ]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": []
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": [
+          "LOVV_E1",
+          "LOVV_E2",
+          "LOVV_E3",
+          "LOVV_E4",
+          "LOVV_E5",
+          "LOVV_E6",
+          "LOVV_E7",
+          "LOVV_N1",
+          "LOVV_N2",
+          "LOVV_N3",
+          "LOVV_N4",
+          "LOVV_N5",
+          "LOVV_N6",
+          "LOVV_N7",
+          "LOVV_S1",
+          "LOVV_S2",
+          "LOVV_S3",
+          "LOVV_S4",
+          "LOVV_S5",
+          "LOVV_S6",
+          "LOVV_S7",
+          "LOWG_APP",
+          "LOWG_TWR",
+          "LOWL_APP",
+          "LOWL_TWR",
+          "LOWW_APP",
+          "LOWW_DEL",
+          "LOWW_E_TWR",
+          "LOWW_GND",
+          "LOWW_I_GND",
+          "LOWW_M_APP",
+          "LOWW_N_APP",
+          "LOWW_P_APP",
+          "LOWW_TWR",
+          "LOWW_W_GND",
+          "LOXT_APP",
+          "LOXT_TWR",
+          "LOXZ_APP",
+          "LOXZ_TWR"
+        ],
+        "callable": [],
+        "not_callable": [
+          "LOVV_B1",
+          "LOVV_B2",
+          "LOVV_B3",
+          "LOVV_B4",
+          "LOVV_B5",
+          "LOVV_B6",
+          "LOVV_B7",
+          "LOVV_W1",
+          "LOVV_W2",
+          "LOVV_W3",
+          "LOVV_W4",
+          "LOVV_W5",
+          "LOVV_W6",
+          "LOVV_W7",
+          "LOWI_APP",
+          "LOWI_DEL",
+          "LOWI_E_APP",
+          "LOWI_F_APP",
+          "LOWI_S_APP",
+          "LOWI_TWR",
+          "LOWK_APP",
+          "LOWK_TWR",
+          "LOWS_APP",
+          "LOWS_DEL",
+          "LOWS_TWR"
+        ]
+      }
+    },
+    {
+      "drain_messages": {
+        "client_id": "10000000"
+      }
+    },
+    {
+      "_comment": "The client switches to the LOVV_B_CTR frequency. LOVV_E_CTR stays online on VATSIM via the second controller, so it transitions to VATSIM-only without any coverage change for its remaining stations: those must still go offline for vacs clients, while shared stations hand off and newly covered ones come online."
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          {
+            "cid": 10000000,
+            "callsign": "LOVV_B_CTR",
+            "frequency": "132.190"
+          },
+          {
+            "cid": 10000009,
+            "callsign": "LOVV_E_CTR",
+            "frequency": "134.440"
+          }
+        ]
+      }
+    },
+    {
+      "assert_online_positions": {
+        "online": [
+          "LOVV_B_CTR"
+        ],
+        "not_online": [
+          "LOVV_E_CTR"
+        ]
+      }
+    },
+    {
+      "assert_vatsim_only_positions": {
+        "positions": [
+          "LOVV_E_CTR"
+        ]
+      }
+    },
+    {
+      "assert_station_changes": {
+        "client_id": "10000000",
+        "changes": [
+          {
+            "online": {
+              "station_id": "LOVV_B1",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_B2",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_B3",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_B4",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_B5",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_B6",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_B7",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W1",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W2",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W3",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W4",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W5",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W6",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOVV_W7",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWI_APP",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWI_DEL",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWI_E_APP",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWI_F_APP",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWI_S_APP",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWI_TWR",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWK_APP",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWK_TWR",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWS_APP",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWS_DEL",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "online": {
+              "station_id": "LOWS_TWR",
+              "position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S1",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S2",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S3",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S4",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S5",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S6",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOVV_S7",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOWG_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_APP",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "handoff": {
+              "station_id": "LOXZ_TWR",
+              "from_position_id": "LOVV_E_CTR",
+              "to_position_id": "LOVV_B_CTR"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E1"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E2"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E3"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E4"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E5"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E6"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_E7"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N1"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N2"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N3"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N4"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N5"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N6"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOVV_N7"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWL_APP"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWL_TWR"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_APP"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_DEL"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_E_TWR"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_GND"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_I_GND"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_M_APP"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_N_APP"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_P_APP"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_TWR"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOWW_W_GND"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOXT_APP"
+            }
+          },
+          {
+            "offline": {
+              "station_id": "LOXT_TWR"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "assert_callable_stations": {
+        "client_id": "10000000",
+        "own": [
+          "LOVV_B1",
+          "LOVV_B2",
+          "LOVV_B3",
+          "LOVV_B4",
+          "LOVV_B5",
+          "LOVV_B6",
+          "LOVV_B7",
+          "LOVV_S1",
+          "LOVV_S2",
+          "LOVV_S3",
+          "LOVV_S4",
+          "LOVV_S5",
+          "LOVV_S6",
+          "LOVV_S7",
+          "LOVV_W1",
+          "LOVV_W2",
+          "LOVV_W3",
+          "LOVV_W4",
+          "LOVV_W5",
+          "LOVV_W6",
+          "LOVV_W7",
+          "LOWG_APP",
+          "LOWG_TWR",
+          "LOWI_APP",
+          "LOWI_DEL",
+          "LOWI_E_APP",
+          "LOWI_F_APP",
+          "LOWI_S_APP",
+          "LOWI_TWR",
+          "LOWK_APP",
+          "LOWK_TWR",
+          "LOWS_APP",
+          "LOWS_DEL",
+          "LOWS_TWR",
+          "LOXZ_APP",
+          "LOXZ_TWR"
+        ],
+        "callable": [],
+        "not_callable": [
+          "LOVV_E1",
+          "LOVV_E2",
+          "LOVV_E3",
+          "LOVV_E4",
+          "LOVV_E5",
+          "LOVV_E6",
+          "LOVV_E7",
+          "LOVV_N1",
+          "LOVV_N2",
+          "LOVV_N3",
+          "LOVV_N4",
+          "LOVV_N5",
+          "LOVV_N6",
+          "LOVV_N7",
+          "LOWL_APP",
+          "LOWL_TWR",
+          "LOWW_APP",
+          "LOWW_DEL",
+          "LOWW_E_TWR",
+          "LOWW_GND",
+          "LOWW_I_GND",
+          "LOWW_M_APP",
+          "LOWW_N_APP",
+          "LOWW_P_APP",
+          "LOWW_TWR",
+          "LOWW_W_GND",
+          "LOXT_APP",
+          "LOXT_TWR"
+        ]
+      }
+    }
+  ]
+}
