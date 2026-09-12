@@ -1300,6 +1300,38 @@ impl CallManager {
         call_id: &CallId,
         client_id: &ClientId,
     ) -> Option<UpdateParticipants> {
+        self.call_state_if(call_id, |ringing, _, joined| {
+            ringing.is_some_and(|call| {
+                call.caller_id == *client_id
+                    || call
+                        .targets
+                        .values()
+                        .any(|target| target.source.client_id == *client_id)
+            }) || joined.contains_key(client_id)
+        })
+    }
+
+    /// The call state a queued `CallUpdate` for `client_id` should carry when it is
+    /// forwarded, or `None` once the client is neither caller, invitee nor participant.
+    /// Unlike [`Self::call_state_update`], which answers a drop request, this counts
+    /// ringing invitees: they receive updates too.
+    pub fn call_state_for_party(
+        &self,
+        call_id: &CallId,
+        client_id: &ClientId,
+    ) -> Option<UpdateParticipants> {
+        self.call_state_if(call_id, |ringing, invited, joined| {
+            ringing.is_some_and(|call| call.caller_id == *client_id)
+                || invited.contains_key(client_id)
+                || joined.contains_key(client_id)
+        })
+    }
+
+    fn call_state_if(
+        &self,
+        call_id: &CallId,
+        involved: impl FnOnce(Option<&RingingCallEntry>, &CallParticipants, &CallParticipants) -> bool,
+    ) -> Option<UpdateParticipants> {
         let ringing_calls = self.ringing_calls.read();
         let ringing = ringing_calls.get(call_id);
         let invited_participants = ringing
@@ -1307,20 +1339,14 @@ impl CallManager {
             .unwrap_or_default();
         let (joined_participants, conference_leader) = self.active_call_snapshot(call_id);
 
-        let involved = ringing.is_some_and(|call| {
-            call.caller_id == *client_id
-                || call
-                    .targets
-                    .values()
-                    .any(|target| target.source.client_id == *client_id)
-        }) || joined_participants.contains_key(client_id);
-
-        involved.then_some(UpdateParticipants {
-            call_id: *call_id,
-            invited_participants,
-            joined_participants,
-            conference_leader,
-        })
+        involved(ringing, &invited_participants, &joined_participants).then_some(
+            UpdateParticipants {
+                call_id: *call_id,
+                invited_participants,
+                joined_participants,
+                conference_leader,
+            },
+        )
     }
 
     fn active_call_snapshot(&self, call_id: &CallId) -> (CallParticipants, Option<ClientId>) {
@@ -1971,6 +1997,44 @@ mod tests {
             })
             .expect("shrinking to two participants should produce an update");
         assert_eq!(update.conference_leader, None);
+    }
+
+    #[test]
+    fn call_state_for_party_includes_the_caller_of_a_ringing_call() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let third = ClientId::from("third");
+
+        for target in [&callee, &third] {
+            manager
+                .attempt_call(
+                    &call_id,
+                    &caller,
+                    &source(&caller),
+                    &CallTarget::Client(target.clone()),
+                    &HashSet::from([target.clone()]),
+                )
+                .expect("call attempt should succeed");
+        }
+
+        let state = manager
+            .call_state_for_party(&call_id, &caller)
+            .expect("the caller of a ringing call is a party to it");
+        assert_eq!(
+            state
+                .invited_participants
+                .keys()
+                .cloned()
+                .collect::<HashSet<_>>(),
+            HashSet::from([callee, third])
+        );
+        assert!(state.joined_participants.is_empty());
+        assert_eq!(
+            manager.call_state_for_party(&call_id, &ClientId::from("other")),
+            None
+        );
     }
 
     /// The size check counts the caller, joined participants, ringing targets
