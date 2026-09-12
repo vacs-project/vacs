@@ -6,7 +6,7 @@ import {clsx} from "clsx";
 import Button from "../ui/Button.tsx";
 import {useConnectionStore} from "../../stores/connection-store.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
-import {startCall, useCallStore} from "../../stores/call-store.ts";
+import {startCall} from "../../stores/call-store.ts";
 import {TargetedEvent} from "preact";
 
 function TelephoneDirectory() {
@@ -39,11 +39,10 @@ function TelephoneDirectory() {
 
     const [selectedEntry, setSelectedEntry] = useState<number>(0);
     const connected = useConnectionStore(state => state.connectionState === "connected");
-    const callDisplay = useCallStore(state => state.callDisplay);
 
     const handleCallClick = useAsyncDebounce(async () => {
         const target = entries[selectedEntry]?.positionId;
-        if (target === undefined || callDisplay !== undefined) return;
+        if (target === undefined) return;
         await startCall({position: target});
     });
 

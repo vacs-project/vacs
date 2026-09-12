@@ -1,11 +1,21 @@
 import {create} from "zustand/react";
-import {invokeStrict} from "../error.ts";
+import {CallError, invokeStrict} from "../error.ts";
 import {useErrorOverlayStore} from "./error-overlay-store.ts";
 import {useAuthStore} from "./auth-store.ts";
-import {Call, CallSource, CallTarget} from "../types/call.ts";
+import {
+    Call,
+    CallSource,
+    CallTarget,
+    CallUpdate,
+    CallDisplayCall,
+    otherPartyCount,
+    hasTarget,
+    callSourceToTarget,
+    participantCount,
+} from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
-import {useCallListStore} from "./call-list-store.ts";
+import {CallListTarget, useCallListStore} from "./call-list-store.ts";
 import {useStationsStore} from "./stations-store.ts";
 import {startBlink, tryStopBlink} from "./blink-store.ts";
 
@@ -14,29 +24,50 @@ export type CallDisplayType = "outgoing" | "accepted" | "rejected" | "error";
 
 export type CallDisplay = {
     type: CallDisplayType;
-    call: Call;
-    targetClientId?: ClientId;
+    call: CallDisplayCall;
+    prioTargets: CallTarget[];
+    erroredTargets: {target: CallTarget; reason: string}[];
+    rejectedTargets: CallTarget[];
     errorReason?: string;
-    connectionState?: ConnectionState;
 };
+
+export type OutgoingCallEvent = {
+    callId: CallId;
+    source: CallSource;
+    targets: CallTarget[];
+    prio: boolean;
+};
+
+export type ConferenceState = "modify" | "active" | "inactive";
 
 type CallState = {
     callDisplay?: CallDisplay;
     incomingCalls: Call[];
     prio: boolean;
+    conferenceState: ConferenceState;
+    maxConferenceSize: number | undefined;
     actions: {
-        setOutgoingCall: (call: Call) => void;
+        applyOutgoingCall: (event: OutgoingCallEvent) => void;
         acceptIncomingCall: (callId: CallId) => void;
-        setOutgoingCallAccepted: (calLId: CallId, targetClientId: ClientId) => void;
         endCall: () => void;
         addIncomingCall: (call: Call) => void;
+        updateCall: (update: CallUpdate) => void;
         removeCall: (id: CallId, callEnd?: boolean) => void;
-        rejectCall: (id: CallId) => void;
+        cancelInvitedTarget: (id: CallId, target: CallTarget) => void;
+        rejectTargets: (id: CallId, targets: CallTarget[]) => void;
         dismissRejectedCall: () => void;
-        errorCall: (id: CallId, reason: string) => void;
+        dismissRejectedTarget: (target: CallTarget) => void;
+        errorTargets: (error: CallError) => void;
         dismissErrorCall: () => void;
-        setConnectionState: (id: CallId, connectionState: ConnectionState) => void;
+        dismissErrorTarget: (target: CallTarget) => void;
+        setConnectionState: (
+            id: CallId,
+            peerId: ClientId,
+            connectionState: ConnectionState,
+        ) => void;
         setPrio: (prio: boolean) => void;
+        setConferenceState: (conferenceState: ConferenceState) => void;
+        setMaxConferenceSize: (maxConferenceSize?: number) => void;
         reset: () => void;
     };
 };
@@ -48,13 +79,35 @@ export const useCallStore = create<CallState>()((set, get) => ({
     incomingCalls: [],
     connecting: false,
     prio: false,
+    conferenceState: "inactive",
+    maxConferenceSize: undefined,
     actions: {
-        setOutgoingCall: call => {
-            if (call.prio) {
-                startBlink();
+        applyOutgoingCall: event => {
+            if (event.targets.length === 0) return;
+
+            const callDisplay = get().callDisplay;
+
+            if (callDisplay?.call.callId === event.callId) {
+                if (!isTerminalCallDisplay(callDisplay)) {
+                    addInvitedTargets(callDisplay, event.targets, event.prio);
+                }
+                return;
             }
 
-            set({callDisplay: {type: "outgoing", call, connectionState: undefined}});
+            setOutgoingCall({
+                callId: event.callId,
+                source: event.source,
+                target: event.targets[0],
+                invitedTargets: event.targets,
+                ownInvitedTargets: event.targets,
+                joinedParticipants: {},
+                isConferenceLeader: event.targets.length > 1 ? true : undefined,
+                prio: event.prio,
+            });
+            useCallListStore.getState().actions.addOutgoingCallListEntry({
+                callId: event.callId,
+                targets: event.targets,
+            });
         },
         acceptIncomingCall: callId => {
             const incomingCall = get().incomingCalls.find(call => call.callId === callId);
@@ -62,42 +115,54 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== callId);
 
-            tryStopBlink(incomingCalls.length, null, null, null);
+            tryStopBlink(incomingCalls.length, null, null, null, null);
 
-            answerCallInCallList(callId);
+            updateCallListEntry(callId, true, undefined);
+
+            const ownClientId = useAuthStore.getState().cid;
 
             set({
                 callDisplay: {
                     type: "accepted",
-                    call: incomingCall,
-                    targetClientId: incomingCall.source.clientId,
-                    connectionState: "connecting",
+                    call: {
+                        ...incomingCall,
+                        joinedParticipants: Object.assign(
+                            {},
+                            ...Object.entries(incomingCall.joinedParticipants).map(
+                                ([clientId, target]) => ({
+                                    [clientId]: {
+                                        target,
+                                        state: "connecting",
+                                    },
+                                }),
+                            ),
+                            // The invitation's roster predates our accept;
+                            // seed ourselves so otherPartyCount is right.
+                            ownClientId !== undefined
+                                ? {
+                                      [ownClientId]: {
+                                          target: incomingCall.target,
+                                          state: "connected",
+                                      },
+                                  }
+                                : {},
+                        ),
+                        isConferenceLeader: deriveIsConferenceLeader(
+                            incomingCall.conferenceLeader,
+                            ownClientId,
+                        ),
+                        ownInvitedTargets: [],
+                    },
+                    prioTargets: incomingCall.prio ? [callSourceToTarget(incomingCall.source)] : [],
+                    rejectedTargets: [],
+                    erroredTargets: [],
                 },
                 incomingCalls,
             });
         },
-        setOutgoingCallAccepted: (callId, targetClientId) => {
-            const callDisplay = get().callDisplay;
-
-            if (callDisplay?.type !== "outgoing" || callDisplay.call.callId !== callId) return;
-
-            const nextCallDisplay: CallDisplay = {
-                ...callDisplay,
-                type: "accepted",
-                targetClientId,
-                connectionState: "connecting",
-            };
-            tryStopBlink(null, nextCallDisplay, null, null);
-
-            answerCallInCallList(callId, targetClientId);
-
-            set({
-                callDisplay: nextCallDisplay,
-            });
-        },
         endCall: () => {
-            tryStopBlink(null, undefined, null, null);
-            set({callDisplay: undefined});
+            tryStopBlink(null, undefined, null, null, "inactive");
+            set({callDisplay: undefined, conferenceState: "inactive"});
         },
         addIncomingCall: call => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== call.callId);
@@ -106,109 +171,616 @@ export const useCallStore = create<CallState>()((set, get) => ({
 
             set({incomingCalls: [...incomingCalls, call]});
         },
+        updateCall: update => {
+            const incomingCall = get().incomingCalls.find(call => call.callId === update.callId);
+            const callDisplay = get().callDisplay;
+
+            if (incomingCall !== undefined) {
+                set({
+                    incomingCalls: get().incomingCalls.map(call =>
+                        call.callId === update.callId
+                            ? {
+                                  ...incomingCall,
+                                  ...update,
+                                  // The wire omits an absent leader, so the spread
+                                  // would keep a stale one.
+                                  conferenceLeader: update.conferenceLeader ?? null,
+                              }
+                            : call,
+                    ),
+                });
+
+                updateCallListEntry(update.callId, undefined, callListTargets(update));
+            } else if (callDisplay?.call.callId === update.callId) {
+                // A terminal display stays terminal: the call is already over
+                // for this client and only a dismiss clears it. Applying the
+                // update would resurrect it as a live-looking call.
+                if (isTerminalCallDisplay(callDisplay)) {
+                    return;
+                }
+
+                const ownClientId = useAuthStore.getState().cid!;
+
+                const isAccepted =
+                    callDisplay.type === "outgoing" &&
+                    Object.keys(update.joinedParticipants).length > 0;
+                const type = isAccepted ? "accepted" : callDisplay.type;
+
+                const oldJoinedParticipants = callDisplay.call.joinedParticipants;
+                const joinedParticipants = Object.entries(update.joinedParticipants).map(
+                    ([clientId, target]) => {
+                        let oldState = undefined;
+                        if (clientId in oldJoinedParticipants) {
+                            oldState = oldJoinedParticipants[clientId as ClientId].state;
+                        }
+
+                        return {
+                            [clientId]: {
+                                target,
+                                state:
+                                    oldState ??
+                                    (clientId !== ownClientId ? "connecting" : "connected"),
+                            },
+                        };
+                    },
+                );
+
+                const isConferenceLeader = deriveIsConferenceLeader(
+                    update.conferenceLeader,
+                    ownClientId,
+                );
+                if (otherPartyCount(update) < 2) {
+                    set({conferenceState: "inactive"});
+                }
+
+                const targetStillPresent =
+                    hasTarget(update.invitedTargets, callDisplay.call.target) ||
+                    hasTarget(update.joinedParticipants, callDisplay.call.target);
+
+                const target: CallTarget = targetStillPresent
+                    ? callDisplay.call.target
+                    : (update.invitedTargets[0] ??
+                      Object.entries(update.joinedParticipants).flatMap(([clientId, target]) =>
+                          clientId !== ownClientId ? [target] : [],
+                      )[0] ??
+                      callDisplay.call.target);
+
+                const sourceAsTarget = callSourceToTarget(callDisplay.call.source);
+                const sourceStillPresent =
+                    hasTarget(update.invitedTargets, sourceAsTarget) ||
+                    hasTarget(update.joinedParticipants, sourceAsTarget);
+
+                const source: CallSource = sourceStillPresent
+                    ? callDisplay.call.source
+                    : (Object.entries(update.joinedParticipants).flatMap(([clientId, target]) =>
+                          clientId !== ownClientId
+                              ? [
+                                    {
+                                        clientId: clientId as ClientId,
+                                        positionId: target.position,
+                                        stationId: target.station,
+                                    },
+                                ]
+                              : [],
+                      )[0] ?? callDisplay.call.source);
+
+                const nextCallDisplay: CallDisplay = {
+                    ...callDisplay,
+                    type,
+                    call: {
+                        ...callDisplay.call,
+                        source,
+                        target,
+                        invitedTargets: update.invitedTargets,
+                        joinedParticipants: Object.assign({}, ...joinedParticipants),
+                        isConferenceLeader,
+                    },
+                    prioTargets: callDisplay.prioTargets.filter(
+                        target =>
+                            hasTarget(update.invitedTargets, target) ||
+                            hasTarget(update.joinedParticipants, target),
+                    ),
+                    // A re-invited or joined target is no longer rejected or errored.
+                    rejectedTargets: callDisplay.rejectedTargets.filter(
+                        target =>
+                            !hasTarget(update.invitedTargets, target) &&
+                            !hasTarget(update.joinedParticipants, target),
+                    ),
+                    erroredTargets: callDisplay.erroredTargets.filter(
+                        errored =>
+                            !hasTarget(update.invitedTargets, errored.target) &&
+                            !hasTarget(update.joinedParticipants, errored.target),
+                    ),
+                };
+
+                set({callDisplay: nextCallDisplay});
+
+                updateCallListEntry(
+                    update.callId,
+                    isAccepted ? true : undefined,
+                    callListTargets(update),
+                );
+
+                tryStopBlink(null, nextCallDisplay, null, null, null);
+            }
+        },
         removeCall: (callId, callEnd) => {
             const incomingCalls = get().incomingCalls.filter(info => info.callId !== callId);
             let callDisplay = get().callDisplay;
+            let conferenceState = get().conferenceState;
 
             if (
                 callDisplay?.call.callId === callId &&
-                callDisplay?.type !== "error" &&
+                !isTerminalCallDisplay(callDisplay) &&
                 (!callEnd || callDisplay?.type !== "outgoing")
             ) {
                 callDisplay = undefined;
+                conferenceState = "inactive";
             }
 
-            rejectCallInCallListIfUnanswered(callId);
+            rejectCallListEntryIfUnanswered(callId);
 
-            tryStopBlink(incomingCalls.length, callDisplay, null, null);
-            set({incomingCalls, callDisplay});
+            tryStopBlink(incomingCalls.length, callDisplay, null, null, conferenceState);
+            set({incomingCalls, callDisplay, conferenceState});
         },
-        rejectCall: callId => {
+        cancelInvitedTarget: (callId, target) => {
             const callDisplay = get().callDisplay;
+            if (callDisplay === undefined || callDisplay.call.callId !== callId) return;
+            if (isTerminalCallDisplay(callDisplay)) return;
 
-            if (
-                callDisplay === undefined ||
-                callDisplay.call.callId !== callId ||
-                callDisplay.type !== "outgoing"
-            ) {
+            const invitedTargets = callDisplay.call.invitedTargets.filter(
+                invited => !hasTarget([target], invited),
+            );
+
+            const nextCallDisplay: CallDisplay = {
+                ...callDisplay,
+                call: {...callDisplay.call, invitedTargets},
+                prioTargets: callDisplay.prioTargets.filter(
+                    prioTarget =>
+                        hasTarget(invitedTargets, prioTarget) ||
+                        hasTarget(callDisplay.call.joinedParticipants, prioTarget),
+                ),
+            };
+
+            const conferenceState =
+                otherPartyCount(nextCallDisplay.call) < 2 ? "inactive" : get().conferenceState;
+
+            set({callDisplay: nextCallDisplay, conferenceState});
+            tryStopBlink(null, nextCallDisplay, null, null, conferenceState);
+        },
+        rejectTargets: (callId, targets) => {
+            let callDisplay = get().callDisplay;
+
+            if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 get().actions.removeCall(callId);
                 return;
             }
 
-            rejectCallInCallListIfUnanswered(callId);
+            if (isTerminalCallDisplay(callDisplay)) {
+                return;
+            }
 
-            set({
-                callDisplay: {type: "rejected", call: callDisplay.call, connectionState: undefined},
-            });
+            const invitedTargets = callDisplay.call.invitedTargets;
+            targets = targets.filter(target => hasTarget(invitedTargets, target));
+
+            if (targets.length === 0) return;
+
+            callDisplay = structuredClone(callDisplay);
+
+            callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
+                target => !hasTarget(targets, target),
+            );
+
+            callDisplay.prioTargets = callDisplay.prioTargets.filter(
+                target =>
+                    hasTarget(callDisplay.call.invitedTargets, target) ||
+                    hasTarget(callDisplay.call.joinedParticipants, target),
+            );
+
+            const otherParties = otherPartyCount(callDisplay.call);
+
+            if (otherParties < 2) {
+                set({conferenceState: "inactive"});
+            }
+
+            if (otherParties > 0) {
+                callDisplay.rejectedTargets.push(...targets);
+            } else {
+                callDisplay.type = "rejected";
+                callDisplay.rejectedTargets.push(...targets);
+
+                rejectCallListEntryIfUnanswered(callId);
+            }
+
+            set({callDisplay});
 
             startBlink();
         },
         dismissRejectedCall: () => {
             set({callDisplay: undefined});
-            tryStopBlink(null, undefined, null, null);
+            tryStopBlink(null, undefined, null, null, null);
         },
-        errorCall: (callId, reason) => {
+        dismissRejectedTarget: target => {
             const callDisplay = get().callDisplay;
+            if (callDisplay === undefined) return;
 
-            if (
-                callDisplay === undefined ||
-                callDisplay.call.callId !== callId ||
-                callDisplay.type === "rejected"
-            ) {
+            const nextCallDisplay: CallDisplay = {
+                ...callDisplay,
+                rejectedTargets: callDisplay.rejectedTargets.filter(
+                    rejectedTarget =>
+                        !(
+                            rejectedTarget.client === target.client &&
+                            rejectedTarget.position === target.position &&
+                            rejectedTarget.station === target.station
+                        ),
+                ),
+            };
+
+            setDismissedDisplay(nextCallDisplay);
+        },
+        errorTargets: error => {
+            const callId = error.callId;
+            let callDisplay = get().callDisplay;
+
+            if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 get().actions.removeCall(callId);
                 return;
             }
 
-            set({
-                callDisplay: {
-                    type: "error",
-                    call: callDisplay.call,
-                    errorReason: reason,
-                    connectionState: undefined,
-                },
-            });
+            if (isTerminalCallDisplay(callDisplay)) {
+                return;
+            }
 
-            rejectCallInCallListIfUnanswered(callId);
+            callDisplay = structuredClone(callDisplay);
+
+            let targets: CallTarget[];
+            if (error.origin.type === "call") {
+                const ownClientId = useAuthStore.getState().cid;
+
+                targets = callDisplay.call.invitedTargets;
+                callDisplay.call.invitedTargets = [];
+
+                // Annotate the other parties only, never our own key.
+                targets.push(
+                    ...Object.entries(callDisplay.call.joinedParticipants)
+                        .filter(([clientId]) => clientId !== ownClientId)
+                        .map(([, value]) => value.target),
+                );
+                callDisplay.call.joinedParticipants = {};
+
+                callDisplay.prioTargets = [];
+            } else {
+                if (error.origin.type === "targets") {
+                    // A joined participant is only ever removed by a call update;
+                    // an error naming it must not leave it in both lists.
+                    targets = error.origin.value.filter(target =>
+                        hasTarget(callDisplay.call.invitedTargets, target),
+                    );
+
+                    if (targets.length === 0) return;
+                } else if (error.origin.type === "client") {
+                    const joinedParticipant =
+                        callDisplay.call.joinedParticipants[error.origin.value];
+
+                    if (joinedParticipant === undefined) return;
+                    targets = [joinedParticipant.target];
+                    delete callDisplay.call.joinedParticipants[error.origin.value];
+                } else {
+                    return;
+                }
+
+                callDisplay.call.invitedTargets = callDisplay.call.invitedTargets.filter(
+                    target => !hasTarget(targets, target),
+                );
+                callDisplay.prioTargets = callDisplay.prioTargets.filter(
+                    target =>
+                        hasTarget(callDisplay.call.invitedTargets, target) ||
+                        hasTarget(callDisplay.call.joinedParticipants, target),
+                );
+            }
+
+            if (error.callEnded) {
+                callDisplay.call.invitedTargets = [];
+                callDisplay.call.joinedParticipants = {};
+                callDisplay.prioTargets = [];
+            }
+
+            const otherParties = otherPartyCount(callDisplay.call);
+
+            if (otherParties < 2) {
+                set({conferenceState: "inactive"});
+            }
+
+            if (otherParties > 0) {
+                callDisplay.erroredTargets.push(
+                    ...targets.map(target => ({target, reason: error.reason})),
+                );
+            } else {
+                callDisplay.type = "error";
+                callDisplay.erroredTargets.push(
+                    ...targets.map(target => ({target, reason: error.reason})),
+                );
+                callDisplay.errorReason = error.reason;
+
+                rejectCallListEntryIfUnanswered(callId);
+            }
+
+            set({callDisplay});
 
             startBlink();
         },
         dismissErrorCall: () => {
             set({callDisplay: undefined});
-            tryStopBlink(null, undefined, null, null);
+            tryStopBlink(null, undefined, null, null, null);
         },
-        setConnectionState: (callId, connectionState) => {
+        dismissErrorTarget: target => {
             const callDisplay = get().callDisplay;
+            if (callDisplay === undefined) return;
+
+            const nextCallDisplay: CallDisplay = {
+                ...callDisplay,
+                erroredTargets: callDisplay.erroredTargets.filter(
+                    erroredTarget =>
+                        !(
+                            erroredTarget.target.client === target.client &&
+                            erroredTarget.target.position === target.position &&
+                            erroredTarget.target.station === target.station
+                        ),
+                ),
+            };
+
+            setDismissedDisplay(nextCallDisplay);
+        },
+        setConnectionState: (callId, peerId, connectionState) => {
+            let callDisplay = get().callDisplay;
 
             if (callDisplay === undefined || callDisplay.call.callId !== callId) {
                 return;
             }
 
-            set({callDisplay: {...callDisplay, connectionState}});
+            if (isTerminalCallDisplay(callDisplay)) {
+                return;
+            }
+
+            callDisplay = structuredClone(callDisplay);
+
+            const joinedParticipant = callDisplay.call.joinedParticipants[peerId];
+
+            if (joinedParticipant === undefined) return;
+
+            joinedParticipant.state = connectionState;
+
+            set({callDisplay});
         },
         setPrio: prio => set({prio}),
+        setConferenceState: conferenceState => {
+            if (conferenceState === "modify") {
+                startBlink();
+            } else {
+                tryStopBlink(null, null, null, null, "inactive");
+            }
+
+            set({conferenceState});
+        },
+        setMaxConferenceSize: maxConferenceSize => {
+            set({maxConferenceSize});
+        },
         reset: () => {
-            tryStopBlink(0, undefined, null, null);
+            tryStopBlink(0, undefined, null, null, "inactive");
             set({
                 callDisplay: undefined,
                 incomingCalls: [],
+                conferenceState: "inactive",
+                maxConferenceSize: undefined,
             });
         },
     },
 }));
 
-const answerCallInCallList = (callId: CallId, targetClientId?: ClientId) =>
+const isTerminalCallDisplay = (callDisplay: CallDisplay) =>
+    callDisplay.type === "error" || callDisplay.type === "rejected";
+
+/**
+ * Stores a display after a per-target dismissal. A terminal display whose last
+ * annotation was dismissed is over for good: keeping it would silently block
+ * every new and incoming call.
+ */
+const setDismissedDisplay = (callDisplay: CallDisplay) => {
+    const cleared =
+        isTerminalCallDisplay(callDisplay) &&
+        callDisplay.rejectedTargets.length === 0 &&
+        callDisplay.erroredTargets.length === 0;
+
+    if (cleared) {
+        useCallStore.setState({callDisplay: undefined, conferenceState: "inactive"});
+        tryStopBlink(null, undefined, null, null, "inactive");
+    } else {
+        useCallStore.setState({callDisplay});
+        tryStopBlink(null, callDisplay, null, null, null);
+    }
+};
+
+const deriveIsConferenceLeader = (
+    conferenceLeader: ClientId | null | undefined,
+    ownClientId: ClientId | undefined,
+): boolean | undefined => (conferenceLeader == null ? undefined : conferenceLeader === ownClientId);
+
+const updateCallListEntry = (
+    callId: CallId,
+    answered: boolean | undefined,
+    targets: CallListTarget[] | undefined,
+) => useCallListStore.getState().actions.updateCallListEntry(callId, {answered, targets});
+
+/**
+ * Extends an existing entry by newly invited targets. A conference-add reuses the call id of
+ * the current call, so its entry must be extended instead of replaced by a fresh one.
+ */
+const addTargetsToCallListEntry = (callId: CallId, targets: CallTarget[]) =>
+    useCallListStore.getState().actions.updateCallListEntry(callId, entry => ({
+        targets: entry.targets.concat(
+            targets
+                .filter(target => !hasTarget(entry.targets, target))
+                .map(target => ({target, clientId: target.client})),
+        ),
+    }));
+
+const setOutgoingCall = (call: CallDisplayCall) => {
+    if (call.prio) {
+        startBlink();
+    }
+
+    useCallStore.setState({
+        callDisplay: {
+            type: "outgoing",
+            call,
+            prioTargets: call.prio ? call.invitedTargets : [],
+            rejectedTargets: [],
+            erroredTargets: [],
+        },
+    });
+};
+
+// Idempotent: applied optimistically by the initiator and again from the outgoing-call event.
+const addInvitedTargets = (callDisplay: CallDisplay, targets: CallTarget[], prio: boolean) => {
+    const added = targets.filter(target => !hasTarget(callDisplay.call.invitedTargets, target));
+    const ownAdded = targets.filter(
+        target => !hasTarget(callDisplay.call.ownInvitedTargets, target),
+    );
+    const prioAdded = prio
+        ? targets.filter(target => !hasTarget(callDisplay.prioTargets, target))
+        : [];
+
+    useCallStore.setState({
+        callDisplay: {
+            ...callDisplay,
+            call: {
+                ...callDisplay.call,
+                invitedTargets: callDisplay.call.invitedTargets.concat(added),
+                ownInvitedTargets: callDisplay.call.ownInvitedTargets.concat(ownAdded),
+                isConferenceLeader: true,
+            },
+            prioTargets: callDisplay.prioTargets.concat(prioAdded),
+            // A re-invited target is no longer rejected or errored.
+            rejectedTargets: callDisplay.rejectedTargets.filter(
+                target => !hasTarget(targets, target),
+            ),
+            erroredTargets: callDisplay.erroredTargets.filter(
+                errored => !hasTarget(targets, errored.target),
+            ),
+        },
+        conferenceState: "active",
+    });
+    addTargetsToCallListEntry(callDisplay.call.callId, targets);
+
+    if (prioAdded.length > 0) {
+        startBlink();
+    }
+};
+
+const removeTargetsFromCallListEntry = (callId: CallId, targets: CallTarget[]) =>
+    useCallListStore.getState().actions.updateCallListEntry(callId, entry => ({
+        targets: entry.targets.filter(entryTarget => !hasTarget(targets, entryTarget.target)),
+    }));
+
+const rejectCallListEntryIfUnanswered = (callId: CallId) =>
     useCallListStore
         .getState()
-        .actions.updateCall(callId, {answered: true, clientId: targetClientId});
+        .actions.updateCallListEntry(callId, state => ({answered: state.answered || false}));
 
-const rejectCallInCallListIfUnanswered = (callId: CallId) =>
-    useCallListStore
-        .getState()
-        .actions.updateCall(callId, state => ({answered: state.answered || false}));
+const callListTargets = (update: CallUpdate): CallListTarget[] => {
+    const ownClientId = useAuthStore.getState().cid;
+    const targets: CallListTarget[] = [];
 
-export const startCall = async (target: CallTarget) => {
-    const {cid} = useAuthStore.getState();
+    for (const [clientId, target] of Object.entries(update.joinedParticipants)) {
+        if (clientId === ownClientId) continue;
+        targets.push({target, clientId: clientId as ClientId});
+    }
+
+    // invitedTargets never contains the recipient's own target.
+    for (const target of update.invitedTargets) {
+        if (hasTarget(update.joinedParticipants, target)) continue;
+        targets.push({target, clientId: target.client});
+    }
+
+    return targets;
+};
+
+export function someConnectionState(
+    callDisplay: CallDisplay | undefined,
+    state: ConnectionState,
+    excludeSelf?: boolean,
+): boolean {
+    let joinedParticipants = callDisplay?.call.joinedParticipants;
+    if (joinedParticipants === undefined) return false;
+
+    if (excludeSelf === true) {
+        const cid = useAuthStore.getState().cid;
+        joinedParticipants = {...joinedParticipants};
+        delete joinedParticipants[cid as ClientId];
+    }
+
+    for (const participant in joinedParticipants) {
+        if (joinedParticipants[participant as ClientId].state === state) return true;
+    }
+    return false;
+}
+
+export function allConnectionStates(
+    callDisplay: CallDisplay | undefined,
+    state: ConnectionState,
+): boolean {
+    const joinedParticipants = callDisplay?.call.joinedParticipants;
+    for (const participant in joinedParticipants) {
+        if (joinedParticipants[participant as ClientId].state !== state) return false;
+    }
+    return true;
+}
+
+export const startCall = async (...targets: CallTarget[]) => {
+    if (targets.length === 0) return;
+
+    const {callDisplay, conferenceState, maxConferenceSize} = useCallStore.getState();
     const openErrorOverlay = useErrorOverlayStore.getState().open;
+
+    if (callDisplay !== undefined && conferenceState !== "modify") {
+        return;
+    } else if (callDisplay?.call.isConferenceLeader === false) {
+        openErrorOverlay(
+            "Call",
+            "You are not the conference leader. Can not invite target to call.",
+            false,
+            5000,
+        );
+        return;
+    }
+
+    if (
+        callDisplay !== undefined &&
+        targets.some(
+            target =>
+                hasTarget(callDisplay.call.joinedParticipants, target) ||
+                hasTarget(callDisplay.call.invitedTargets, target),
+        )
+    ) {
+        return;
+    }
+
+    const currentCallSize =
+        callDisplay !== undefined
+            ? participantCount(callDisplay.call.joinedParticipants) +
+              callDisplay.call.invitedTargets.length
+            : 0;
+    if (maxConferenceSize !== undefined && currentCallSize + targets.length > maxConferenceSize) {
+        openErrorOverlay(
+            "Call",
+            `Max conference size of ${maxConferenceSize} exceeded.`,
+            false,
+            5000,
+        );
+        return;
+    }
+
+    const {cid} = useAuthStore.getState();
 
     if (cid === undefined) {
         openErrorOverlay(
@@ -218,15 +790,14 @@ export const startCall = async (target: CallTarget) => {
             5000,
         );
         return;
-    } else if (target.client === cid) {
+    } else if (targets.some(target => target.client === cid)) {
         openErrorOverlay("Call error", "You cannot call yourself", false, 5000);
         return;
     }
 
     const {info} = useConnectionStore.getState();
-    const {addOutgoingCall: addOutgoingCallToCallList} = useCallListStore.getState().actions;
     const {prio} = useCallStore.getState();
-    const {setOutgoingCall, setPrio} = useCallStore.getState().actions;
+    const {setPrio} = useCallStore.getState().actions;
     const {defaultSource, temporarySource, setTemporarySource} = useStationsStore.getState();
 
     let stationId: StationId | undefined;
@@ -243,10 +814,69 @@ export const startCall = async (target: CallTarget) => {
         stationId,
     };
 
+    const previousConferenceState = conferenceState;
+
     try {
-        const callId = await invokeStrict<CallId>("signaling_start_call", {source, target, prio});
-        setOutgoingCall({callId, source, target, prio});
+        if (callDisplay !== undefined) {
+            addInvitedTargets(callDisplay, targets, prio);
+        }
+
+        await invokeStrict<CallId>("signaling_invite_to_call", {
+            source,
+            targets,
+            prio,
+        });
+
+        // The display comes from the outgoing-call event, ordered before any answer to the invite.
         setPrio(false);
-        addOutgoingCallToCallList({callId, target});
-    } catch {}
+    } catch {
+        if (callDisplay !== undefined) {
+            rollBackInvite(callDisplay, targets, previousConferenceState);
+        }
+    }
+};
+
+/**
+ * Undoes an optimistic conference invite. Only the invited targets are taken back: the display
+ * may have moved on in the meantime (a call update, or a reset after the disconnect that made
+ * the invite fail), and restoring the snapshot would resurrect state that is gone.
+ */
+const rollBackInvite = (
+    snapshot: CallDisplay,
+    targets: CallTarget[],
+    previousConferenceState: ConferenceState,
+) => {
+    const current = useCallStore.getState().callDisplay;
+    if (current === undefined || current.call.callId !== snapshot.call.callId) return;
+
+    const nextCallDisplay: CallDisplay = {
+        ...current,
+        call: {
+            ...current.call,
+            invitedTargets: current.call.invitedTargets.filter(
+                target => !hasTarget(targets, target),
+            ),
+            ownInvitedTargets: current.call.ownInvitedTargets.filter(
+                target => !hasTarget(targets, target),
+            ),
+            // The optimistic leadership claim goes; an authoritative value that
+            // arrived in the meantime stays.
+            isConferenceLeader:
+                current.call.isConferenceLeader === true &&
+                snapshot.call.isConferenceLeader !== true
+                    ? snapshot.call.isConferenceLeader
+                    : current.call.isConferenceLeader,
+        },
+        prioTargets: current.prioTargets.filter(target => !hasTarget(targets, target)),
+        rejectedTargets: current.rejectedTargets.concat(
+            snapshot.rejectedTargets.filter(target => hasTarget(targets, target)),
+        ),
+        erroredTargets: current.erroredTargets.concat(
+            snapshot.erroredTargets.filter(errored => hasTarget(targets, errored.target)),
+        ),
+    };
+
+    useCallStore.setState({callDisplay: nextCallDisplay, conferenceState: previousConferenceState});
+    removeTargetsFromCallListEntry(snapshot.call.callId, targets);
+    tryStopBlink(null, nextCallDisplay, null, null, previousConferenceState);
 };

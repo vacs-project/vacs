@@ -34,6 +34,7 @@ use vacs_vatsim::{ControllerInfo, FacilityType};
 /// apply if a lock is dropped immediately again.
 pub struct ClientManager {
     position_grace_period: Duration,
+    max_conf_size: u32,
     data_feed: Arc<dyn DataFeed>,
     broadcast_tx: broadcast::Sender<ServerMessage>,
     network: parking_lot::RwLock<Network>,
@@ -69,9 +70,11 @@ impl ClientManager {
         network: Network,
         data_feed: Arc<dyn DataFeed>,
         position_grace_period: Duration,
+        max_conf_size: u32,
     ) -> Self {
         Self {
             position_grace_period,
+            max_conf_size,
             data_feed,
             broadcast_tx,
             network: parking_lot::RwLock::new(network),
@@ -632,6 +635,7 @@ impl ClientManager {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
                                     default_call_sources: Vec::new(),
+                                    max_conf_size: Some(self.max_conf_size),
                                 },
                             ));
                         }
@@ -705,6 +709,7 @@ impl ClientManager {
                                 client: session.client_info().clone(),
                                 profile: session_profile,
                                 default_call_sources: new_default_call_sources.clone(),
+                                max_conf_size: Some(self.max_conf_size),
                             },
                         ));
                     }
@@ -1145,6 +1150,7 @@ impl ClientManager {
                                     client: session.client_info().clone(),
                                     profile: session_profile,
                                     default_call_sources: new_default_call_sources.clone(),
+                                    max_conf_size: Some(self.max_conf_size),
                                 },
                             ));
                         }
@@ -1578,7 +1584,7 @@ mod tests {
     fn client_manager(network: Network) -> ClientManager {
         let (tx, _) = broadcast::channel(64);
         let data_feed = Arc::new(vacs_vatsim::data_feed::mock::MockDataFeed::new(Vec::new()));
-        ClientManager::new(tx, network, data_feed, Duration::from_secs(90))
+        ClientManager::new(tx, network, data_feed, Duration::from_secs(90), 8)
     }
 
     struct DrainedMessages {
@@ -4254,7 +4260,7 @@ controlled_by = ["LOWW_DEL"]
         data_feed: std::sync::Arc<dyn vacs_vatsim::data_feed::DataFeed>,
     ) -> ClientManager {
         let (tx, _) = broadcast::channel(64);
-        ClientManager::new(tx, network, data_feed, Duration::from_secs(90))
+        ClientManager::new(tx, network, data_feed, Duration::from_secs(90), 8)
     }
 
     /// Regression test for the deadlock that occurred when the VATSIM

@@ -1,7 +1,7 @@
 import Button from "../ui/Button.tsx";
 import {useDialPadInput} from "../../hooks/dial-pad-hook.ts";
 import {clsx} from "clsx";
-import {startCall, useCallStore} from "../../stores/call-store.ts";
+import {startCall} from "../../stores/call-store.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {TargetedEvent} from "preact";
 import {useAuthStore} from "../../stores/auth-store.ts";
@@ -30,7 +30,6 @@ function DialPad() {
     const isDialInputEmpty = dialInput === "";
     const isDialInputOwnId = dialInput === ownId;
     const isConnected = useConnectionStore(state => state.connectionState === "connected");
-    const callDisplay = useCallStore(state => state.callDisplay);
     const lastDialledPeerId = useLastDialledClientId();
 
     const handleChange = (event: TargetedEvent<HTMLInputElement>) => {
@@ -48,7 +47,7 @@ function DialPad() {
     };
 
     const handleStartCall = useAsyncDebounce(async (clientId: ClientId | undefined) => {
-        if (clientId === undefined || callDisplay !== undefined) return;
+        if (clientId === undefined) return;
         await startCall({client: clientId});
     });
 

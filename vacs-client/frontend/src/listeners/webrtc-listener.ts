@@ -1,29 +1,34 @@
 import {listen, UnlistenFn} from "../transport";
 import {useCallStore} from "../stores/call-store.ts";
 import {CallError} from "../error.ts";
-import {CallId} from "../types/generic.ts";
+import {CallId, ClientId} from "../types/generic.ts";
+
+type WebrtcUpdateEvent = {
+    callId: CallId;
+    peerId: ClientId;
+};
 
 export function setupWebrtcListeners() {
-    const {errorCall, setConnectionState} = useCallStore.getState().actions;
+    const {errorTargets, setConnectionState} = useCallStore.getState().actions;
 
     const unlistenFns: Promise<UnlistenFn>[] = [];
 
     const init = () => {
         unlistenFns.push(
-            listen<CallId>("webrtc:call-connected", event => {
-                setConnectionState(event.payload, "connected");
+            listen<WebrtcUpdateEvent>("webrtc:call-connected", event => {
+                setConnectionState(event.payload.callId, event.payload.peerId, "connected");
             }),
-            listen<CallId>("webrtc:call-disconnected", event => {
-                setConnectionState(event.payload, "disconnected");
+            listen<WebrtcUpdateEvent>("webrtc:call-disconnected", event => {
+                setConnectionState(event.payload.callId, event.payload.peerId, "disconnected");
             }),
-            listen<CallId>("webrtc:call-degraded", event => {
-                setConnectionState(event.payload, "degraded");
+            listen<WebrtcUpdateEvent>("webrtc:call-degraded", event => {
+                setConnectionState(event.payload.callId, event.payload.peerId, "degraded");
             }),
-            listen<CallId>("webrtc:call-reconnecting", event => {
-                setConnectionState(event.payload, "connecting");
+            listen<WebrtcUpdateEvent>("webrtc:call-reconnecting", event => {
+                setConnectionState(event.payload.callId, event.payload.peerId, "connecting");
             }),
             listen<CallError>("webrtc:call-error", event => {
-                errorCall(event.payload.callId, event.payload.reason);
+                errorTargets(event.payload);
             }),
         );
     };

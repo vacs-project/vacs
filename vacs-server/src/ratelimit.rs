@@ -116,12 +116,34 @@ pub struct RateLimiters {
     vatsim_token_per_minute: Option<KeyedLimiter<Key>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallInviteRejection {
+    /// The limit is exhausted; retry after the given duration.
+    RateLimited(Duration),
+    /// The invite carries more targets than the burst capacity, so it can never pass.
+    TooManyTargets,
+}
+
 impl RateLimiters {
+    /// Checks the call invite limits, charging one token per target. The burst capacity
+    /// of the `call_invite` limiter doubles as the maximum target count per invite.
     #[inline]
-    pub fn check_call_invite(&self, key: impl Into<Key>) -> Result<(), Duration> {
+    pub fn check_call_invite(
+        &self,
+        key: impl Into<Key>,
+        targets: usize,
+    ) -> Result<(), CallInviteRejection> {
         let key = key.into();
-        Self::check(&self.call_invite_per_minute, "call_invite_per_minute", &key)
-            .and_then(|_| Self::check(&self.call_invite, "call_invite", &key))
+        let n = NonZeroU32::new(u32::try_from(targets).unwrap_or(u32::MAX).max(1))
+            .expect("clamped to at least one");
+        Self::check_n(&self.call_invite, "call_invite", &key, n).and_then(|_| {
+            Self::check_n(
+                &self.call_invite_per_minute,
+                "call_invite_per_minute",
+                &key,
+                n,
+            )
+        })
     }
 
     #[inline]
@@ -168,6 +190,28 @@ impl RateLimiters {
             Ok(())
         }
     }
+
+    #[inline]
+    fn check_n(
+        limiter: &Option<KeyedLimiter<Key>>,
+        limit_name: impl Into<String>,
+        key: &Key,
+        n: NonZeroU32,
+    ) -> Result<(), CallInviteRejection> {
+        let Some(limiter) = limiter else {
+            return Ok(());
+        };
+        match limiter.check_key_n(key, n) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(not_until)) => {
+                ErrorMetrics::rate_limit_exceeded(limit_name);
+                Err(CallInviteRejection::RateLimited(
+                    not_until.wait_time_from(limiter.clock().now()),
+                ))
+            }
+            Err(_) => Err(CallInviteRejection::TooManyTargets),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -188,8 +232,8 @@ impl Default for RateLimitersConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            call_invite: Policy::new(10, nonzero!(3u32)),
-            call_invite_per_minute: 20,
+            call_invite: Policy::new(10, nonzero!(8u32)),
+            call_invite_per_minute: 40,
             failed_auth: Policy::new(60, nonzero!(5u32)).disabled(),
             failed_auth_per_minute: 0, // 60
             version_update: Policy::new(1, nonzero!(10u32)),
@@ -285,5 +329,87 @@ impl From<RateLimitersConfig> for RateLimiters {
             vatsim_token,
             vatsim_token_per_minute,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_matches;
+
+    fn limiters(burst: u32, per_minute: u32) -> RateLimiters {
+        RateLimiters::from(RateLimitersConfig {
+            call_invite: Policy::new(600, NonZeroU32::new(burst).unwrap()),
+            call_invite_per_minute: per_minute,
+            ..RateLimitersConfig::default()
+        })
+    }
+
+    #[test]
+    fn single_target_invites_pass_until_the_burst_is_exhausted() {
+        let limiters = limiters(3, 0);
+
+        for _ in 0..3 {
+            assert_matches!(limiters.check_call_invite("client1", 1), Ok(()));
+        }
+        assert_matches!(
+            limiters.check_call_invite("client1", 1),
+            Err(CallInviteRejection::RateLimited(_))
+        );
+    }
+
+    #[test]
+    fn multi_target_invite_charges_one_token_per_target() {
+        let limiters = limiters(3, 0);
+
+        assert_matches!(limiters.check_call_invite("client1", 3), Ok(()));
+        assert_matches!(
+            limiters.check_call_invite("client1", 1),
+            Err(CallInviteRejection::RateLimited(_))
+        );
+    }
+
+    #[test]
+    fn more_targets_than_the_burst_capacity_are_rejected_without_charging() {
+        let limiters = limiters(3, 0);
+
+        assert_matches!(
+            limiters.check_call_invite("client1", 4),
+            Err(CallInviteRejection::TooManyTargets)
+        );
+        assert_matches!(
+            limiters.check_call_invite("client1", 3),
+            Ok(()),
+            "the rejected oversized invite must not have consumed tokens"
+        );
+    }
+
+    #[test]
+    fn per_minute_limiter_also_charges_per_target() {
+        let limiters = limiters(8, 3);
+
+        assert_matches!(limiters.check_call_invite("client1", 3), Ok(()));
+        assert_matches!(
+            limiters.check_call_invite("client1", 1),
+            Err(CallInviteRejection::RateLimited(_))
+        );
+    }
+
+    #[test]
+    fn disabled_limiters_allow_everything() {
+        let limiters = RateLimiters::from(RateLimitersConfig {
+            enabled: false,
+            ..RateLimitersConfig::default()
+        });
+
+        assert_matches!(limiters.check_call_invite("client1", 1000), Ok(()));
+    }
+
+    #[test]
+    fn limits_are_per_client() {
+        let limiters = limiters(3, 0);
+
+        assert_matches!(limiters.check_call_invite("client1", 3), Ok(()));
+        assert_matches!(limiters.check_call_invite("client2", 3), Ok(()));
     }
 }

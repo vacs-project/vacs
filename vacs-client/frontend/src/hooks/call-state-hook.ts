@@ -1,7 +1,7 @@
 import {useCallStore} from "../stores/call-store.ts";
 import {useAuthStore} from "../stores/auth-store.ts";
 import {DirectAccessPage} from "../types/profile.ts";
-import {Call} from "../types/call.ts";
+import {CallDisplayCall, hasTarget} from "../types/call.ts";
 import {ClientId, StationId} from "../types/generic.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {getCallStateColors} from "../utils/call-state-colors.ts";
@@ -20,18 +20,25 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
     const stationIds = directAccessPageToStationIds(page);
 
     const incomingCall = incomingCalls.find(
-        call => call.source.stationId !== undefined && stationIds.includes(call.source.stationId),
+        call =>
+            (call.source.stationId !== undefined && stationIds.includes(call.source.stationId)) ||
+            stationIds.some(stationId => hasTarget(call.joinedParticipants, {station: stationId})),
     );
     const isCalling = incomingCall !== undefined;
-    const beingCalled =
-        callDisplay?.type === "outgoing" &&
-        callDisplay.call.target.station !== undefined &&
-        stationIds.includes(callDisplay.call.target.station);
-    const involved =
-        callDisplay !== undefined && callInvolvesButtonStations(callDisplay.call, stationIds, cid);
-    const inCall = callDisplay?.type === "accepted" && involved;
-    const isRejected = callDisplay?.type === "rejected" && involved;
-    const isError = callDisplay?.type === "error" && involved;
+    const beingCalled = stationIds.some(stationId =>
+        callDisplay?.call.invitedTargets.some(target => target.station === stationId),
+    );
+
+    const inCall =
+        callDisplay?.type === "accepted" &&
+        callDisplay !== undefined &&
+        inCallWithButtonStations(callDisplay.call, stationIds, cid);
+    const isRejected =
+        callDisplay !== undefined &&
+        stationIds.some(stationId => hasTarget(callDisplay.rejectedTargets, {station: stationId}));
+    const isError =
+        callDisplay !== undefined &&
+        stationIds.some(stationId => hasTarget(callDisplay.erroredTargets, {station: stationId}));
     const isTarget =
         highlightTarget &&
         (incomingCalls.some(
@@ -41,8 +48,12 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
                 callDisplay.call.target.station !== undefined &&
                 stationIds.includes(callDisplay.call.target.station)));
 
-    const outgoingPrio = callDisplay?.call.prio === true && enablePrio;
-    const incomingPrio = incomingCall?.prio === true && enablePrio;
+    const prio =
+        enablePrio &&
+        (stationIds.some(stationId =>
+            hasTarget(callDisplay?.prioTargets ?? [], {station: stationId}),
+        ) ||
+            (incomingCall?.prio ?? false));
 
     const {color, highlight} = getCallStateColors({
         inCall,
@@ -51,8 +62,7 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
         isRejected,
         isError,
         isTarget,
-        outgoingPrio,
-        incomingPrio,
+        prio,
         blink,
         defaultColor,
     });
@@ -60,14 +70,19 @@ export function useCallState(page: DirectAccessPage | undefined, defaultColor?: 
     return {isCalling, beingCalled, inCall, isRejected, isError, isTarget, color, highlight, blink};
 }
 
-function callInvolvesButtonStations(
-    call: Call,
+function inCallWithButtonStations(
+    call: CallDisplayCall,
     stationIds: StationId[],
     cid: ClientId | undefined,
 ) {
-    return call.source.clientId === cid
-        ? call.target.station !== undefined && stationIds.includes(call.target.station)
-        : call.source.stationId !== undefined && stationIds.includes(call.source.stationId);
+    return stationIds.some(stationId =>
+        hasTarget(
+            Object.entries(call.joinedParticipants).flatMap(([clientId, value]) =>
+                clientId !== cid ? [value.target] : [],
+            ),
+            {station: stationId},
+        ),
+    );
 }
 
 export function directAccessPageToStationIds(page: DirectAccessPage | undefined): StationId[] {

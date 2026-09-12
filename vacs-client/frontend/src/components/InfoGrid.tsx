@@ -15,7 +15,9 @@ function InfoGrid() {
             ? `${state.info.positionId || state.info.displayName || ""}${state.info.frequency !== "" ? ` (${state.info.frequency})` : ""}`
             : "",
     );
-    const callErrorReason = useCallStore(state => state.callDisplay?.errorReason);
+    const callErrorReason = useCallStore(
+        state => state.callDisplay?.errorReason ?? state.callDisplay?.erroredTargets[0]?.reason,
+    );
     const currentVersion = useUpdateStore(state => state.currentVersion);
     const newVersion = useUpdateStore(state => state.newVersion);
 

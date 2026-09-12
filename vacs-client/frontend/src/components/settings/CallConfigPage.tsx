@@ -43,6 +43,20 @@ function CallConfigPage() {
                 setCallConfig={setCallConfig}
             />
             <CallConfigEntry
+                label="Play participant joined sound"
+                name="enable-participant-joined-sound"
+                property="enableParticipantJoinedSound"
+                callConfig={callConfig}
+                setCallConfig={setCallConfig}
+            />
+            <CallConfigEntry
+                label="Play participant left sound"
+                name="enable-participant-left-sound"
+                property="enableParticipantLeftSound"
+                callConfig={callConfig}
+                setCallConfig={setCallConfig}
+            />
+            <CallConfigEntry
                 label="Use default call sources"
                 name="use-default-call-sources"
                 property="useDefaultCallSources"

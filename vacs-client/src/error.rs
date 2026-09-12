@@ -5,12 +5,14 @@ use crate::playback::PlaybackError;
 use crate::radio::RadioError;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use tauri::{AppHandle, Emitter, Manager};
 use thiserror::Error;
 use vacs_signaling::error::{SignalingError, SignalingRuntimeError};
+use vacs_signaling::protocol::vatsim::ClientId;
 use vacs_signaling::protocol::ws::server::{DisconnectReason, LoginFailureReason};
-use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, ErrorReason};
+use vacs_signaling::protocol::ws::shared::{CallErrorReason, CallId, CallTarget, ErrorReason};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -231,6 +233,7 @@ fn format_signaling_error(err: &SignalingError) -> String {
             LoginFailureReason::AmbiguousVatsimPosition(_) => {
                 "Login failed: Multiple VATSIM positions matched your current position. Please select the correct position manually."
             }
+            LoginFailureReason::Unknown(_) => "Login failed.",
             LoginFailureReason::InvalidVatsimPosition => {
                 "Login failed: Selected VATSIM position is not covered by your active VATSIM connection. Wait a few seconds after connecting to VATSIM and try again."
             }
@@ -250,12 +253,13 @@ fn format_signaling_error(err: &SignalingError) -> String {
                 ErrorReason::UnexpectedMessage(msg) => {
                     format!("Server error: unexpected message: {msg}")
                 },
-                ErrorReason::RateLimited {retry_after_secs} => {
+                ErrorReason::RateLimited { retry_after_secs, ..} => {
                     format!("Server error: Rate limited. Retry after {retry_after_secs}.")
                 },
                 ErrorReason::ClientNotFound => {
                     "Server error: Client not found.".to_string()
                 }
+                ErrorReason::Unknown(_) => "Server error.".to_string(),
             },
             SignalingRuntimeError::Disconnected(reason) => match reason {
                 None => "Disconnected",
@@ -264,6 +268,7 @@ fn format_signaling_error(err: &SignalingError) -> String {
                 Some(DisconnectReason::AmbiguousVatsimPosition(_)) => {
                     "Disconnected: Multiple VATSIM positions matched your current position. Please select the correct position manually."
                 }
+                Some(DisconnectReason::Unknown(_)) => "Disconnected.",
             }.to_string(),
             _ => runtime_err.to_string(),
         },
@@ -271,17 +276,55 @@ fn format_signaling_error(err: &SignalingError) -> String {
     }
 }
 
-impl From<Error> for CallErrorReason {
-    fn from(err: Error) -> Self {
-        match err {
-            Error::AudioDevice(_) => CallErrorReason::AudioFailure,
+impl Error {
+    pub fn into_call_error_reason(self, own_client_id: ClientId) -> CallErrorReason {
+        match self {
+            Error::AudioDevice(_) => CallErrorReason::AudioFailure(own_client_id),
             Error::Webrtc(err) => match err.as_ref() {
                 vacs_webrtc::error::WebrtcError::CallActive => CallErrorReason::CallFailure,
                 vacs_webrtc::error::WebrtcError::NoCallActive => CallErrorReason::CallFailure,
-                _ => CallErrorReason::WebrtcFailure,
+                _ => CallErrorReason::WebrtcFailure(own_client_id),
             },
             _ => CallErrorReason::Other,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "camelCase")]
+pub enum CallErrorOrigin {
+    Client(ClientId),
+    Targets(HashSet<CallTarget>),
+    Call,
+}
+
+impl From<ClientId> for CallErrorOrigin {
+    fn from(id: ClientId) -> Self {
+        CallErrorOrigin::Client(id)
+    }
+}
+
+impl From<&ClientId> for CallErrorOrigin {
+    fn from(id: &ClientId) -> Self {
+        CallErrorOrigin::Client(id.clone())
+    }
+}
+
+impl From<CallTarget> for CallErrorOrigin {
+    fn from(target: CallTarget) -> Self {
+        CallErrorOrigin::Targets(HashSet::from([target]))
+    }
+}
+
+impl From<HashSet<CallTarget>> for CallErrorOrigin {
+    fn from(targets: HashSet<CallTarget>) -> Self {
+        CallErrorOrigin::Targets(targets)
+    }
+}
+
+impl From<&HashSet<CallTarget>> for CallErrorOrigin {
+    fn from(targets: &HashSet<CallTarget>) -> Self {
+        CallErrorOrigin::Targets(targets.clone())
     }
 }
 
@@ -289,28 +332,52 @@ impl From<Error> for CallErrorReason {
 #[serde(rename_all = "camelCase")]
 pub struct CallError {
     call_id: CallId,
+    origin: CallErrorOrigin,
     reason: String,
+    /// The error ends the call for this client, whatever else the display holds.
+    call_ended: bool,
 }
 
 impl CallError {
-    pub fn new(call_id: CallId, is_local: bool, reason: CallErrorReason) -> Self {
+    pub fn new(
+        call_id: CallId,
+        is_local: bool,
+        origin: CallErrorOrigin,
+        reason: CallErrorReason,
+    ) -> Self {
         Self {
             call_id,
+            origin,
+            call_ended: false,
             reason: format!(
                 "{} {}",
                 if is_local { "Local" } else { "Remote" },
                 match reason {
-                    CallErrorReason::WebrtcFailure => "Connection failure",
-                    CallErrorReason::AudioFailure => "Audio failure",
+                    CallErrorReason::WebrtcFailure(_) => "Connection failure",
+                    CallErrorReason::AudioFailure(_) => "Audio failure",
                     CallErrorReason::CallFailure => "Call failure",
                     CallErrorReason::CallActive => "Call already active",
-                    CallErrorReason::SignalingFailure => "Target not reachable",
+                    CallErrorReason::SignalingFailure(_) => "Target not reachable",
                     CallErrorReason::AutoHangup => "Target did not answer",
                     CallErrorReason::Other => "Unknown failure",
-                    CallErrorReason::TargetNotFound => "Call target not found",
+                    CallErrorReason::TargetsNotFound(targets) if targets.is_empty() =>
+                        "Target not found",
+                    CallErrorReason::TargetsNotFound(_) => "Targets not found",
+                    CallErrorReason::AlreadyParticipant(_) => "Target participating",
+                    CallErrorReason::CallNotFound => "Call not found",
+                    CallErrorReason::NotConferenceLeader(_) => "Call not lead",
+                    CallErrorReason::NotParticipant => "Call not participating",
+                    CallErrorReason::MaxConferenceSizeReached(_) => "Max conf size",
+                    CallErrorReason::PeerConnectionFailed(_) => "No connection to participant",
+                    CallErrorReason::Unknown(_) => "Unknown failure",
                 }
             ),
         }
+    }
+
+    pub fn ended(mut self) -> Self {
+        self.call_ended = true;
+        self
     }
 }
 

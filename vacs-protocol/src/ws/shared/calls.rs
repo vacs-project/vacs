@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::vatsim::{ClientId, PositionId, StationId};
 use crate::ws::client::ClientMessage;
 use crate::ws::server::ServerMessage;
@@ -29,33 +31,97 @@ pub enum CallTarget {
     Station(StationId),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+impl PartialOrd for CallTarget {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CallTarget {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (CallTarget::Station(station_id), CallTarget::Station(other_station_id)) => {
+                station_id.cmp(other_station_id)
+            }
+            (CallTarget::Station(_), CallTarget::Position(_))
+            | (CallTarget::Station(_), CallTarget::Client(_))
+            | (CallTarget::Position(_), CallTarget::Client(_)) => std::cmp::Ordering::Less,
+            (CallTarget::Client(client_id), CallTarget::Client(other_client_id)) => {
+                client_id.cmp(other_client_id)
+            }
+            (CallTarget::Client(_), CallTarget::Position(_))
+            | (CallTarget::Client(_), CallTarget::Station(_))
+            | (CallTarget::Position(_), CallTarget::Station(_)) => std::cmp::Ordering::Greater,
+            (CallTarget::Position(position_id), CallTarget::Position(other_position_id)) => {
+                position_id.cmp(other_position_id)
+            }
+        }
+    }
+}
+
+impl From<CallSource> for CallTarget {
+    fn from(value: CallSource) -> Self {
+        if let Some(station_id) = value.station_id {
+            CallTarget::Station(station_id)
+        } else if let Some(position_id) = value.position_id {
+            CallTarget::Position(position_id)
+        } else {
+            CallTarget::Client(value.client_id)
+        }
+    }
+}
+
+pub type CallParticipants = HashMap<ClientId, CallTarget>;
+
+/// The raw payload of a reason variant this protocol version does not know.
+///
+/// Newer servers may add reason variants; the enclosing message must still
+/// deserialize so the client can react to the message itself instead of
+/// silently dropping it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UnknownReason(pub serde_json::Value);
+
+// Sound: `serde_json::Value` only breaks `Eq` through non-finite floats,
+// which JSON cannot encode and `serde_json::Number` cannot construct
+// (`from_f64` rejects them), so every reachable value is reflexive.
+impl Eq for UnknownReason {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CallErrorReason {
-    TargetNotFound,
+    TargetsNotFound(HashSet<CallTarget>),
+    AlreadyParticipant(CallTarget),
+    CallNotFound,
     CallActive,
-    WebrtcFailure,
-    AudioFailure,
+    WebrtcFailure(ClientId),
+    AudioFailure(ClientId),
     CallFailure,
-    SignalingFailure,
+    SignalingFailure(ClientId),
     AutoHangup,
+    /// A single conference link is dead after a relay-assisted retry. Used
+    /// symmetrically: sent by a client it reports "my link to this peer is
+    /// dead"; sent by the server to a client it means "your link to this peer
+    /// is dead, you are removed from the call" and is followed by `CallEnd`.
+    /// The server only evicts once both endpoints of the pair have reported
+    /// the link; the evicted participant is the pair member that joined the
+    /// call later.
+    PeerConnectionFailed(ClientId),
+    /// The sender lacked the authorization for a conference operation. Sent
+    /// for three distinct failures: adding to a ringing invite batch one did
+    /// not open, inviting into a conference without being its leader, and
+    /// dropping a target one is not permitted to drop (a ringing target one
+    /// did not invite, or a joined participant while not being the leader).
+    /// A refused drop leaves the target in the call and is followed by a
+    /// `CallUpdate` carrying the authoritative call state.
+    NotConferenceLeader(CallTarget),
+    NotParticipant,
+    MaxConferenceSizeReached(HashSet<CallTarget>),
     Other,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CallInvite {
-    pub call_id: CallId,
-    pub source: CallSource,
-    pub target: CallTarget,
-    pub prio: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CallAccept {
-    pub call_id: CallId,
-    pub accepting_client_id: ClientId,
+    /// Forward compatibility: a reason this protocol version does not know.
+    /// Treat like [`CallErrorReason::Other`].
+    #[serde(untagged)]
+    Unknown(UnknownReason),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,30 +253,6 @@ impl From<PositionId> for CallTarget {
 impl From<StationId> for CallTarget {
     fn from(value: StationId) -> Self {
         Self::Station(value)
-    }
-}
-
-impl From<CallInvite> for ClientMessage {
-    fn from(value: CallInvite) -> Self {
-        Self::CallInvite(value)
-    }
-}
-
-impl From<CallInvite> for ServerMessage {
-    fn from(value: CallInvite) -> Self {
-        Self::CallInvite(value)
-    }
-}
-
-impl From<CallAccept> for ClientMessage {
-    fn from(value: CallAccept) -> Self {
-        Self::CallAccept(value)
-    }
-}
-
-impl From<CallAccept> for ServerMessage {
-    fn from(value: CallAccept) -> Self {
-        Self::CallAccept(value)
     }
 }
 

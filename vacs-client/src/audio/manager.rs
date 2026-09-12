@@ -1,16 +1,16 @@
-use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::{AppState, AppStateInner};
 use crate::audio::source_type::SourceType;
 use crate::audio::{AudioConfig, PlaybackDeviceType};
 use crate::error::{Error, FrontendError};
 use parking_lot::RwLock;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use vacs_audio::EncodedAudioFrame;
 use vacs_audio::device::{DeviceSelector, DeviceType, StreamDevice};
 use vacs_audio::error::AudioError;
@@ -18,7 +18,6 @@ use vacs_audio::sources::opus::OpusSource;
 use vacs_audio::sources::{AudioSource, AudioSourceId};
 use vacs_audio::stream::capture::{CaptureStream, InputLevel};
 use vacs_audio::stream::playback::PlaybackStream;
-use vacs_signaling::protocol::ws::shared;
 use vacs_signaling::protocol::ws::shared::CallErrorReason;
 
 const AUDIO_STREAM_ERROR_CHANNEL_SIZE: usize = 32;
@@ -33,6 +32,10 @@ pub struct AudioManager {
     input: Option<CaptureStream>,
     output_source_ids: SourceMap,
     speaker_source_ids: SourceMap,
+    call_output_source_ids: HashSet<AudioSourceId>,
+    /// Number of frontends currently showing the shared input level meter; the meter is
+    /// only detached once the last one releases it.
+    level_meter_users: usize,
 }
 
 pub type AudioManagerHandle = Arc<RwLock<AudioManager>>;
@@ -80,6 +83,8 @@ impl AudioManager {
             speaker,
             output_source_ids,
             speaker_source_ids,
+            call_output_source_ids: HashSet::new(),
+            level_meter_users: 0,
         })
     }
 
@@ -148,9 +153,23 @@ impl AudioManager {
         &mut self,
         app: AppHandle,
         audio_config: &AudioConfig,
-        tx: mpsc::Sender<EncodedAudioFrame>,
         muted: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<broadcast::Receiver<EncodedAudioFrame>, Error> {
+        if let Some(input_device) = self.input.as_ref() {
+            if !input_device.is_level_meter() {
+                log::debug!("Input device already attached, subscribing to capture stream");
+                // The stream may have been left unmuted by a previous call.
+                input_device.set_muted(muted);
+                return Ok(input_device.subscribe());
+            }
+
+            // A level meter stream never feeds the broadcast channel, so subscribing to it
+            // would transmit silence; replace it with a call capture stream instead
+            log::debug!("Replacing input level meter with call capture stream");
+            self.input = None;
+            self.level_meter_users = 0;
+        };
+
         let (device, is_fallback) = DeviceSelector::open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
@@ -167,41 +186,26 @@ impl AudioManager {
 
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
-            while let Some(err) = error_rx.recv().await {
-                let state = app.state::<AppState>();
-                let mut state = state.lock().await;
+            // The stream is discarded on the first error, so later events from
+            // it are stale and must not touch whatever replaced it.
+            let Some(err) = error_rx.recv().await else {
+                log::debug!("Playback capture error receiver closed");
+                return;
+            };
+            let state = app.state::<AppState>();
+            let mut state = state.lock().await;
 
-                if let Some(call_id) = state.active_call_id().cloned() {
-                    log::debug!("Ending active call {call_id} due to capture stream error");
+            app.state::<AudioManagerHandle>()
+                .write()
+                .discard_input_device();
+            end_call_on_stream_failure(&app, &mut state, "capture").await;
 
-                    state.cleanup_call(&call_id).await;
-                    if let Err(err) = state
-                        .send_signaling_message(shared::CallError {
-                            call_id,
-                            reason: CallErrorReason::AudioFailure,
-                            message: None,
-                        })
-                        .await
-                    {
-                        log::warn!("Failed to send call end signaling message: {:?}", err);
-                    };
-                    state.set_outgoing_call(None);
-                    app.state::<AudioManagerHandle>()
-                        .read()
-                        .stop(SourceType::Ringback);
-
-                    app.emit("signaling:call-end", &call_id).ok();
-                }
-
-                app.emit::<FrontendError>("error", Error::from(err).into())
-                    .ok();
-            }
-            log::debug!("Playback capture error receiver closed");
+            app.emit::<FrontendError>("error", Error::from(err).into())
+                .ok();
         });
 
         let capture = CaptureStream::start(
             device,
-            tx,
             audio_config.input_device_volume,
             audio_config.input_device_volume_amp,
             error_tx,
@@ -212,8 +216,9 @@ impl AudioManager {
             .emit("audio:stop-input-level-meter", Value::Null)
             .ok();
 
+        let rx = capture.subscribe();
         self.input = Some(capture);
-        Ok(())
+        Ok(rx)
     }
 
     pub fn attach_input_level_meter(
@@ -223,6 +228,15 @@ impl AudioManager {
         emit: Arc<dyn Fn(InputLevel) + Send + Sync>,
         restarted_at: Option<Instant>,
     ) -> Result<(), Error> {
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| !input.is_level_meter() && input.receiver_count() > 0)
+        {
+            log::debug!("Call capture stream attached, not replacing it with a level meter");
+            return Ok(());
+        }
+
         let (device, _) = DeviceSelector::open(
             DeviceType::Input,
             audio_config.host_name.as_deref(),
@@ -328,9 +342,38 @@ impl AudioManager {
             .unwrap_or(false)
     }
 
+    pub fn add_level_meter_user(&mut self) {
+        self.level_meter_users += 1;
+    }
+
+    /// Releases one level meter user and returns how many remain.
+    pub fn remove_level_meter_user(&mut self) -> usize {
+        self.level_meter_users = self.level_meter_users.saturating_sub(1);
+        self.level_meter_users
+    }
+
     pub fn detach_input_device(&mut self) {
-        self.input = None;
-        log::debug!("Detached input device");
+        if self
+            .input
+            .take_if(|capture| capture.receiver_count() == 0)
+            .is_some()
+        {
+            self.level_meter_users = 0;
+            log::debug!("Detached input device");
+        }
+    }
+
+    /// Drops a failed capture stream regardless of its subscribers, so the
+    /// next attach opens a fresh device instead of resubscribing to a dead one.
+    pub fn discard_input_device(&mut self) {
+        if self
+            .input
+            .take_if(|capture| !capture.is_level_meter())
+            .is_some()
+        {
+            self.level_meter_users = 0;
+            log::debug!("Discarded failed input device");
+        }
     }
 
     pub fn start(&self, source_type: SourceType) {
@@ -396,6 +439,12 @@ impl AudioManager {
         }
     }
 
+    pub fn set_call_output_volumes(&self, volume: f32) {
+        for source_id in &self.call_output_source_ids {
+            self.output.set_volume(*source_id, volume);
+        }
+    }
+
     pub fn set_input_volume(&self, volume: f32) {
         if let Some(input) = &self.input {
             input.set_volume(volume);
@@ -413,36 +462,31 @@ impl AudioManager {
         webrtc_rx: mpsc::Receiver<EncodedAudioFrame>,
         volume: f32,
         amp: f32,
-    ) -> Result<(), Error> {
-        if self.output_source_ids.contains_key(&SourceType::Opus) {
-            log::warn!("Tried to attach call but a call was already attached");
-            return Err(AudioError::Other(anyhow::anyhow!(
-                "Tried to attach call but a call was already attached"
-            ))
-            .into());
-        }
+    ) -> Result<AudioSourceId, Error> {
+        let source_id = self.output.add_audio_source(Box::new(OpusSource::new(
+            webrtc_rx,
+            self.output.resampler()?,
+            self.output.channels(),
+            volume,
+            amp,
+        )?));
+        log::info!("Attached call with source ID {source_id}");
 
-        self.output_source_ids.insert(
-            SourceType::Opus,
-            self.output.add_audio_source(Box::new(OpusSource::new(
-                webrtc_rx,
-                self.output.resampler()?,
-                self.output.channels(),
-                volume,
-                amp,
-            )?)),
-        );
-        log::info!("Attached call");
+        self.call_output_source_ids.insert(source_id);
 
-        Ok(())
+        Ok(source_id)
     }
 
-    pub fn detach_call_output(&mut self) {
-        if let Some(source_id) = self.output_source_ids.remove(&SourceType::Opus) {
+    pub fn detach_call_output(&mut self, source_id: AudioSourceId) {
+        self.output.remove_audio_source(source_id);
+        self.call_output_source_ids.remove(&source_id);
+        log::info!("Detached call output with source ID {source_id}");
+    }
+
+    pub fn detach_all_call_outputs(&mut self) {
+        for source_id in self.call_output_source_ids.drain() {
             self.output.remove_audio_source(source_id);
-            log::info!("Detached call output");
-        } else {
-            log::debug!("Tried to detach call output but no call was attached");
+            log::info!("Detached call output with source ID {source_id}");
         }
     }
 
@@ -533,6 +577,17 @@ impl AudioManager {
                 SourceType::CallEnd,
                 audio_config.output_device_volume,
             );
+
+            insert_waveform_source(
+                &mut source_ids,
+                SourceType::ParticipantJoined,
+                audio_config.output_device_volume,
+            );
+            insert_waveform_source(
+                &mut source_ids,
+                SourceType::ParticipantLeft,
+                audio_config.output_device_volume,
+            );
         }
 
         Ok((output, source_ids))
@@ -598,6 +653,19 @@ impl AudioManager {
     }
 }
 
+async fn end_call_on_stream_failure(app: &AppHandle, state: &mut AppStateInner, cause: &str) {
+    if let Some(call_id) = state.current_call_id() {
+        log::debug!("Ending active call {call_id} due to {cause} stream error");
+
+        state.cleanup_current_call(call_id).await;
+        state
+            .try_send_call_error_with_client_id(call_id, CallErrorReason::AudioFailure, None)
+            .await;
+
+        app.emit("signaling:force-call-end", &call_id).ok();
+    }
+}
+
 async fn handle_playback_stream_error(
     err: AudioError,
     restarted_at: Option<Instant>,
@@ -648,28 +716,8 @@ async fn handle_playback_stream_error(
 
     // Calls attach their audio to the output stream only, so no speaker
     // failure can affect call audio and none must end the call.
-    if device_type == PlaybackDeviceType::Output
-        && let Some(call_id) = state.active_call_id().cloned()
-    {
-        log::debug!("Ending active call {call_id} due to playback stream error");
-
-        state.cleanup_call(&call_id).await;
-        if let Err(err) = state
-            .send_signaling_message(shared::CallError {
-                call_id,
-                reason: CallErrorReason::AudioFailure,
-                message: None,
-            })
-            .await
-        {
-            log::warn!("Failed to send call end signaling message: {:?}", err);
-        };
-        state.set_outgoing_call(None);
-        app.state::<AudioManagerHandle>()
-            .read()
-            .stop(SourceType::Ringback);
-
-        app.emit("signaling:call-end", &call_id).ok();
+    if device_type == PlaybackDeviceType::Output {
+        end_call_on_stream_failure(&app, &mut state, "playback").await;
     }
 
     let res = {

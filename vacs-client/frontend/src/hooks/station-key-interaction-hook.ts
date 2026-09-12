@@ -7,6 +7,7 @@ import {getCallStateColors} from "../utils/call-state-colors.ts";
 import {StationId} from "../types/generic.ts";
 import {CustomButtonColor} from "../types/custom-button-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
+import {CallTarget, hasTarget, participantCount} from "../types/call.ts";
 
 export function useStationKeyInteraction(
     stationId: StationId | undefined,
@@ -16,7 +17,9 @@ export function useStationKeyInteraction(
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
     const incomingCalls = useCallStore(state => state.incomingCalls);
-    const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
+    const {endCall, cancelInvitedTarget, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
+        state => state.actions,
+    );
 
     const defaultStationSource = useStationsStore(state => state.defaultSource);
     const temporaryStationSource = useStationsStore(state => state.temporarySource);
@@ -32,22 +35,32 @@ export function useStationKeyInteraction(
     const own = station !== undefined && station;
 
     const incomingCall = incomingCalls.find(
-        call => hasStationId && call.source.stationId === stationId,
+        call =>
+            hasStationId &&
+            (call.source.stationId === stationId ||
+                hasTarget(call.joinedParticipants, {station: stationId})),
     );
     const isCalling = incomingCall !== undefined && !own;
     const beingCalled =
         hasStationId &&
         !own &&
-        callDisplay?.type === "outgoing" &&
-        callDisplay.call.target.station === stationId;
-    const involved =
-        !own &&
         callDisplay !== undefined &&
-        (callDisplay.call.source.stationId === stationId ||
-            callDisplay.call.target.station === stationId);
-    const inCall = hasStationId && involved && callDisplay.type === "accepted";
-    const isRejected = hasStationId && involved && callDisplay?.type === "rejected";
-    const isError = hasStationId && involved && callDisplay?.type === "error";
+        callDisplay.call.invitedTargets.some(target => target.station === stationId);
+    const inCall =
+        hasStationId &&
+        !own &&
+        callDisplay?.type === "accepted" &&
+        hasTarget(callDisplay.call.joinedParticipants, {station: stationId});
+    const isRejected =
+        !own &&
+        hasStationId &&
+        callDisplay !== undefined &&
+        hasTarget(callDisplay.rejectedTargets, {station: stationId});
+    const isError =
+        !own &&
+        hasStationId &&
+        callDisplay !== undefined &&
+        hasTarget(callDisplay.erroredTargets, {station: stationId});
 
     const isTarget =
         highlightTarget &&
@@ -80,23 +93,57 @@ export function useStationKeyInteraction(
 
         if (isCalling) {
             if (callDisplay !== undefined) return;
+
             await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {
-            try {
-                await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
-                endCall();
-            } catch {}
+            const target: CallTarget = {station: stationId};
+            const callSize =
+                callDisplay.call.invitedTargets.length +
+                participantCount(callDisplay.call.joinedParticipants);
+            const ownInvited = beingCalled && hasTarget(callDisplay.call.ownInvitedTargets, target);
+
+            if (ownInvited && callSize > 1) {
+                // Optimistic; the server's echoed call update converges it.
+                try {
+                    await invokeStrict("signaling_drop_target", {
+                        callId: callDisplay.call.callId,
+                        target,
+                    });
+                    cancelInvitedTarget(callDisplay.call.callId, target);
+                } catch {}
+            } else if (
+                inCall &&
+                callDisplay.call.isConferenceLeader &&
+                participantCount(callDisplay.call.joinedParticipants) > 2
+            ) {
+                // Removed once the server confirms the drop via a call update.
+                try {
+                    await invokeStrict("signaling_drop_target", {
+                        callId: callDisplay.call.callId,
+                        target,
+                    });
+                } catch {}
+            } else if (beingCalled && !inCall && !ownInvited) {
+                // Another participant's pending invitation: display only.
+            } else {
+                try {
+                    await invokeStrict("signaling_end_call", {callId: callDisplay.call.callId});
+                    endCall();
+                } catch {}
+            }
         } else if (isRejected) {
-            dismissRejectedCall();
+            dismissRejectedTarget({station: stationId});
         } else if (isError) {
-            dismissErrorCall();
-        } else if (callDisplay === undefined) {
+            dismissErrorTarget({station: stationId});
+        } else {
             await startCall({station: stationId});
         }
     });
 
-    const outgoingPrio = callDisplay?.call.prio === true && enablePrio;
-    const incomingPrio = incomingCall?.prio === true && enablePrio;
+    const prio =
+        enablePrio &&
+        (hasTarget(callDisplay?.prioTargets ?? [], {station: stationId}) ||
+            (incomingCall?.prio ?? false));
 
     const {color, highlight} = getCallStateColors({
         inCall,
@@ -105,8 +152,7 @@ export function useStationKeyInteraction(
         isRejected,
         isError,
         isTarget,
-        outgoingPrio,
-        incomingPrio,
+        prio,
         blink,
         temporarySource:
             temporaryStationSource === stationId && temporaryStationSource !== undefined,
