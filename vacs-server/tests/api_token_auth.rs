@@ -3,15 +3,15 @@ use test_log::test;
 use vacs_protocol::http::auth::UserInfo;
 use vacs_protocol::http::ws::WebSocketToken;
 use vacs_server::store::memory::MemoryStore;
-use vacs_server::test_utils::TestApp;
+use vacs_server::test_utils::TestEnv;
 
 #[test(tokio::test)]
 async fn user_info_without_auth() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .send()
         .await
         .unwrap();
@@ -21,11 +21,11 @@ async fn user_info_without_auth() {
 
 #[test(tokio::test)]
 async fn ws_token_without_auth() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/ws/token", app.http_base_url()))
+        .get(format!("{}/ws/token", env.http_base_url()))
         .send()
         .await
         .unwrap();
@@ -35,11 +35,11 @@ async fn ws_token_without_auth() {
 
 #[test(tokio::test)]
 async fn user_info_with_valid_api_token() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(0)),
@@ -55,11 +55,11 @@ async fn user_info_with_valid_api_token() {
 
 #[test(tokio::test)]
 async fn user_info_with_invalid_token() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .header("Authorization", "Bearer invalid-token")
         .send()
         .await
@@ -70,11 +70,11 @@ async fn user_info_with_invalid_token() {
 
 #[test(tokio::test)]
 async fn ws_token_with_valid_api_token() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/ws/token", app.http_base_url()))
+        .get(format!("{}/ws/token", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(1)),
@@ -90,11 +90,11 @@ async fn ws_token_with_valid_api_token() {
 
 #[test(tokio::test)]
 async fn ws_token_with_invalid_token() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/ws/token", app.http_base_url()))
+        .get(format!("{}/ws/token", env.http_base_url()))
         .header("Authorization", "Bearer invalid-token")
         .send()
         .await
@@ -105,11 +105,11 @@ async fn ws_token_with_invalid_token() {
 
 #[test(tokio::test)]
 async fn logout_revokes_api_token() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/auth/logout", app.http_base_url()))
+        .post(format!("{}/auth/logout", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(2)),
@@ -120,7 +120,7 @@ async fn logout_revokes_api_token() {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     let resp = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(2)),
@@ -133,11 +133,11 @@ async fn logout_revokes_api_token() {
 
 #[test(tokio::test)]
 async fn different_preseeded_tokens_return_different_cids() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp0 = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(0)),
@@ -148,7 +148,7 @@ async fn different_preseeded_tokens_return_different_cids() {
     let info0: UserInfo = resp0.json().await.unwrap();
 
     let resp3 = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(3)),
@@ -164,11 +164,11 @@ async fn different_preseeded_tokens_return_different_cids() {
 
 #[test(tokio::test)]
 async fn revoking_one_token_does_not_affect_others() {
-    let app = TestApp::new().await;
+    let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/auth/logout", app.http_base_url()))
+        .post(format!("{}/auth/logout", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(4)),
@@ -179,7 +179,7 @@ async fn revoking_one_token_does_not_affect_others() {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     let resp = client
-        .get(format!("{}/auth/user", app.http_base_url()))
+        .get(format!("{}/auth/user", env.http_base_url()))
         .header(
             "Authorization",
             format!("Bearer {}", MemoryStore::test_api_token(5)),
