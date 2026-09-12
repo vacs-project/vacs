@@ -4,7 +4,7 @@ use std::time::Duration;
 use test_log::test;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
-use vacs_protocol::ws::server::ServerMessage;
+use vacs_protocol::ws::server::{self, ServerMessage};
 use vacs_protocol::ws::shared::{CallId, CallTarget};
 use vacs_server::config::{AppConfig, CallConfig};
 use vacs_server::ratelimit::{Policy as RateLimitPolicy, RateLimiters, RateLimitersConfig};
@@ -2788,6 +2788,295 @@ async fn invite_beyond_max_conference_size_leaves_the_call_unchanged() -> anyhow
         Some(client1.id()),
         "the rejected invite must not change the leadership"
     );
+
+    Ok(())
+}
+
+fn call_update_for(message: &ServerMessage, call_id: CallId) -> Option<&server::CallUpdate> {
+    match message {
+        ServerMessage::CallUpdate(update) if update.call_id == call_id => Some(update),
+        _ => None,
+    }
+}
+
+/// Everyone in `joined` is in the call and nobody is ringing anymore.
+fn is_settled_roster(update: &server::CallUpdate, joined: &HashSet<ClientId>) -> bool {
+    update.invited_targets.is_empty()
+        && joined
+            .iter()
+            .all(|id| update.joined_participants.contains_key(id))
+}
+
+/// Waits for the roster to settle on `joined`, then asserts that nothing
+/// older follows it within a short drain window.
+async fn assert_roster_settles(
+    client: &mut TestClient,
+    call_id: CallId,
+    joined: &HashSet<ClientId>,
+    absent: &HashSet<ClientId>,
+) {
+    client
+        .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+            call_update_for(m, call_id).is_some_and(|update| {
+                is_settled_roster(update, joined)
+                    && absent
+                        .iter()
+                        .all(|id| !update.joined_participants.contains_key(id))
+            })
+        })
+        .await
+        .unwrap_or_else(|| panic!("{} never saw the settled roster", client.id()));
+
+    let later = client
+        .recv_until_timeout_with_filter(Duration::from_millis(50), |m| {
+            call_update_for(m, call_id).is_some()
+        })
+        .await;
+    assert!(
+        later.iter().all(|m| {
+            call_update_for(m, call_id).is_some_and(|update| {
+                is_settled_roster(update, joined)
+                    && absent
+                        .iter()
+                        .all(|id| !update.joined_participants.contains_key(id))
+            })
+        }),
+        "{} received a stale roster after the settled one: {later:?}",
+        client.id()
+    );
+}
+
+fn accept(client: &TestClient, call_id: CallId) -> ClientMessage {
+    ClientMessage::CallAccept(vacs_protocol::ws::client::CallAccept {
+        call_id,
+        accepting_client_id: client.id().clone(),
+    })
+}
+
+/// Two targets answering in the same instant must leave every participant
+/// with the full roster: an update built before the second accept must never
+/// overtake the one built after it.
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+async fn simultaneous_accepts_converge_on_the_full_roster() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+    let callee_ids = HashSet::from([client2.id().clone(), client3.id().clone()]);
+
+    for _ in 0..20 {
+        let call_id = CallId::new();
+        invite(
+            &mut client1,
+            call_id,
+            HashSet::from([
+                CallTarget::Client(client2.id().clone()),
+                CallTarget::Client(client3.id().clone()),
+            ]),
+        )
+        .await?;
+
+        for client in [&mut client2, &mut client3] {
+            client
+                .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+                    matches!(m, ServerMessage::CallInvitation(invitation)
+                        if invitation.call_id == call_id)
+                })
+                .await
+                .expect("both targets should ring");
+        }
+
+        let (accepted2, accepted3) = tokio::join!(
+            client2.send(accept(&client2, call_id)),
+            client3.send(accept(&client3, call_id)),
+        );
+        accepted2?;
+        accepted3?;
+
+        for client in [&mut client1, &mut client2, &mut client3] {
+            assert_roster_settles(client, call_id, &callee_ids, &HashSet::new()).await;
+        }
+
+        client1
+            .send(ClientMessage::CallEnd(vacs_protocol::ws::shared::CallEnd {
+                call_id,
+                ending_client_id: client1.id().clone(),
+            }))
+            .await?;
+        for client in [&mut client2, &mut client3] {
+            client
+                .recv_with_timeout_and_filter(
+                    Duration::from_secs(1),
+                    |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id),
+                )
+                .await
+                .expect("the callees should see the call end");
+        }
+    }
+
+    Ok(())
+}
+
+/// A drop landing while another target accepts must not let the dropped
+/// participant resurface on anyone's roster.
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+async fn a_drop_racing_an_accept_leaves_no_stale_roster() -> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 4).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+    let mut client4 = clients.remove(0);
+
+    let call_id = CallId::new();
+    setup_conference(&mut client1, &mut client2, &mut client3, call_id).await?;
+    invite(
+        &mut client1,
+        call_id,
+        HashSet::from([CallTarget::Client(client4.id().clone())]),
+    )
+    .await?;
+    client4
+        .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await
+        .expect("the fourth target should ring");
+
+    let (accepted, dropped) = tokio::join!(
+        client4.send(accept(&client4, call_id)),
+        client1.send(ClientMessage::CallDropTarget(
+            vacs_protocol::ws::client::CallDropTarget {
+                call_id,
+                target: CallTarget::Client(client3.id().clone()),
+                reason: vacs_protocol::ws::client::CallDropReason::Requested,
+            },
+        )),
+    );
+    accepted?;
+    dropped?;
+
+    let joined = HashSet::from([
+        client1.id().clone(),
+        client2.id().clone(),
+        client4.id().clone(),
+    ]);
+    let absent = HashSet::from([client3.id().clone()]);
+    for client in [&mut client1, &mut client2, &mut client4] {
+        assert_roster_settles(client, call_id, &joined, &absent).await;
+    }
+
+    // An update queued before the drop may still trail the call end; it is
+    // forwarded as built, so it can only ever show the dropped client joined.
+    let dropped_sees = client3
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            call_update_for(m, call_id).is_some()
+                || matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id)
+        })
+        .await;
+    let ended = dropped_sees
+        .iter()
+        .position(|m| matches!(m, ServerMessage::CallEnd(_)))
+        .unwrap_or_else(|| {
+            panic!("the dropped participant must see the call end: {dropped_sees:?}")
+        });
+    assert!(
+        dropped_sees[ended..].iter().all(|m| {
+            call_update_for(m, call_id)
+                .is_none_or(|update| update.joined_participants.contains_key(client3.id()))
+        }),
+        "a post-drop snapshot reached the dropped participant: {dropped_sees:?}"
+    );
+
+    Ok(())
+}
+
+/// An invitation issued while an earlier target accepts must not tell the
+/// new invitee about a roster the accept already changed, unless an update
+/// that repairs it follows the invitation.
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+async fn an_invitation_issued_during_an_accept_carries_the_accepted_participant()
+-> anyhow::Result<()> {
+    let test_app = TestApp::new().await;
+    let mut clients = setup_n_test_clients(test_app.addr(), 3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    for _ in 0..10 {
+        let call_id = CallId::new();
+        invite(
+            &mut client1,
+            call_id,
+            HashSet::from([CallTarget::Client(client2.id().clone())]),
+        )
+        .await?;
+        client2
+            .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+                matches!(m, ServerMessage::CallInvitation(invitation)
+                    if invitation.call_id == call_id)
+            })
+            .await
+            .expect("the first target should ring");
+
+        let (accepted, invited) = tokio::join!(
+            client2.send(accept(&client2, call_id)),
+            invite(
+                &mut client1,
+                call_id,
+                HashSet::from([CallTarget::Client(client3.id().clone())]),
+            ),
+        );
+        accepted?;
+        invited?;
+
+        let Some(ServerMessage::CallInvitation(invitation)) = client3
+            .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+                matches!(m, ServerMessage::CallInvitation(invitation)
+                    if invitation.call_id == call_id)
+            })
+            .await
+        else {
+            panic!("the second target should ring");
+        };
+        if !invitation.joined_participants.contains_key(client2.id()) {
+            client3
+                .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+                    call_update_for(m, call_id)
+                        .is_some_and(|update| update.joined_participants.contains_key(client2.id()))
+                })
+                .await
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the invitee was never told about the accepted participant: {invitation:?}"
+                    )
+                });
+        }
+
+        client1
+            .send(ClientMessage::CallEnd(vacs_protocol::ws::shared::CallEnd {
+                call_id,
+                ending_client_id: client1.id().clone(),
+            }))
+            .await?;
+        client2
+            .recv_with_timeout_and_filter(
+                Duration::from_secs(1),
+                |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == call_id),
+            )
+            .await
+            .expect("the joined callee should see the call end");
+        client3
+            .recv_with_timeout_and_filter(Duration::from_secs(1), |m| {
+                matches!(m, ServerMessage::CallCancelled(cancelled) if cancelled.call_id == call_id)
+            })
+            .await
+            .expect("the ringing invitee should see its invitation cancelled");
+    }
 
     Ok(())
 }
