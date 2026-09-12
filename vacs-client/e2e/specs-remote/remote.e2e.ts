@@ -1,36 +1,12 @@
 import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {callQueueSlot, click, getClient, waitForCallColor} from "../helpers/browser.ts";
+import {REMOTE_ADDR, setRemoteEnabled} from "../helpers/remote.ts";
 import {SignalingTestClient} from "../helpers/signaling-client.ts";
 
 const APP_CID = "10000004";
 // A caller without a datafeed controller keeps its CID as display name.
 const CALLER_CID = "10000005";
-const REMOTE_ADDR = "127.0.0.1:9610";
-
-/**
- * Enables the remote control server on the given app instance. The remote
- * frontend is then served at http://REMOTE_ADDR/.
- */
-async function setRemoteEnabled(browser: WebdriverIO.Browser, enabled: boolean): Promise<void> {
-    const result = await browser.execute(
-        async (addr: string, on: boolean) => {
-            try {
-                await window.__TAURI_INTERNALS__.invoke("remote_set_config", {
-                    remoteConfig: {enabled: on, listenAddr: addr, serveFrontend: true},
-                });
-                return {ok: true as const};
-            } catch (e) {
-                return {ok: false as const, error: String(e)};
-            }
-        },
-        REMOTE_ADDR,
-        enabled,
-    );
-    if (!result.ok) {
-        throw new Error(`remote_set_config failed: ${result.error}`);
-    }
-}
 
 describe("Remote Control", () => {
     let caller: SignalingTestClient | undefined;

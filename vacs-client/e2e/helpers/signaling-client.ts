@@ -1,5 +1,8 @@
 import WebSocket from "ws";
 
+/** Distinguishes a failed expectation from the wait's own timeout. */
+class AssertionError extends Error {}
+
 const SERVER_BASE = "http://127.0.0.1:4568";
 const WS_URL = "ws://127.0.0.1:4568/ws";
 const PROTOCOL_VERSION = "2.0.0";
@@ -19,7 +22,8 @@ export class SignalingTestClient {
     readonly cid: string;
     private ws: WebSocket;
     private messages: ServerMessage[] = [];
-    private waiters: {predicate: (msg: ServerMessage) => boolean; resolve: () => void}[] = [];
+    private waiters: {check: () => boolean; resolve: () => void}[] = [];
+    private listeners = new Set<(msg: ServerMessage) => void>();
 
     private constructor(cid: string, ws: WebSocket) {
         this.cid = cid;
@@ -81,8 +85,13 @@ export class SignalingTestClient {
         ws.on("message", data => {
             const msg = JSON.parse(data.toString()) as ServerMessage;
             client.messages.push(msg);
+            // Listeners run inside the receive path on purpose: a reply sent
+            // from one is on the wire before anything the test does next.
+            for (const listener of client.listeners) {
+                listener(msg);
+            }
             client.waiters = client.waiters.filter(waiter => {
-                if (client.messages.some(waiter.predicate)) {
+                if (waiter.check()) {
                     waiter.resolve();
                     return false;
                 }
@@ -130,29 +139,98 @@ export class SignalingTestClient {
         this.send({type: "callEnd", callId, endingClientId: this.cid});
     }
 
+    /** Sends a rejection for a call this client was invited to. */
+    reject(callId: string, reason: string = "busy"): void {
+        this.send({type: "callReject", callId, rejectingClientId: this.cid, reason});
+    }
+
+    /**
+     * Registers a listener called synchronously for every received message,
+     * from inside the WebSocket receive path. Returns a function removing it.
+     */
+    onMessage(listener: (msg: ServerMessage) => void): () => void {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
+    /**
+     * Rejects every call invitation as busy, straight from the receive path.
+     * That is what makes the rejection beat the caller's own IPC reply to the
+     * invite it just sent. Returns a function stopping the auto-rejection.
+     */
+    autoRejectInvitations(): () => void {
+        return this.onMessage(msg => {
+            if (msg.type === "callInvitation") {
+                this.reject(msg.callId as string);
+            }
+        });
+    }
+
     /** Resolves once any received message matches the predicate. */
     async waitForMessage(
         predicate: (msg: ServerMessage) => boolean,
         timeoutMs: number = 5000,
     ): Promise<ServerMessage> {
-        const found = this.messages.find(predicate);
-        if (found !== undefined) {
-            return found;
-        }
-        await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(
-                () => reject(new Error("Timed out waiting for signaling message")),
-                timeoutMs,
-            );
-            this.waiters.push({
-                predicate,
-                resolve: () => {
-                    clearTimeout(timer);
-                    resolve();
-                },
+        const [message] = await this.waitForMessages(predicate, 1, timeoutMs);
+        return message;
+    }
+
+    /**
+     * Resolves once at least `count` received messages match the predicate,
+     * with the matches in arrival order. Messages received before the call
+     * count, so a burst cannot be missed by waiting too late.
+     */
+    async waitForMessages(
+        predicate: (msg: ServerMessage) => boolean,
+        count: number,
+        timeoutMs: number = 5000,
+    ): Promise<ServerMessage[]> {
+        const matches = () => this.messages.filter(predicate);
+        const check = () => matches().length >= count;
+
+        if (!check()) {
+            await new Promise<void>((resolve, reject) => {
+                const waiter = {
+                    check,
+                    resolve: () => {
+                        clearTimeout(timer);
+                        resolve();
+                    },
+                };
+                const timer = setTimeout(() => {
+                    this.waiters = this.waiters.filter(entry => entry !== waiter);
+                    reject(
+                        new Error(
+                            `Timed out waiting for ${count} signaling message(s), ` +
+                                `saw ${matches().length}`,
+                        ),
+                    );
+                }, timeoutMs);
+                this.waiters.push(waiter);
             });
-        });
-        return this.messages.find(predicate) as ServerMessage;
+        }
+
+        return matches().slice(0, count);
+    }
+
+    /**
+     * Resolves once the window has passed without any received message
+     * matching the predicate, and rejects as soon as one does. The only way
+     * to assert a message is never sent, so the window is a real wait rather
+     * than a stand-in for a condition that could be polled.
+     */
+    async expectNoMessage(
+        predicate: (msg: ServerMessage) => boolean,
+        windowMs: number = 2000,
+    ): Promise<void> {
+        try {
+            const [message] = await this.waitForMessages(predicate, 1, windowMs);
+            throw new AssertionError(`Unexpected signaling message: ${JSON.stringify(message)}`);
+        } catch (e) {
+            if (e instanceof AssertionError) throw e;
+        }
     }
 
     disconnect(): void {

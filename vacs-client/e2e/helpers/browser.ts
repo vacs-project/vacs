@@ -100,6 +100,29 @@ export function callQueueSlot(
 }
 
 /**
+ * Returns the call display: the topmost call queue slot, which shows the
+ * client's own current call. Matched structurally rather than by label,
+ * because a conference call display is labeled "CONF" and carries no title
+ * attribute for callQueueSlot to key off. The element exists exactly while
+ * the client has a call display, so its absence means "no call".
+ */
+export function callDisplaySlot(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$(
+        '//div[contains(@class, "scrollbar-none")]' +
+            '/div[contains(@class, "relative")]/button[contains(@class, "h-16")]',
+    );
+}
+
+/**
+ * Returns the CONF function key, which opens and closes conference modify
+ * mode. Matched by its title attribute: a conference call display and a
+ * conference answer key carry the same "CONF" text.
+ */
+export function conferenceKey(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//button[@title="Conference Call"]');
+}
+
+/**
  * Selects an option of a native select element by value. Uses a JS-dispatched
  * change event since WebKitWebDriver does not support native option clicks.
  */
@@ -158,5 +181,147 @@ export async function waitForCallColor(
         {
             timeoutMsg: `Element did not become ${options.active ? "active (green)" : "idle"}`,
         },
+    );
+}
+
+/**
+ * Brings the client key for the given display name into view, opening the
+ * "OTHER" client group (all clients without a resolved VATSIM position) when
+ * the page still shows the group keys. Safe to call repeatedly: the group key
+ * is gone once the group is open, and END resets the page to the group keys.
+ */
+export async function showClientKey(
+    browser: WebdriverIO.Browser,
+    displayName: string,
+): Promise<ChainablePromiseElement> {
+    await browser.waitUntil(
+        async () => {
+            if (await clientKey(browser, displayName).isExisting()) return true;
+            const group = await browser.$("button*=OTHER");
+            if (await group.isDisplayed()) await click(browser, group);
+            return false;
+        },
+        {timeoutMsg: `Client key for ${displayName} did not appear in the OTHER group`},
+    );
+    const key = clientKey(browser, displayName);
+    await key.waitForDisplayed();
+    return key;
+}
+
+/**
+ * Starts a call to the client with the given display name by clicking its
+ * client key. Only valid while the client is idle: on a client that already
+ * has a call display the same click accepts, drops or ends instead.
+ */
+export async function startCallTo(
+    browser: WebdriverIO.Browser,
+    displayName: string,
+): Promise<void> {
+    const key = await showClientKey(browser, displayName);
+    await click(browser, key);
+}
+
+/**
+ * The green highlight the call display carries while the call is outgoing or
+ * rejected. It is an inner div, distinct from the key's own background: an
+ * accepted call turns the key itself green and has no highlight.
+ */
+function callDisplayHighlight(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return callDisplaySlot(browser).$('.//div[contains(@class, "bg-[#4b8747]")]');
+}
+
+/**
+ * Waits until the call display shows a ringing outgoing call: a steady gray
+ * key with the green inner highlight. The sampling window is what separates
+ * it from the rejected and errored displays, which carry the same highlight
+ * but blink their key color with a 500ms period.
+ */
+export async function waitForOutgoingCall(browser: WebdriverIO.Browser): Promise<void> {
+    await callDisplayHighlight(browser).waitForDisplayed();
+    await browser.waitUntil(
+        async () => {
+            // Longer than two blink periods, so no blink can hide in the gaps.
+            for (let sample = 0; sample < 12; sample++) {
+                const classes = (await callDisplaySlot(browser).getAttribute("class")) ?? "";
+                if (classes.includes("bg-[#4b8747]") || classes.includes("bg-red-500")) {
+                    return false;
+                }
+                await browser.pause(100);
+            }
+            return true;
+        },
+        {timeoutMsg: "Call display did not stay a steady outgoing call"},
+    );
+}
+
+/**
+ * Waits until the call display shows a rejected call: the key blinks green
+ * while keeping the green inner highlight. Seeing the key green at all is
+ * what separates it from the steady-gray outgoing display.
+ */
+export async function waitForRejectedCall(browser: WebdriverIO.Browser): Promise<void> {
+    await callDisplayHighlight(browser).waitForDisplayed();
+    await browser.waitUntil(
+        async () => {
+            const classes = (await callDisplaySlot(browser).getAttribute("class")) ?? "";
+            return classes.includes("bg-[#4b8747]");
+        },
+        {interval: 150, timeoutMsg: "Call display did not blink green for the rejected call"},
+    );
+}
+
+/**
+ * Invites another target into the app instance's current call through the
+ * same signaling command a client key invokes. Needed only where the UI
+ * offers no affordance: the CONF key stays locked until a call is
+ * established and its media connected, so a call whose peers never
+ * negotiate (raw signaling clients) can never be grown from the UI, and a
+ * fresh call cannot be given a second target at all.
+ *
+ * Runs the invoke in the page, so it only works on an app instance; the
+ * remote browser has no __TAURI_INTERNALS__.
+ */
+export async function inviteTarget(
+    browser: WebdriverIO.Browser,
+    ownCid: string,
+    targetCid: string,
+): Promise<void> {
+    const result = await browser.execute(
+        async (own: string, target: string) => {
+            try {
+                await window.__TAURI_INTERNALS__.invoke("signaling_invite_to_call", {
+                    source: {clientId: own},
+                    targets: [{client: target}],
+                    prio: false,
+                });
+                return {ok: true as const};
+            } catch (e) {
+                return {ok: false as const, error: String(e)};
+            }
+        },
+        ownCid,
+        targetCid,
+    );
+
+    if (!result.ok) {
+        throw new Error(`signaling_invite_to_call failed for ${targetCid}: ${result.error}`);
+    }
+}
+
+/**
+ * Waits until the given key carries a call error annotation: an errored key
+ * blinks red with the 500ms blink period, so this samples until it catches
+ * the red half instead of reading the class list once.
+ */
+export async function waitForErroredKey(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    await browser.waitUntil(
+        async () => {
+            const classes = (await element.getAttribute("class")) ?? "";
+            return classes.includes("bg-red-500");
+        },
+        {interval: 150, timeoutMsg: "Key did not blink red for the errored target"},
     );
 }
