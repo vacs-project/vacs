@@ -1,3 +1,4 @@
+import {restartApps} from "../helpers/app-control.ts";
 import {
     Controller,
     loginAndConnectAs,
@@ -53,7 +54,7 @@ function stationKey(browser: WebdriverIO.Browser, label: string): ChainablePromi
 describe("Position Dynamics", () => {
     beforeEach(async () => {
         await resetMockState();
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
 
         await loginAndConnectAs(getClient("clientA"), CID_A, POSITION_A);
     });

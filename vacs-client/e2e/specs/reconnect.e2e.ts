@@ -1,3 +1,4 @@
+import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {click, getClient} from "../helpers/browser.ts";
 import {startVacsServer, stopVacsServer} from "../helpers/server-control.ts";
@@ -8,7 +9,7 @@ describe("Reconnect", () => {
     beforeEach(async () => {
         await startVacsServer();
         await resetMockState();
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
     });
 
     afterEach(async () => {
@@ -42,21 +43,24 @@ describe("Reconnect", () => {
         const clientA = getClient("clientA");
 
         await stopVacsServer();
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
+
+        // The overlay unmounts on dismissal and remounts on the next error,
+        // so a held element handle would go stale; query it fresh each time.
+        const errorTitle = () => clientA.$("p=Network error");
 
         // The app lands on the login page with a network error overlay.
-        const errorTitle = await clientA.$("p=Network error");
-        await errorTitle.waitForDisplayed();
-        await click(clientA, errorTitle);
-        await errorTitle.waitForDisplayed({reverse: true});
+        await errorTitle().waitForDisplayed();
+        await click(clientA, await errorTitle());
+        await errorTitle().waitForDisplayed({reverse: true});
 
         // Attempting to log in fails with the same overlay and leaves the
         // login button usable.
         const loginButton = await clientA.$("button=Login via VATSIM");
         await loginButton.waitForDisplayed();
         await click(clientA, loginButton);
-        await errorTitle.waitForDisplayed();
-        await click(clientA, errorTitle);
+        await errorTitle().waitForDisplayed();
+        await click(clientA, await errorTitle());
 
         // Once the server is up again, logging in and connecting works.
         await startVacsServer();
