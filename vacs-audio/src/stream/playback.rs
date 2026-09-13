@@ -1,8 +1,8 @@
+use crate::backend::AudioStream;
 use crate::device::{DeviceType, StreamDevice};
 use crate::error::AudioError;
 use crate::mixer::Mixer;
 use crate::sources::{AudioSource, AudioSourceId};
-use cpal::traits::StreamTrait;
 use parking_lot::Mutex;
 use ringbuf::HeapRb;
 use ringbuf::consumer::Consumer;
@@ -24,7 +24,7 @@ const MIXER_OPS_PER_DATA_CALLBACK: usize = 32;
 static NEXT_AUDIO_SOURCE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 
 pub struct PlaybackStream {
-    _stream: cpal::Stream,
+    _stream: Box<dyn AudioStream>,
     mixer_ops: Mutex<ringbuf::HeapProd<MixerOp>>,
     removed_sources: Mutex<ringbuf::HeapCons<Box<dyn AudioSource>>>,
     deafened: Arc<AtomicBool>,
@@ -48,7 +48,7 @@ impl PlaybackStream {
         let deafened_clone = deafened.clone();
 
         let stream = device.build_output_stream(
-            move |output, _| {
+            Box::new(move |output: &mut [f32]| {
                 for _ in 0..MIXER_OPS_PER_DATA_CALLBACK {
                     if let Some(op) = ops_cons.try_pop() {
                         op(&mut mixer);
@@ -57,19 +57,13 @@ impl PlaybackStream {
                     }
                 }
                 mixer.mix(output);
-            },
-            move |err| {
-                // Xruns are transient (samples dropped on a live stream);
-                // restarting the stream for them would only drop more audio.
-                if matches!(err.kind(), cpal::ErrorKind::Xrun) {
-                    tracing::debug!("Playback stream xrun, samples dropped");
-                    return;
-                }
+            }),
+            Box::new(move |err| {
                 tracing::error!(?err, "CPAL playback stream error");
-                if let Err(err) = error_tx.try_send(err.into()) {
+                if let Err(err) = error_tx.try_send(err) {
                     tracing::warn!(?err, "Failed to send playback stream error");
                 }
-            },
+            }),
         )?;
 
         stream.play()?;
@@ -246,10 +240,11 @@ impl PlaybackStream {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "mock-audio"))]
 mod tests {
     use super::*;
-    use crate::device::DeviceSelector;
+    use crate::backend::mock::MockBackend;
+    use crate::device::AudioBackendExt;
 
     struct Silence;
 
@@ -263,14 +258,14 @@ mod tests {
     }
 
     fn open_output_stream() -> PlaybackStream {
-        let (device, _) = DeviceSelector::open(DeviceType::Output, None, None, None)
-            .expect("an output device is required for this test");
+        let (device, _) = MockBackend::default()
+            .open(DeviceType::Output, None, None, None)
+            .expect("mock output device should open");
         let (error_tx, _error_rx) = mpsc::channel(1);
         PlaybackStream::start(device, error_tx).expect("playback stream should start")
     }
 
     #[test]
-    #[ignore = "opens the real default output device"]
     fn source_ids_stay_unique_across_streams() {
         let first = open_output_stream();
         let first_ids: Vec<_> = (0..3)
