@@ -20,6 +20,7 @@ const APP_BINARY = path.resolve(VACS_ROOT, "target", "debug", `vacs-client${BINA
 
 const MOCK_VATSIM_PORT = 4567;
 const VACS_SERVER_PORT = 4568;
+const VALKEY_PORT = 6379;
 // Embedded WebDriver ports (the app serves WebDriver in-process via
 // tauri-plugin-wdio-webdriver). Deliberately not the plugin's 4445 default
 // so a stale process from the old tauri-driver harness cannot masquerade
@@ -105,12 +106,21 @@ export const config: WebdriverIO.MultiremoteConfig = {
     connectionRetryCount: 1,
     logLevel: "warn",
 
-    onPrepare() {
+    async onPrepare() {
         // App processes from a previous crashed run would hold the embedded
         // ports and shadow this run's instances; leaked session state would
         // boot them already authenticated.
         reapRecordedApps();
         clearPersistedAppState();
+
+        // wdio only logs a failing hook and runs the specs anyway, against
+        // whatever binary or store is left over from the last run.
+        try {
+            await ensureValkey();
+        } catch (err) {
+            console.error(err);
+            process.exit(1);
+        }
 
         // Build vatsim-mock from source if VATSIM_API_ROOT is set,
         // otherwise expect it on PATH (e.g. via cargo install).
@@ -321,21 +331,46 @@ function onShutdown(fn: () => void) {
 
 onShutdown(cleanup);
 
+// CI provisions its own store; locally the compose stack at the repo root is
+// the one the server's default config points at, and it does not outlive a
+// reboot. Without it every spec would wait out the server's start timeout.
+async function ensureValkey(): Promise<void> {
+    if (process.env.CI || (await isPortOpen(VALKEY_PORT))) return;
+
+    // A fixed project name keeps every checkout and worktree on the one
+    // container instead of racing each other for the port.
+    console.log("Valkey is not listening, starting the compose stack...");
+    const up = spawnSync("docker", ["compose", "-p", "vacs", "up", "-d"], {
+        cwd: VACS_ROOT,
+        stdio: "inherit",
+        shell: true,
+    });
+    if (up.status !== 0) {
+        throw new Error(
+            "Valkey is not running and `docker compose -p vacs up -d` failed; start it in the repo root",
+        );
+    }
+    await waitForPort(VALKEY_PORT, 15_000);
+}
+
+function isPortOpen(port: number): Promise<boolean> {
+    return new Promise(resolve => {
+        const socket = createConnection({host: "127.0.0.1", port}, () => {
+            socket.destroy();
+            resolve(true);
+        });
+        socket.on("error", () => {
+            socket.destroy();
+            resolve(false);
+        });
+    });
+}
+
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
-        const connected = await new Promise<boolean>(resolve => {
-            const socket = createConnection({host: "127.0.0.1", port}, () => {
-                socket.destroy();
-                resolve(true);
-            });
-            socket.on("error", () => {
-                socket.destroy();
-                resolve(false);
-            });
-        });
-        if (connected) return;
+        if (await isPortOpen(port)) return;
         await new Promise(r => setTimeout(r, 200));
     }
     throw new Error(`Port ${port} did not become available within ${timeoutMs}ms`);
