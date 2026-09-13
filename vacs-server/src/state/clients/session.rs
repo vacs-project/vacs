@@ -245,6 +245,7 @@ impl ClientSession {
                     .get_position(self.position_id())
                     .map(|p| p.default_call_sources.clone())
                     .unwrap_or_default(),
+                max_conf_size: Some(app_state.calls.max_conf_size()),
             },
         )
         .await
@@ -302,6 +303,7 @@ impl ClientSession {
                     match msg {
                         Some(msg) => {
                             tracing::trace!("Received direct message");
+                            let msg = self.refresh_call_update(app_state, msg);
                             if let Err(err) = send_message(&ws_outbound_tx, msg).await {
                                 tracing::warn!(?err, "Failed to send direct message");
                             }
@@ -340,6 +342,21 @@ impl ClientSession {
         ping_handle.abort();
 
         tracing::debug!("Finished handling client interaction");
+    }
+
+    /// Fan-outs enqueue after the call lock is released, so a snapshot computed earlier
+    /// can land behind a newer one; forwarding the current state keeps deliveries in order.
+    fn refresh_call_update(&self, app_state: &AppState, message: ServerMessage) -> ServerMessage {
+        let ServerMessage::CallUpdate(update) = &message else {
+            return message;
+        };
+        match app_state
+            .calls
+            .call_state_for_party(&update.call_id, self.id())
+        {
+            Some(current) => ServerMessage::CallUpdate(current.for_recipient(self.id())),
+            None => message,
+        }
     }
 
     #[instrument(level = "debug", skip_all)]
@@ -555,11 +572,15 @@ impl Drop for TaskDropLogger {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::calls::{AcceptCallOutcome, DropTargetOutcome};
     use crate::ws::test_util::{TestSetup, create_client_info};
     use axum::extract::ws;
     use axum::extract::ws::Utf8Bytes;
     use pretty_assertions::{assert_eq, assert_matches};
+    use std::collections::{HashMap, HashSet};
     use test_log::test;
+    use vacs_protocol::ws::client::CallDropReason;
+    use vacs_protocol::ws::shared::{CallId, CallSource, CallTarget};
 
     #[test(tokio::test)]
     async fn new_client_session() {
@@ -599,6 +620,167 @@ mod tests {
         assert!(result.is_ok());
         let received = rx.recv().await.expect("Expected message to be received");
         assert_eq!(received, message);
+    }
+
+    fn session_for(id: u8) -> ClientSession {
+        ClientSession::new(
+            create_client_info(id),
+            ActiveProfile::None,
+            mpsc::channel(1).0,
+            ClientConnectionGuard::default(),
+        )
+    }
+
+    fn ring(app_state: &AppState, call_id: CallId, caller: &ClientId, target: &ClientId) {
+        app_state
+            .calls
+            .attempt_call(
+                &call_id,
+                caller,
+                &CallSource {
+                    client_id: caller.clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                &CallTarget::Client(target.clone()),
+                &HashSet::from([target.clone()]),
+            )
+            .expect("call attempt should succeed");
+    }
+
+    fn refreshed(
+        session: &ClientSession,
+        app_state: &AppState,
+        call_id: CallId,
+    ) -> server::CallUpdate {
+        let queued = ServerMessage::CallUpdate(server::CallUpdate {
+            call_id,
+            invited_targets: HashSet::from([CallTarget::Client(ClientId::from("client9"))]),
+            joined_participants: HashMap::new(),
+            conference_leader: None,
+        });
+        match session.refresh_call_update(app_state, queued) {
+            ServerMessage::CallUpdate(update) => update,
+            other => panic!("a call update must stay a call update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn forwarded_call_updates_carry_the_current_roster() {
+        let setup = TestSetup::new();
+        let caller = setup.session.id().clone();
+        let callee = ClientId::from("client2");
+        let call_id = CallId::new();
+        ring(&setup.app_state, call_id, &caller, &callee);
+
+        let for_invitee = refreshed(&session_for(2), &setup.app_state, call_id);
+        assert!(for_invitee.invited_targets.is_empty());
+        assert!(for_invitee.joined_participants.is_empty());
+        assert_eq!(for_invitee.conference_leader, None);
+
+        assert!(matches!(
+            setup.app_state.calls.accept_call(&call_id, &callee),
+            AcceptCallOutcome::Accepted { .. }
+        ));
+
+        for session in [&setup.session, &session_for(2)] {
+            let update = refreshed(session, &setup.app_state, call_id);
+            assert!(update.invited_targets.is_empty());
+            assert_eq!(
+                update
+                    .joined_participants
+                    .keys()
+                    .cloned()
+                    .collect::<HashSet<_>>(),
+                HashSet::from([caller.clone(), callee.clone()]),
+                "{} should see the post-accept roster",
+                session.id()
+            );
+        }
+    }
+
+    #[test]
+    fn a_ringing_invitee_sees_its_co_targets_but_not_itself() {
+        let setup = TestSetup::new();
+        let caller = setup.session.id().clone();
+        let call_id = CallId::new();
+        ring(
+            &setup.app_state,
+            call_id,
+            &caller,
+            &ClientId::from("client2"),
+        );
+        ring(
+            &setup.app_state,
+            call_id,
+            &caller,
+            &ClientId::from("client3"),
+        );
+
+        let update = refreshed(&session_for(2), &setup.app_state, call_id);
+        assert_eq!(
+            update.invited_targets,
+            HashSet::from([CallTarget::Client(ClientId::from("client3"))])
+        );
+    }
+
+    #[test]
+    fn queued_updates_are_forwarded_unchanged_once_the_client_is_no_party() {
+        let setup = TestSetup::new();
+        let caller = setup.session.id().clone();
+        let callee = ClientId::from("client2");
+        let third = ClientId::from("client3");
+        let queued = ServerMessage::CallUpdate(server::CallUpdate {
+            call_id: CallId::new(),
+            invited_targets: HashSet::new(),
+            joined_participants: HashMap::new(),
+            conference_leader: None,
+        });
+        assert_eq!(
+            setup
+                .session
+                .refresh_call_update(&setup.app_state, queued.clone()),
+            queued,
+            "an update for a call that is gone stays as queued"
+        );
+
+        let call_id = CallId::new();
+        ring(&setup.app_state, call_id, &caller, &callee);
+        assert!(matches!(
+            setup.app_state.calls.accept_call(&call_id, &callee),
+            AcceptCallOutcome::Accepted { .. }
+        ));
+        ring(&setup.app_state, call_id, &caller, &third);
+        assert!(matches!(
+            setup.app_state.calls.accept_call(&call_id, &third),
+            AcceptCallOutcome::Accepted { .. }
+        ));
+        assert!(matches!(
+            setup.app_state.calls.drop_target(
+                &call_id,
+                &caller,
+                &CallTarget::Client(third.clone()),
+                CallDropReason::Requested,
+            ),
+            DropTargetOutcome::ParticipantDropped(..)
+        ));
+
+        let stale = ServerMessage::CallUpdate(server::CallUpdate {
+            call_id,
+            invited_targets: HashSet::new(),
+            joined_participants: HashMap::new(),
+            conference_leader: None,
+        });
+        assert_eq!(
+            session_for(3).refresh_call_update(&setup.app_state, stale.clone()),
+            stale,
+            "a dropped participant gets the queued message, the call end follows it"
+        );
+        assert_eq!(
+            session_for(9).refresh_call_update(&setup.app_state, stale.clone()),
+            stale,
+            "a client the call never involved gets the queued message"
+        );
     }
 
     #[test(tokio::test)]
@@ -661,7 +843,7 @@ mod tests {
                 assert_eq!(
                     text,
                     Utf8Bytes::from_static(
-                        r#"{"type":"sessionInfo","client":{"id":"client1","displayName":"Client 1","frequency":"100.000","positionId":"POSITION1"},"profile":{"type":"changed","activeProfile":{"type":"none"}},"defaultCallSources":[]}"#
+                        r#"{"type":"sessionInfo","client":{"id":"client1","displayName":"Client 1","frequency":"100.000","positionId":"POSITION1"},"profile":{"type":"changed","activeProfile":{"type":"none"}},"defaultCallSources":[],"maxConfSize":8}"#
                     )
                 );
             }
@@ -703,7 +885,7 @@ mod tests {
     async fn handle_interaction() {
         let client_info_2 = create_client_info(2);
         let setup = TestSetup::new().with_messages(vec![Ok(ws::Message::Text(
-            Utf8Bytes::from_static(r#"{"type":"callInvite","callId":"00000000-0000-0000-0000-000000000000","source":{"clientId":"client1"},"target":{"client":"client2"},"prio":false}"#),
+            Utf8Bytes::from_static(r#"{"type":"callInvite","callId":"00000000-0000-0000-0000-000000000000","source":{"clientId":"client1"},"targets":[{"client":"client2"}],"prio":false}"#),
         ))]);
         let (_, mut client2_rx) = setup.register_client(client_info_2).await;
         let websocket_rx = setup.websocket_rx.clone();
@@ -727,7 +909,7 @@ mod tests {
         let call_invite = client2_rx.recv().await.unwrap();
         assert_eq!(
             call_invite,
-            ServerMessage::CallInvite(vacs_protocol::ws::shared::CallInvite {
+            ServerMessage::CallInvitation(vacs_protocol::ws::server::CallInvitation {
                 call_id: vacs_protocol::ws::shared::CallId::from(uuid::Uuid::nil()),
                 source: vacs_protocol::ws::shared::CallSource {
                     client_id: ClientId::from("client1"),
@@ -735,6 +917,10 @@ mod tests {
                     station_id: None,
                 },
                 target: vacs_protocol::ws::shared::CallTarget::Client(ClientId::from("client2")),
+                // The recipient's own target is carried by `target` only.
+                invited_targets: HashSet::new(),
+                joined_participants: HashMap::new(),
+                conference_leader: None,
                 prio: false,
             })
         );

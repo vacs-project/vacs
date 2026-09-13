@@ -12,6 +12,7 @@ export type SessionInfo = {
     client: ClientInfo;
     profile: SessionProfile;
     defaultCallSources: StationId[];
+    maxConfSize?: number;
 };
 
 export function splitDisplayName(name: string): [string, string] {

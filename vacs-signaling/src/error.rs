@@ -45,9 +45,7 @@ impl SignalingRuntimeError {
         matches!(self, SignalingRuntimeError::Disconnected(reason) if reason.is_none())
             || matches!(
                 self,
-                SignalingRuntimeError::ServerError(_)
-                    | SignalingRuntimeError::Transport(_)
-                    | SignalingRuntimeError::SerializationError(_)
+                SignalingRuntimeError::ServerError(_) | SignalingRuntimeError::Transport(_)
             )
     }
 
@@ -61,6 +59,8 @@ impl SignalingRuntimeError {
         )
     }
 
+    // Serialization errors are absent everywhere above: an undecodable
+    // inbound message is skipped without touching the session.
     pub fn is_fatal(&self) -> bool {
         matches!(
             self,

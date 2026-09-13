@@ -1,5 +1,5 @@
 use crate::app::state::AppState;
-use crate::app::state::webrtc::AppStateWebrtcExt;
+use crate::app::state::signaling::AppStateSignalingExt;
 use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
 use crate::audio::{
@@ -50,7 +50,7 @@ pub async fn audio_set_host(
 ) -> Result<(), Error> {
     let mut state = app_state.lock().await;
 
-    if state.active_call_id().is_some() {
+    if state.current_call_id().is_some() {
         return Err(AudioError::Other(anyhow::anyhow!(
             "Cannot set audio host while call is active"
         ))
@@ -123,7 +123,7 @@ pub async fn audio_set_device(
     let mut state = app_state.lock().await;
     let mut audio_manager = audio_manager.write();
 
-    if state.active_call_id().is_some() {
+    if state.current_call_id().is_some() {
         return Err(AudioError::Other(anyhow::anyhow!(
             "Cannot set audio device while call is active"
         ))
@@ -268,7 +268,7 @@ pub async fn audio_set_volume(
             state.config.audio.input_device_volume = volume;
         }
         VolumeType::Output => {
-            audio_manager.set_output_volume(SourceType::Opus, volume);
+            audio_manager.set_call_output_volumes(volume);
             audio_manager.set_output_volume(SourceType::Ringback, volume);
             audio_manager.set_output_volume(SourceType::RingbackOneshot, volume);
             audio_manager.set_output_volume(SourceType::CallStart, volume);
@@ -325,15 +325,12 @@ pub async fn audio_start_input_level_meter(
     let mut audio_manager = audio_manager.write();
 
     if audio_manager.is_input_device_attached() {
+        // A running meter already broadcasts its levels to every frontend, so another
+        // settings page simply joins it. And as this command is called when the user
+        // opens the settings page, being in a call must not show an error either.
         if audio_manager.is_input_level_meter_attached() {
-            return Err(AudioError::Other(anyhow::anyhow!(
-                "Cannot start input level meter while already active"
-            ))
-            .into());
+            audio_manager.add_level_meter_user();
         }
-
-        // As this command is called when the user opens the settings page,
-        // we don't want to show an error message if the user is in a call.
         return Ok(());
     }
 
@@ -345,6 +342,7 @@ pub async fn audio_start_input_level_meter(
         }),
         None,
     )?;
+    audio_manager.add_level_meter_user();
 
     Ok(())
 }
@@ -353,11 +351,18 @@ pub async fn audio_start_input_level_meter(
 #[vacs_macros::log_err]
 pub async fn audio_stop_input_level_meter(
     audio_manager: State<'_, AudioManagerHandle>,
+    app: AppHandle,
 ) -> Result<(), Error> {
     log::trace!("Stopping input level meter");
 
     if audio_manager.read().is_input_level_meter_attached() {
-        audio_manager.write().detach_input_device();
+        let mut audio_manager = audio_manager.write();
+        if audio_manager.remove_level_meter_user() == 0 {
+            audio_manager.detach_input_device();
+            // Other frontends may still be showing the meter UI; tell them it stopped
+            app.emit("audio:stop-input-level-meter", serde_json::Value::Null)
+                .ok();
+        }
     }
 
     Ok(())

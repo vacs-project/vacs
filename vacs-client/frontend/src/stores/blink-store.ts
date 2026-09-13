@@ -1,7 +1,8 @@
 import {create} from "zustand/react";
-import {CallDisplay, useCallStore} from "./call-store.ts";
+import {CallDisplay, ConferenceState, useCallStore} from "./call-store.ts";
 import {useRadioStore} from "./radio-store.ts";
 import {isPlaybackPaused} from "./playback-store.ts";
+import {hasTarget} from "../types/call.ts";
 
 type BlinkState = {
     blink: boolean;
@@ -12,6 +13,7 @@ type BlinkState = {
         callDisplay: CallDisplay | undefined | null,
         cpl: boolean | null,
         playbackPaused: boolean | null,
+        conferenceState: ConferenceState | null,
     ) => void;
     stopBlink: () => void;
 };
@@ -29,7 +31,7 @@ export const useBlinkStore = create<BlinkState>()((set, get) => ({
         };
         toggleBlink(true);
     },
-    tryStopBlink: (incomingCallsLength, callDisplay, cpl, playbackPaused) => {
+    tryStopBlink: (incomingCallsLength, callDisplay, cpl, playbackPaused, conferenceState) => {
         if (get().blinkTimeoutId === undefined) return;
 
         const effectiveCallsLength =
@@ -38,6 +40,7 @@ export const useBlinkStore = create<BlinkState>()((set, get) => ({
             callDisplay === null ? useCallStore.getState().callDisplay : callDisplay;
         const effectiveCpl = cpl ?? useRadioStore.getState().cpl;
         const effectivePlaybackPaused = playbackPaused ?? isPlaybackPaused();
+        const effectiveConferenceState = conferenceState ?? useCallStore.getState().conferenceState;
 
         if (
             !shouldStopBlinking(
@@ -45,6 +48,7 @@ export const useBlinkStore = create<BlinkState>()((set, get) => ({
                 effectiveCallDisplay,
                 effectiveCpl,
                 effectivePlaybackPaused,
+                effectiveConferenceState,
             )
         ) {
             return;
@@ -66,16 +70,21 @@ export const tryStopBlink: BlinkState["tryStopBlink"] = (
     callDisplay,
     cpl,
     playbackPaused,
-) => useBlinkStore.getState().tryStopBlink(incomingCallsLength, callDisplay, cpl, playbackPaused);
+    conferenceState,
+) =>
+    useBlinkStore
+        .getState()
+        .tryStopBlink(incomingCallsLength, callDisplay, cpl, playbackPaused, conferenceState);
 export const stopBlink = () => useBlinkStore.getState().stopBlink();
 export const syncBlink = () => {
-    const {incomingCalls, callDisplay} = useCallStore.getState();
+    const {incomingCalls, callDisplay, conferenceState} = useCallStore.getState();
     if (
         shouldStopBlinking(
             incomingCalls.length,
             callDisplay,
             useRadioStore.getState().cpl,
             isPlaybackPaused(),
+            conferenceState,
         )
     ) {
         useBlinkStore.getState().stopBlink();
@@ -84,20 +93,28 @@ export const syncBlink = () => {
     }
 };
 
-const shouldStopBlinking = (
+// A prio target blinks while it rings; once joined (or seeded as the caller of an accepted
+// prio call) it is merely marked.
+const prioTargetRinging = (callDisplay: CallDisplay) =>
+    callDisplay.prioTargets.some(target => hasTarget(callDisplay.call.invitedTargets, target));
+
+export const shouldStopBlinking = (
     incomingCallsLength: number,
     callDisplay: CallDisplay | undefined,
     cpl: boolean,
     playbackPaused: boolean,
+    conferenceState: ConferenceState,
 ) => {
     return (
         !cpl &&
         !playbackPaused &&
         incomingCallsLength === 0 &&
+        conferenceState !== "modify" &&
         (callDisplay === undefined ||
-            (callDisplay.type !== "rejected" &&
-                callDisplay.type !== "error" &&
-                callDisplay.type === "accepted") ||
-            (callDisplay.type === "outgoing" && !callDisplay.call.prio))
+            (!prioTargetRinging(callDisplay) &&
+                (callDisplay.type === "outgoing" ||
+                    (callDisplay.type === "accepted" &&
+                        callDisplay.rejectedTargets.length === 0 &&
+                        callDisplay.erroredTargets.length === 0))))
     );
 };

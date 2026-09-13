@@ -244,8 +244,9 @@ pub enum RemoteCommand {
 
     SignalingConnect,
     SignalingDisconnect,
+    SignalingDropTarget,
     SignalingTerminate,
-    SignalingStartCall,
+    SignalingInviteToCall,
     SignalingAcceptCall,
     SignalingEndCall,
     SignalingGetIgnoredClients,
@@ -294,8 +295,9 @@ pub enum RemoteEvent {
     SignalingAddIncomingToCallList,
     SignalingAmbiguousPosition,
     SignalingCallEnd,
-    SignalingCallInvite,
+    SignalingCallInvitation,
     SignalingCallReject,
+    SignalingCallUpdate,
     SignalingClientConnected,
     SignalingClientDisconnected,
     SignalingClientList,
@@ -304,7 +306,7 @@ pub enum RemoteEvent {
     SignalingConnected,
     SignalingDisconnected,
     SignalingForceCallEnd,
-    SignalingOutgoingCallAccepted,
+    SignalingOutgoingCall,
     SignalingReconnecting,
     SignalingStationChanges,
     SignalingStationList,
@@ -341,8 +343,9 @@ impl RemoteEvent {
         Self::SignalingAddIncomingToCallList,
         Self::SignalingAmbiguousPosition,
         Self::SignalingCallEnd,
-        Self::SignalingCallInvite,
+        Self::SignalingCallInvitation,
         Self::SignalingCallReject,
+        Self::SignalingCallUpdate,
         Self::SignalingClientConnected,
         Self::SignalingClientDisconnected,
         Self::SignalingClientList,
@@ -351,7 +354,7 @@ impl RemoteEvent {
         Self::SignalingConnected,
         Self::SignalingDisconnected,
         Self::SignalingForceCallEnd,
-        Self::SignalingOutgoingCallAccepted,
+        Self::SignalingOutgoingCall,
         Self::SignalingReconnecting,
         Self::SignalingStationChanges,
         Self::SignalingStationList,
@@ -388,8 +391,9 @@ impl RemoteEvent {
             Self::SignalingAddIncomingToCallList => "signaling:add-incoming-to-call-list",
             Self::SignalingAmbiguousPosition => "signaling:ambiguous-position",
             Self::SignalingCallEnd => "signaling:call-end",
-            Self::SignalingCallInvite => "signaling:call-invite",
+            Self::SignalingCallInvitation => "signaling:call-invitation",
             Self::SignalingCallReject => "signaling:call-reject",
+            Self::SignalingCallUpdate => "signaling:call-update",
             Self::SignalingClientConnected => "signaling:client-connected",
             Self::SignalingClientDisconnected => "signaling:client-disconnected",
             Self::SignalingClientList => "signaling:client-list",
@@ -398,7 +402,7 @@ impl RemoteEvent {
             Self::SignalingConnected => "signaling:connected",
             Self::SignalingDisconnected => "signaling:disconnected",
             Self::SignalingForceCallEnd => "signaling:force-call-end",
-            Self::SignalingOutgoingCallAccepted => "signaling:outgoing-call-accepted",
+            Self::SignalingOutgoingCall => "signaling:outgoing-call",
             Self::SignalingReconnecting => "signaling:reconnecting",
             Self::SignalingStationChanges => "signaling:station-changes",
             Self::SignalingStationList => "signaling:station-list",
@@ -504,5 +508,31 @@ impl ServerMessage {
                 .map(Utf8Bytes::from)
                 .map(ws::Message::Text),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn event_names_are_unique() {
+        // `as_str` is written by hand per variant; a duplicated name would make one
+        // of the two events unsubscribable.
+        let names: HashSet<&str> = RemoteEvent::ALL.iter().map(|e| e.as_str()).collect();
+        assert_eq!(names.len(), RemoteEvent::ALL.len());
+    }
+
+    #[test]
+    fn subscriptions_name_events_by_their_wire_name() {
+        let msg = r#"{"type":"subscribe","event":"signaling:call-invitation"}"#;
+        let parsed: ClientMessage = serde_json::from_str(msg).expect("subscribe parses");
+        assert!(matches!(
+            parsed,
+            ClientMessage::Subscribe {
+                event: RemoteEvent::SignalingCallInvitation
+            }
+        ));
     }
 }
