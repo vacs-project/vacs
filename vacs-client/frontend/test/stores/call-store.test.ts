@@ -314,6 +314,40 @@ describe("call store", () => {
             expect(display?.erroredTargets).toEqual([{target: STATION_2, reason: "callFailure"}]);
         });
 
+        it("marks a target rejected after a roster update already dropped it", () => {
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            useCallStore.getState().actions.rejectTargets(CALL_ID, [STATION_2]);
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("accepted");
+            expect(display?.rejectedTargets).toEqual([STATION_2]);
+        });
+
+        it("ignores a rejection naming a joined participant", () => {
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            useCallStore
+                .getState()
+                .actions.rejectTargets(CALL_ID, [{station: "station1" as StationId}]);
+
+            expect(useCallStore.getState().callDisplay?.rejectedTargets).toEqual([]);
+        });
+
+        it("marks a target errored after a roster update already dropped it", () => {
+            useCallStore.setState({callDisplay: acceptedDisplay([])});
+
+            useCallStore.getState().actions.errorTargets({
+                callId: CALL_ID,
+                origin: {type: "targets", value: [STATION_2]},
+                reason: "callFailure",
+            });
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("accepted");
+            expect(display?.erroredTargets).toEqual([{target: STATION_2, reason: "callFailure"}]);
+        });
+
         it("keeps annotations for targets that were not re-invited", () => {
             const display = acceptedDisplay([]);
             useCallStore.setState({
@@ -583,13 +617,15 @@ describe("call store", () => {
             expect(useCallStore.getState().callDisplay).toBe(display);
         });
 
-        it("ignores a rejection for targets that are not invited", () => {
-            const display = outgoingDisplay([STATION_1]);
-            useCallStore.setState({callDisplay: display});
+        it("annotates a rejection for a target the roster no longer lists", () => {
+            useCallStore.setState({callDisplay: outgoingDisplay([STATION_1])});
 
             useCallStore.getState().actions.rejectTargets(CALL_ID, [STATION_2]);
 
-            expect(useCallStore.getState().callDisplay).toBe(display);
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.type).toBe("outgoing");
+            expect(display?.call.invitedTargets).toEqual([STATION_1]);
+            expect(display?.rejectedTargets).toEqual([STATION_2]);
         });
     });
 
