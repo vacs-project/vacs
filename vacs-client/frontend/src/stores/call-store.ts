@@ -360,8 +360,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 return;
             }
 
-            const invitedTargets = callDisplay.call.invitedTargets;
-            targets = targets.filter(target => hasTarget(invitedTargets, target));
+            const joinedParticipants = callDisplay.call.joinedParticipants;
+            targets = targets.filter(target => !hasTarget(joinedParticipants, target));
 
             if (targets.length === 0) return;
 
@@ -453,8 +453,8 @@ export const useCallStore = create<CallState>()((set, get) => ({
                 if (error.origin.type === "targets") {
                     // A joined participant is only ever removed by a call update;
                     // an error naming it must not leave it in both lists.
-                    targets = error.origin.value.filter(target =>
-                        hasTarget(callDisplay.call.invitedTargets, target),
+                    targets = error.origin.value.filter(
+                        target => !hasTarget(callDisplay.call.joinedParticipants, target),
                     );
 
                     if (targets.length === 0) return;
