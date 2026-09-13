@@ -34,6 +34,10 @@ pub struct CallInvitation {
     pub prio: bool,
 }
 
+/// The roster of a call the recipient is part of, as the server holds it at
+/// the moment of delivery: replace the stored roster with it rather than
+/// merging. Consecutive updates may carry an identical roster and an update
+/// is not sent for every intermediate change, so apply them idempotently.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallUpdate {
