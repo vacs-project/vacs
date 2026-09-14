@@ -34,7 +34,7 @@ bytes = "1.11.1"
 chacha20poly1305 = "0.11.0"
 config = "0.15.23"
 cookie_store = "0.22.1"
-cpal = { version = "0.18.1", features = ["pipewire"] }
+cpal = { version = "0.18.2", features = ["pipewire"] }
 csv = "1.4.0"
 dashmap = "6.2.1"
 flate2 = "1.1.9"
@@ -153,12 +153,6 @@ wiremock = "0.6.5"
 # pipewire past 0.8.0. This branch is currently unreleased and relaxes the pin to "^0.3.2";
 # drop once upstream (aembke/redis-protocol.rs) publishes 6.1.0.
 redis-protocol = { git = "https://github.com/aembke/redis-protocol.rs", rev = "cdd4535155437d08171a68c9965963fc1092eeb6" }
-# cpal 0.18.1 rejects WASAPI output formats that IsFormatSupported only reports as
-# convertible (S_FALSE), breaking startup on multi-channel devices like SteelSeries Sonar.
-# Fixed upstream by https://github.com/RustAudio/cpal/pull/1275. This rev also carries
-# https://github.com/RustAudio/cpal/issues/1273, where WASAPI flagged every capture
-# stream's first buffer as an xrun. Drop once 0.18.2 is released.
-cpal = { git = "https://github.com/RustAudio/cpal", rev = "23ec3f74d0a05166e896feb7ad329e6c366a7f02" }
 # axum-login 0.18.0 depends on tower-sessions 0.14 and blocks our 0.15 bump. Upstream merged
 # https://github.com/maxcountryman/axum-login/pull/315 but has not published since; this fork is
 # 0.18.0 plus that PR. Drop once upstream releases a version containing it.

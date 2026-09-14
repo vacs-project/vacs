@@ -70,8 +70,7 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
     "https://github.com/MorpheusXAUT/axum-login",
     "https://github.com/maxcountryman/tower-sessions-stores",
-    "https://github.com/aembke/redis-protocol.rs",
-    "https://github.com/RustAudio/cpal"
+    "https://github.com/aembke/redis-protocol.rs"
 ]
 
 [sources.allow-org]
