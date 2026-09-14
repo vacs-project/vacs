@@ -154,9 +154,9 @@ wiremock = "0.6.5"
 # drop once upstream (aembke/redis-protocol.rs) publishes 6.1.0.
 redis-protocol = { git = "https://github.com/aembke/redis-protocol.rs", rev = "cdd4535155437d08171a68c9965963fc1092eeb6" }
 # axum-login 0.18.0 depends on tower-sessions 0.14 and blocks our 0.15 bump. Upstream merged
-# https://github.com/maxcountryman/axum-login/pull/315 but has not published since; this fork is
-# 0.18.0 plus that PR. Drop once upstream releases a version containing it.
-axum-login = { git = "https://github.com/MorpheusXAUT/axum-login", rev = "ce98c33e1fe6db4a11ece0afa307ba880ff033a5" }
+# https://github.com/maxcountryman/axum-login/pull/315 but has not published since; this rev is
+# upstream main with that PR. Drop once upstream releases a version containing it.
+axum-login = { git = "https://github.com/maxcountryman/axum-login", rev = "151c72d7a1b4646830f86b4332e6bd6e34d719a7" }
 # tower-sessions-redis-store 0.16.0 depends on tower-sessions-core 0.14 and blocks our
 # tower-sessions 0.15 bump. Upstream main carries the 0.15 support under the same, still
 # unpublished, 0.16.0 version number. Drop once a release newer than 0.16.0 is published.

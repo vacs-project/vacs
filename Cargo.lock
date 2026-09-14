@@ -583,7 +583,7 @@ dependencies = [
 [[package]]
 name = "axum-login"
 version = "0.18.0"
-source = "git+https://github.com/MorpheusXAUT/axum-login?rev=ce98c33e1fe6db4a11ece0afa307ba880ff033a5#ce98c33e1fe6db4a11ece0afa307ba880ff033a5"
+source = "git+https://github.com/maxcountryman/axum-login?rev=151c72d7a1b4646830f86b4332e6bd6e34d719a7#151c72d7a1b4646830f86b4332e6bd6e34d719a7"
 dependencies = [
  "axum",
  "form_urlencoded",

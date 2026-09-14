@@ -68,7 +68,7 @@ unknown-registry = "warn"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    "https://github.com/MorpheusXAUT/axum-login",
+    "https://github.com/maxcountryman/axum-login",
     "https://github.com/maxcountryman/tower-sessions-stores",
     "https://github.com/aembke/redis-protocol.rs"
 ]
