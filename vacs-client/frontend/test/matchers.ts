@@ -24,10 +24,7 @@ export const matchers = {
 expect.extend(matchers);
 
 declare module "vitest" {
-    interface Assertion<T> {
-        toHaveClasses(classes: string): T;
-    }
-    interface AsymmetricMatchersContaining {
-        toHaveClasses(classes: string): Element;
+    interface Matchers<R, T> {
+        toHaveClasses(classes: string): R;
     }
 }
