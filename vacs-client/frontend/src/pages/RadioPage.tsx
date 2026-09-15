@@ -1,25 +1,58 @@
 import FrequencyObject from "../components/radio/FrequencyObject.tsx";
 import {useEffect, useState} from "preact/hooks";
 import {invokeSafe} from "../error.ts";
-import {RadioStation} from "../types/radio.ts";
+import {RadioState, RadioStation} from "../types/radio.ts";
 import {listen, UnlistenFn} from "../transport";
 import AddRadioStation from "../components/radio/AddRadioStation.tsx";
 import {sortCallsigns} from "../types/client.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
 import {setPage} from "../stores/navigation-store.ts";
+import {useSettingsStore} from "../stores/settings-store.ts";
 
 function RadioPage() {
-    const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
     const radioState = useRadioStore(state => state.radioState);
+
+    const radioIsTrackAudio = useSettingsStore(
+        state => state.radioConfig?.integration === "TrackAudio",
+    );
 
     useEffect(() => {
         if (
-            radioState?.state !== undefined &&
-            (radioState.state === "NotConfigured" || radioState.state === "Disconnected")
+            !radioIsTrackAudio ||
+            radioState?.state === undefined ||
+            radioState?.state === "NotConfigured"
         ) {
-            setPage("phone");
+            setPage("phone"); // TODO: this might change (if radio is not trackaudio but view is split, then this might do something unintended; what should it do? fullscreen phone page prbly)
         }
     }, [radioState?.state]);
+
+    const radioConnected =
+        radioState?.state !== "NotConfigured" && radioState?.state !== "Disconnected";
+
+    return radioIsTrackAudio ? (
+        radioConnected ? (
+            <RadioPageInner radioState={radioState} />
+        ) : (
+            <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600">
+                <p>No TrackAudio radio connection.</p>
+                <p
+                    className="text-blue-700 cursor-pointer"
+                    onClick={() => {
+                        void invokeSafe("audio_play_ui_click");
+                        void invokeSafe("radio_reconnect");
+                    }}
+                >
+                    Retry
+                </p>
+            </div>
+        )
+    ) : (
+        <></>
+    );
+}
+
+function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
+    const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
 
     useEffect(() => {
         const fetch = async () => {

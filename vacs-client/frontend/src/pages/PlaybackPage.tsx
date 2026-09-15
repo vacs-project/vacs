@@ -21,7 +21,7 @@ function PlaybackPage() {
     const capPlayback = useCapabilitiesStore(state => state.playback);
     const capPlatform = useCapabilitiesStore(state => state.platform);
 
-    const radioEnabled = useSettingsStore(state => state.radioConfig?.integration != null);
+    const radioEnabled = useSettingsStore(state => state.radioConfig?.integration !== null);
 
     const playbackEnabled = useSettingsStore(state => state.playbackEnabled);
 
