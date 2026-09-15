@@ -15,7 +15,7 @@ function MissionPage() {
     const isProfileSet = useProfileStore(state => state.profile !== undefined);
 
     return (
-        <div className="z-10 absolute h-[calc(100%+5rem+5rem+3px-0.5rem)] w-[calc(100%+3px)] translate-y-[calc(-4.75rem-1px)] -translate-x-px bg-blue-700 border-t-0 px-2 pb-2 flex flex-col overflow-auto rounded">
+        <div className="z-10 absolute h-[calc(100%+5rem+5rem-0.5rem)] w-full translate-y-[calc(-4.75rem)] bg-blue-700 border-t-0 px-2 pb-2 flex flex-col overflow-auto rounded">
             <p className="w-full text-white bg-blue-700 font-semibold text-center">Mission</p>
             <div className="relative flex-1 min-h-0 flex flex-col rounded-b-sm bg-[#B5BBC6] ">
                 <div className="relative w-full flex-1 min-h-0 flex justify-center py-3 px-2 items-center">

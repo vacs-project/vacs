@@ -71,7 +71,7 @@ function App() {
                 <FunctionKeys />
                 <div className="flex flex-row w-full h-[calc(100%-10rem)] pl-1">
                     {/* Main Area */}
-                    <div className="relative h-full w-[calc(100%-6rem)] bg-[#B5BBC6] border-l border-t border-r-2 border-b-2 border-gray-700 rounded-sm flex flex-row">
+                    <div className="relative h-full w-[calc(100%-6rem)] shrink-0 rounded-sm flex flex-row">
                         <Router />
                     </div>
                     {/* Right Button Row */}

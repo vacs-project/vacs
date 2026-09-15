@@ -5,6 +5,7 @@ import TelephonePage from "./TelephonePage.tsx";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 import PlaybackPage from "./PlaybackPage.tsx";
+import {ComponentChildren} from "preact";
 
 function Router() {
     const page = useNavigationStore(state => state.page);
@@ -25,8 +26,25 @@ function Router() {
             ) : (
                 <></>
             )}
-            {!hidePage && (page === "phone" ? <PhonePage /> : <RadioPage />)}
+            {!hidePage &&
+                (page === "phone" ? (
+                    <MainWrap>
+                        <PhonePage />
+                    </MainWrap>
+                ) : (
+                    <MainWrap>
+                        <RadioPage />
+                    </MainWrap>
+                ))}
         </>
+    );
+}
+
+function MainWrap({children}: {children: ComponentChildren}) {
+    return (
+        <div className="relative h-full flex-1 min-w-0 bg-[#B5BBC6] border-l border-t border-r-2 border-b-2 border-gray-700 rounded-sm flex flex-row">
+            {children}
+        </div>
     );
 }
 
