@@ -5,7 +5,12 @@ use crate::transport::tokio::TokioTransport;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
-use vacs_server::test_utils::TestApp;
+use vacs_server::test_utils::TestEnv;
+
+/// Base CID for default test users. User N gets CID `DEFAULT_CID_BASE + N`
+/// (i.e. 1000001, 1000002, ...). Must match the value used by
+/// [`TestEnv::default_users`].
+const DEFAULT_CID_BASE: u32 = 1_000_000;
 
 pub struct TestRigClient {
     pub client: SignalingClient<TokioTransport, MockTokenProvider>,
@@ -36,20 +41,28 @@ impl TestRigClient {
 }
 
 pub struct TestRig {
-    server: TestApp,
+    env: TestEnv,
     clients: Vec<TestRigClient>,
     shutdown_token: CancellationToken,
 }
 
 impl TestRig {
     pub async fn new(num_clients: usize) -> Self {
-        let server = TestApp::new().await;
+        let env = TestEnv::builder()
+            .default_users(num_clients + 5)
+            .build()
+            .await;
         let shutdown_token = CancellationToken::new();
 
         let mut clients = Vec::with_capacity(num_clients);
         for i in 0..num_clients {
-            let transport = TokioTransport::new(server.addr());
-            let token_provider = MockTokenProvider::new(i, None);
+            let cid = format!("{}", DEFAULT_CID_BASE + 1 + i as u32);
+            let token = env
+                .ws_token_for(cid.as_str())
+                .await
+                .expect("Failed to get WS token");
+            let transport = TokioTransport::new(env.ws_url());
+            let token_provider = MockTokenProvider::with_token(token, None);
 
             let client = SignalingClient::new(
                 transport,
@@ -76,14 +89,14 @@ impl TestRig {
         }
 
         Self {
-            server,
+            env,
             clients,
             shutdown_token,
         }
     }
 
-    pub fn server(&self) -> &TestApp {
-        &self.server
+    pub fn env(&self) -> &TestEnv {
+        &self.env
     }
 
     pub fn client(&self, index: usize) -> &TestRigClient {
