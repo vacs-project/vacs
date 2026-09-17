@@ -188,6 +188,25 @@ export function clearPersistedAppState(): void {
     rmSync(path.join(APP_DATA_DIR, ".cookies.bak"), {force: true});
 }
 
+/**
+ * Removes the archived log files of the E2E bundle identifier. Every instance
+ * logs into that one directory under one file name, and tauri-plugin-log's
+ * KeepSome rotation deletes the surplus archives at plugin init: with a full
+ * archive set, instances booting in parallel enumerate the same files and the
+ * loser of a `remove_file` race takes an ENOENT, which fails plugin
+ * initialization and panics the app before it ever serves WebDriver. Starting
+ * a run with an empty archive set keeps that path from running at all.
+ * Launcher-side, from onPrepare, before the service spawns anything.
+ */
+export function clearAppLogs(): void {
+    // Tauri's log dir is the data dir's `logs` everywhere except macOS.
+    const logDir =
+        process.platform === "darwin"
+            ? path.join(os.homedir(), "Library", "Logs", E2E_IDENTIFIER)
+            : path.join(APP_DATA_DIR, "logs");
+    rmSync(logDir, {force: true, recursive: true});
+}
+
 /** Kills every pid recorded in the pid file. Launcher-side (onPrepare/onComplete). */
 export function reapRecordedApps(): void {
     if (existsSync(PID_FILE)) {

@@ -1,20 +1,18 @@
-import path from "node:path";
-import {fileURLToPath} from "node:url";
 import {config as baseConfig} from "./wdio.conf.ts";
 import {clearAppLogs, configureInstances} from "./helpers/app-control.ts";
-
-const __dirname = fileURLToPath(new URL(".", import.meta.url));
-
-// App instances inherit this environment, and the settings page images show
-// the device selects, so the mock backend gets presentable device names here
-// rather than the defaults the behavioral suite asserts on.
-process.env.VACS_MOCK_AUDIO_CONFIG = path.resolve(__dirname, "fixtures", "mock-audio-docs.toml");
 
 // Embedded WebDriver ports, continuing the main config's scheme (the service
 // assigns base + i per multiremote instance, so the third instance lands on
 // 4452). Sharing the base with wdio.conf.ts is safe: the configs never run at
 // the same time, and onPrepare reaps every recorded app process first.
 const EMBEDDED_PORT_BASE = 4450;
+
+// The server's default limit is 8, which three app instances plus a raw
+// signaling client cannot reach. Set here rather than in wdio.conf.ts so only
+// the conference suite runs against it, and at module scope because the
+// worker loads this config before beforeSession spawns vacs-server with the
+// environment it inherits.
+process.env["VACS-CALL-MAX_CONF_SIZE"] = "3";
 
 configureInstances([
     {name: "clientA", port: EMBEDDED_PORT_BASE},
@@ -36,27 +34,19 @@ function appCapability(): InstanceCapability {
 }
 
 /**
- * Documentation screenshot run.
- *
- * Same servers and mock VATSIM backend as the regular suite (importing
- * wdio.conf.ts also registers its process cleanup); only the spec directory
- * and the instance count differ. Three instances, because the conference
- * images need a three-way call between real clients. Kept out of `npm test`
- * because these specs produce artifacts rather than assert behavior.
- *
- * Images land in e2e/screenshots/, or in VACS_SCREENSHOT_DIR when set.
+ * Runs the conference specs with three real app instances. Everything else
+ * (build, mock VATSIM, vacs-server, app process isolation) comes from the
+ * main config; only the instance count and the spec directory differ, so the
+ * two-instance suite keeps its own tuned lifecycle.
  */
 export const config: WebdriverIO.MultiremoteConfig = {
     ...baseConfig,
-    specs: ["./specs-docs/**/*.ts"],
+    specs: ["./specs-conference/**/*.ts"],
     capabilities: {
         clientA: appCapability(),
         clientB: appCapability(),
         clientC: appCapability(),
     } as WebdriverIO.MultiremoteConfig["capabilities"],
-    // A retry would re-capture and overwrite; a failed capture should be
-    // looked at rather than silently repeated.
-    specFileRetries: 0,
 
     onPrepare(...args) {
         // Three instances boot in parallel per test, which makes the shared
