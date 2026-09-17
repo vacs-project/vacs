@@ -1,8 +1,7 @@
 import {clsx} from "clsx";
-import {invokeStrict} from "../../error.ts";
 import {goToPage} from "../../stores/navigation-store.ts";
 import {useProfileType} from "../../stores/profile-store.ts";
-import {useRadioStore} from "../../stores/radio-store.ts";
+import {retryRadioConnection, useRadioStore} from "../../stores/radio-store.ts";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import Button from "./Button.tsx";
 
@@ -41,9 +40,7 @@ function RadioButton() {
             goToPage("radio");
         }
 
-        if (radioState === "Disconnected" || radioState === "Error") {
-            void invokeStrict("radio_reconnect");
-        }
+        retryRadioConnection();
     };
 
     return (

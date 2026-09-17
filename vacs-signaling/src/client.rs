@@ -895,6 +895,7 @@ mod tests {
                     },
                     profile: SessionProfile::Changed(ActiveProfile::Specific(Profile {
                         id: vacs_protocol::profile::ProfileId::from("1"),
+                        view: vacs_protocol::profile::ProfileView::Page,
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
@@ -1547,6 +1548,7 @@ mod tests {
                     },
                     profile: SessionProfile::Changed(ActiveProfile::Specific(Profile {
                         id: vacs_protocol::profile::ProfileId::from("1"),
+                        view: vacs_protocol::profile::ProfileView::Page,
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),
@@ -1638,6 +1640,7 @@ mod tests {
                     },
                     profile: SessionProfile::Changed(ActiveProfile::Specific(Profile {
                         id: vacs_protocol::profile::ProfileId::from("1"),
+                        view: vacs_protocol::profile::ProfileView::Page,
                         profile_type: vacs_protocol::profile::ProfileType::Tabbed(vec![]),
                     })),
                     default_call_sources: Vec::new(),

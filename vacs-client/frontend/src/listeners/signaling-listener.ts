@@ -4,7 +4,7 @@ import {useClientsStore} from "../stores/clients-store.ts";
 import {useConnectionStore} from "../stores/connection-store.ts";
 import {useErrorOverlayStore} from "../stores/error-overlay-store.ts";
 import {useFilterStore} from "../stores/filter-store.ts";
-import {goToPage} from "../stores/navigation-store.ts";
+import {closeMenu, goToPage} from "../stores/navigation-store.ts";
 import {useProfileStore} from "../stores/profile-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
@@ -67,6 +67,7 @@ export function setupSignalingListeners() {
                 resetStationsStore();
                 resetCallStore();
                 clearCallList();
+                goToPage("phone");
                 resetProfileStore();
                 setFilter("");
             }),
@@ -127,7 +128,7 @@ export function setupSignalingListeners() {
                 setConnectionState("test");
                 resetProfileStore(false);
                 setProfile(event.payload);
-                goToPage("phone");
+                closeMenu();
             }),
             listen<ClientPageSettings>("signaling:client-page-config", event => {
                 setClientPageSettings(event.payload);

@@ -6,6 +6,7 @@ import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 import PlaybackPage from "./PlaybackPage.tsx";
 import {ComponentChildren} from "preact";
+import clsx from "clsx";
 
 function Router() {
     const page = useNavigationStore(state => state.page);
@@ -27,7 +28,17 @@ function Router() {
                 <></>
             )}
             {!hidePage &&
-                (page === "phone" ? (
+                (page === "split" ? (
+                    <>
+                        <MainWrap>
+                            <RadioPage />
+                        </MainWrap>
+                        {/* TODO: Update 6.25rem to correct DA key width */}
+                        <MainWrap width="calc(6.25rem * 4 + 2.5rem + 3px)">
+                            <PhonePage />
+                        </MainWrap>
+                    </>
+                ) : page === "phone" ? (
                     <MainWrap>
                         <PhonePage />
                     </MainWrap>
@@ -40,9 +51,15 @@ function Router() {
     );
 }
 
-function MainWrap({children}: {children: ComponentChildren}) {
+function MainWrap({children, width}: {children: ComponentChildren; width?: string}) {
     return (
-        <div className="relative h-full flex-1 min-w-0 bg-[#B5BBC6] border-l border-t border-r-2 border-b-2 border-gray-700 rounded-sm flex flex-row">
+        <div
+            className={clsx(
+                "relative h-full shrink-0 bg-[#B5BBC6] border-l border-t border-r-2 border-b-2 border-gray-700 rounded-sm flex flex-row",
+                width === undefined && "flex-1 min-w-0",
+            )}
+            style={{width: width}}
+        >
             {children}
         </div>
     );

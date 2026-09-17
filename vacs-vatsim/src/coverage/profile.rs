@@ -10,13 +10,14 @@ use vacs_protocol::profile::geo::{
 use vacs_protocol::profile::tabbed::Tab;
 use vacs_protocol::profile::{
     CustomButtonColor, DirectAccessKey, DirectAccessPage, DirectAccessPageContent,
-    Profile as ProtocolProfile, ProfileId, ProfileType,
+    Profile as ProtocolProfile, ProfileId, ProfileType, ProfileView,
 };
 use vacs_protocol::vatsim::StationId;
 
 #[derive(Clone)]
 pub struct Profile {
     pub id: ProfileId,
+    pub view: ProfileView,
     pub profile_type: ProfileType,
     pub relevant_station_ids: HashSet<StationId>,
 }
@@ -24,6 +25,8 @@ pub struct Profile {
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct ProfileRaw {
     pub id: ProfileId,
+    #[serde(default)]
+    pub view: ProfileView,
     #[serde(flatten)]
     pub profile_type: ProfileTypeRaw,
 }
@@ -192,7 +195,7 @@ impl FromRaw<ProfileRaw> for Profile {
 
         let profile_type = match profile_raw.profile_type {
             ProfileTypeRaw::Geo(container) => {
-                ProfileType::Geo(GeoPageContainer::from_raw(container)?)
+                ProfileType::Geo(Box::new(GeoPageContainer::from_raw(container)?))
             }
             ProfileTypeRaw::Tabbed { tabs } => ProfileType::Tabbed(
                 tabs.into_iter()
@@ -206,6 +209,7 @@ impl FromRaw<ProfileRaw> for Profile {
 
         Ok(Self {
             id: profile_raw.id,
+            view: profile_raw.view,
             profile_type,
             relevant_station_ids,
         })
@@ -216,6 +220,7 @@ impl From<&Profile> for ProtocolProfile {
     fn from(profile: &Profile) -> Self {
         Self {
             id: profile.id.clone(),
+            view: profile.view,
             profile_type: profile.profile_type.clone(),
         }
     }
@@ -527,6 +532,16 @@ impl Validator for ProfileRaw {
             }
             .into());
         }
+
+        if matches!(self.profile_type, ProfileTypeRaw::Geo(..)) && self.view != ProfileView::Page {
+            return Err(ValidationError::InvalidValue {
+                field: "view".to_string(),
+                value: self.view.to_string(),
+                reason: "geo profiles only support the page view".to_string(),
+            }
+            .into());
+        }
+
         self.profile_type.validate()?;
         Ok(())
     }
@@ -890,6 +905,7 @@ mod tests {
     fn profile_raw_validation() {
         let valid_geo = ProfileRaw {
             id: ProfileId::from("geo"),
+            view: ProfileView::Page,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -915,12 +931,40 @@ mod tests {
 
         let empty_id = ProfileRaw {
             id: ProfileId::from(""),
+            view: ProfileView::Page,
             profile_type: valid_geo.profile_type.clone(),
         };
         assert_matches!(
             empty_id.validate(),
             Err(CoverageError::Validation(ValidationError::Empty { field })) if field == "id"
         );
+
+        for view in [ProfileView::Split, ProfileView::Cycle] {
+            let geo_with_split_view = ProfileRaw {
+                id: ProfileId::from("geo"),
+                view,
+                profile_type: valid_geo.profile_type.clone(),
+            };
+            assert_matches!(
+                geo_with_split_view.validate(),
+                Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. })) if field == "view"
+            );
+        }
+
+        let tabbed_with_split_view = ProfileRaw {
+            id: ProfileId::from("tabbed"),
+            view: ProfileView::Split,
+            profile_type: ProfileTypeRaw::Tabbed {
+                tabs: vec![TabRaw {
+                    label: vec!["tab1".to_string()],
+                    page: DirectAccessPageRaw {
+                        rows: 1,
+                        content: DirectAccessPageContentRaw::Keys { keys: vec![] },
+                    },
+                }],
+            },
+        };
+        assert!(tabbed_with_split_view.validate().is_ok());
     }
 
     #[test]
@@ -1146,6 +1190,7 @@ mod tests {
     fn profile_relevant_stations() {
         let raw = ProfileRaw {
             id: ProfileId::from("test"),
+            view: ProfileView::Page,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -1224,6 +1269,7 @@ mod tests {
 
         let raw = ProfileRaw {
             id: ProfileId::from("test"),
+            view: ProfileView::Page,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -1260,6 +1306,7 @@ mod tests {
 
         let raw_missing = ProfileRaw {
             id: ProfileId::from("test3"),
+            view: ProfileView::Page,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -1300,6 +1347,7 @@ mod tests {
 
         let raw_none = ProfileRaw {
             id: ProfileId::from("test4"),
+            view: ProfileView::Page,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,

@@ -1,6 +1,6 @@
 import {create} from "zustand/react";
 
-type Page = "phone" | "radio";
+type Page = "phone" | "radio" | "split";
 export type Menu = "settings" | "mission" | "telephone" | "playback";
 
 type SettingsSubmenu =

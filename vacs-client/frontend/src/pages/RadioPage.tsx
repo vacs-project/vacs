@@ -6,7 +6,6 @@ import {listen, UnlistenFn} from "../transport";
 import AddRadioStation from "../components/radio/AddRadioStation.tsx";
 import {sortCallsigns} from "../types/client.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
-import {setPage} from "../stores/navigation-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 
 function RadioPage() {
@@ -15,16 +14,6 @@ function RadioPage() {
     const radioIsTrackAudio = useSettingsStore(
         state => state.radioConfig?.integration === "TrackAudio",
     );
-
-    useEffect(() => {
-        if (
-            !radioIsTrackAudio ||
-            radioState?.state === undefined ||
-            radioState?.state === "NotConfigured"
-        ) {
-            setPage("phone"); // TODO: this might change (if radio is not trackaudio but view is split, then this might do something unintended; what should it do? fullscreen phone page prbly)
-        }
-    }, [radioState?.state]);
 
     const radioConnected =
         radioState?.state !== "NotConfigured" && radioState?.state !== "Disconnected";

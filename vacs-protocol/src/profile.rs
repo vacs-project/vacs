@@ -19,9 +19,44 @@ pub struct Profile {
     /// The unique identifier for this profile.
     pub id: ProfileId,
 
+    /// How the client arranges the radio and phone pages in its main area.
+    ///
+    /// Only [`ProfileType::Tabbed`] profiles support a view other than [`ProfileView::Page`].
+    pub view: ProfileView,
+
     /// The type of profile and its associated configuration.
     #[serde(flatten)]
     pub profile_type: ProfileType,
+}
+
+/// The layout the client uses for the radio and phone pages.
+///
+/// The variant also determines which controls appear in the bottom button row
+/// for switching between those pages.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfileView {
+    /// The radio and phone pages each occupy the whole main area.
+    ///
+    /// The bottom button row contains a dedicated `Radio` and `Phone` button,
+    /// each switching the main area to the respective page. This is the only
+    /// view available to [`ProfileType::Geo`] profiles.
+    #[default]
+    Page,
+
+    /// The radio page and the phone page are shown next to each other.
+    ///
+    /// The bottom button row contains a `Phone` and a `Radio` tab: `Phone`
+    /// shows the phone page across the whole main area, `Radio` shows the radio
+    /// page with the phone page's direct access keys next to it.
+    Split,
+
+    /// Like [`ProfileView::Split`], but reachable through a single button.
+    ///
+    /// Instead of a tab per page, the bottom button row contains one `Page`
+    /// button that cycles through radio only (`R`), phone only (`P`) and the
+    /// mixed side-by-side layout (`M`), indicating the current one.
+    Cycle,
 }
 
 /// The specific configuration type of a profile.
@@ -29,7 +64,7 @@ pub struct Profile {
 #[serde(rename_all = "camelCase")]
 pub enum ProfileType {
     /// A GEO profile with a container-based layout.
-    Geo(GeoPageContainer),
+    Geo(Box<GeoPageContainer>),
 
     /// A tabbed profile with pages accessible via tabs.
     ///
@@ -238,7 +273,25 @@ impl std::borrow::Borrow<String> for ProfileId {
 
 impl std::fmt::Display for Profile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Profile({}, {})", self.id, self.profile_type)
+        write!(
+            f,
+            "Profile({}, {}, {})",
+            self.id, self.view, self.profile_type
+        )
+    }
+}
+
+impl std::fmt::Display for ProfileView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ProfileView::Page => "Page",
+                ProfileView::Split => "Split",
+                ProfileView::Cycle => "Cycle",
+            }
+        )
     }
 }
 
