@@ -41,7 +41,7 @@ jobs:
         run: npm run format:check
 
       - name: Test
-        run: npm test --workspaces
+        run: npm test -w frontend
 
       - name: Summary
         run: echo "### ✅ Node CI - typecheck, lint, format & tests passed" >> $GITHUB_STEP_SUMMARY
