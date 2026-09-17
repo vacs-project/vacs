@@ -252,8 +252,10 @@ export const config: WebdriverIO.MultiremoteConfig = {
 
 function spawnVacsServer(): ChildProcess {
     const serverBin = path.resolve(VACS_ROOT, "target", "debug", `vacs-server${BINARY_EXT}`);
+    // The server reads config.toml from its cwd, and a checkout's gitignored dev
+    // config would otherwise reach the e2e server (policy, ICE provider, secrets).
     const proc = spawn(serverBin, [], {
-        cwd: VACS_ROOT,
+        cwd: __dirname,
         stdio: ["ignore", process.stdout, process.stderr],
         env: {
             ...process.env,
