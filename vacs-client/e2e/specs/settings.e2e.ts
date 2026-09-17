@@ -1,3 +1,4 @@
+import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {click, getClient, selectOption} from "../helpers/browser.ts";
 
@@ -12,7 +13,7 @@ async function openSettings(browser: WebdriverIO.Browser): Promise<void> {
 describe("Settings", () => {
     beforeEach(async () => {
         await resetMockState();
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
 
         await loginAndConnect(getClient("clientA"), CID_A);
     });
