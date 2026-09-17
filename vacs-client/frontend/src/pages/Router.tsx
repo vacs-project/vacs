@@ -33,8 +33,7 @@ function Router() {
                         <MainWrap>
                             <RadioPage />
                         </MainWrap>
-                        {/* TODO: Update 6.25rem to correct DA key width */}
-                        <MainWrap width="calc(6.25rem * 4 + 2.5rem + 3px)">
+                        <MainWrap width="calc(5.5rem * 4 + 2rem + 3px)">
                             <PhonePage />
                         </MainWrap>
                     </>

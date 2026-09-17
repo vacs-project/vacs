@@ -3,6 +3,7 @@ import Button from "./Button.tsx";
 import {clsx} from "clsx";
 import ButtonLabel from "./ButtonLabel.tsx";
 import {useStationKeyInteraction} from "../../hooks/station-key-interaction-hook.ts";
+import {useDaKeyWidth} from "../../hooks/da-key-width-hook.ts";
 
 type DirectAccessStationKeyProps = {
     data: DirectAccessKey;
@@ -17,6 +18,7 @@ function DirectAccessStationKey({
         stationId,
         defaultColor,
     );
+    const width = useDaKeyWidth();
 
     return (
         <Button
@@ -29,6 +31,7 @@ function DirectAccessStationKey({
                 (own || stationId === undefined) && "text-gray-500",
                 color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
             )}
+            style={{width: width}}
             onClick={handleClick}
         >
             <ButtonLabel label={label} />

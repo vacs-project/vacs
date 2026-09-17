@@ -7,6 +7,7 @@ import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
 import {useBlinkStore} from "../../stores/blink-store.ts";
+import {useDaKeyWidth} from "../../hooks/da-key-width-hook.ts";
 
 type DAKeyProps = {
     client: ClientInfo;
@@ -19,6 +20,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     const incomingCalls = useCallStore(state => state.incomingCalls);
     const {endCall, dismissRejectedCall, dismissErrorCall} = useCallStore(state => state.actions);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
+    const daKeyWidth = useDaKeyWidth();
 
     const incomingCall = incomingCalls.find(call => call.source.clientId === client.id);
     const isCalling = incomingCall !== undefined;
@@ -74,9 +76,10 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
         <Button
             color={color}
             className={clsx(
-                "w-25 h-full rounded leading-4.5!",
+                "h-full rounded leading-4.5!",
                 color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
             )}
+            style={{width: daKeyWidth}}
             highlight={highlight}
             onClick={handleClick}
         >
