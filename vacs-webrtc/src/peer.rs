@@ -45,12 +45,14 @@ pub enum PeerEvent {
 }
 
 pub struct Peer {
-    peer_connection: RTCPeerConnection,
+    peer_connection: Arc<RTCPeerConnection>,
+    closed: bool,
     track: Arc<TrackLocalStaticSample>,
     sender: Option<crate::Sender>,
     receiver: Option<crate::Receiver>,
     events_tx: broadcast::Sender<PeerEvent>,
     received_rtp: Arc<AtomicU64>,
+    forwarded_rtp: Arc<AtomicU64>,
     received_rtcp: Arc<AtomicU64>,
     sent_frames: Arc<AtomicU64>,
     rtcp_reader: JoinHandle<()>,
@@ -81,10 +83,11 @@ impl Peer {
             tracing::info!("Forcing relayed (TURN) connection for peer");
         }
 
-        let peer_connection = api
-            .new_peer_connection(rtc_configuration(config, force_relay))
-            .await
-            .context("Failed to create peer connection")?;
+        let peer_connection = Arc::new(
+            api.new_peer_connection(rtc_configuration(config, force_relay))
+                .await
+                .context("Failed to create peer connection")?,
+        );
 
         let track = Arc::new(TrackLocalStaticSample::new(
             RTCRtpCodecCapability {
@@ -103,6 +106,7 @@ impl Peer {
             .context("Failed to add track to peer connection")?;
 
         let received_rtp = Arc::new(AtomicU64::new(0));
+        let forwarded_rtp = Arc::new(AtomicU64::new(0));
         let received_rtcp = Arc::new(AtomicU64::new(0));
         let sent_frames = Arc::new(AtomicU64::new(0));
 
@@ -122,7 +126,10 @@ impl Peer {
 
         {
             let events_tx = events_tx.clone();
-            let dtls_transport = peer_connection.sctp().transport();
+            // Weak, because the handler is owned by the peer connection: a
+            // strong Arc into the transport graph forms a cycle that keeps the
+            // ICE candidate sockets alive after close.
+            let dtls_transport = Arc::downgrade(&peer_connection.sctp().transport());
             peer_connection.on_peer_connection_state_change(Box::new(
                 move |state: RTCPeerConnectionState| {
                     tracing::trace!(?state, "Peer connection state changed");
@@ -130,9 +137,12 @@ impl Peer {
                         tracing::warn!(?err, "Failed to send peer connection state event");
                     }
 
-                    let dtls_transport = Arc::clone(&dtls_transport);
+                    let dtls_transport = dtls_transport.clone();
                     Box::pin(async move {
                         if state == RTCPeerConnectionState::Connected {
+                            let Some(dtls_transport) = dtls_transport.upgrade() else {
+                                return;
+                            };
                             match dtls_transport
                                 .ice_transport()
                                 .get_selected_candidate_pair()
@@ -194,11 +204,13 @@ impl Peer {
         Ok((
             Self {
                 peer_connection,
+                closed: false,
                 track,
                 sender: None,
                 receiver: None,
                 events_tx,
                 received_rtp,
+                forwarded_rtp,
                 received_rtcp,
                 sent_frames,
                 rtcp_reader,
@@ -211,7 +223,7 @@ impl Peer {
     #[instrument(level = "debug", skip_all, err)]
     pub fn start(
         &mut self,
-        input_rx: mpsc::Receiver<EncodedAudioFrame>,
+        input_rx: broadcast::Receiver<EncodedAudioFrame>,
         output_tx: mpsc::Sender<EncodedAudioFrame>,
     ) -> Result<(), WebrtcError> {
         tracing::debug!("Starting peer");
@@ -229,6 +241,7 @@ impl Peer {
                 &self.peer_connection,
                 output_tx,
                 Arc::clone(&self.received_rtp),
+                Arc::clone(&self.forwarded_rtp),
             ));
         }
 
@@ -248,6 +261,7 @@ impl Peer {
     /// inbound counters stall for [`NO_INBOUND_MEDIA_TIMEOUT`] while the peer is started.
     fn spawn_media_watchdog(&self) -> JoinHandle<()> {
         let received_rtp = Arc::clone(&self.received_rtp);
+        let forwarded_rtp = Arc::clone(&self.forwarded_rtp);
         let received_rtcp = Arc::clone(&self.received_rtcp);
         let sent_frames = Arc::clone(&self.sent_frames);
         let events_tx = self.events_tx.clone();
@@ -291,6 +305,7 @@ impl Peer {
                 if ticks.is_multiple_of(MEDIA_STATS_LOG_INTERVAL_TICKS) {
                     tracing::debug!(
                         inbound_rtp = inbound.0,
+                        forwarded_rtp = forwarded_rtp.load(Ordering::Relaxed),
                         inbound_rtcp = inbound.1,
                         outbound_frames = sent_frames.load(Ordering::Relaxed),
                         "Call media stats"
@@ -300,18 +315,26 @@ impl Peer {
         })
     }
 
+    /// Pauses the peer: signals the sender task to stop and drops inbound frames.
+    ///
+    /// Returns the taken [`Sender`] so the caller can await the sender task's shutdown
+    /// outside of any lock; the input subscription is only released once that join
+    /// completes.
+    #[must_use = "join the returned Sender's task; dropping it keeps the input subscription alive"]
     #[instrument(level = "debug", skip_all)]
-    pub fn pause(&mut self) {
+    pub fn pause(&mut self) -> Option<crate::Sender> {
         tracing::debug!("Pausing peer");
         if let Some(watchdog) = self.watchdog.take() {
             watchdog.abort();
         }
-        if let Some(sender) = self.sender.take() {
+        let sender = self.sender.take();
+        if let Some(sender) = &sender {
             sender.shutdown();
         }
         if let Some(receiver) = self.receiver.as_mut() {
             receiver.pause();
         }
+        sender
     }
 
     #[instrument(level = "debug", skip(self), err)]
@@ -339,6 +362,7 @@ impl Peer {
         self.stop().await.context("Failed to stop peer")?;
 
         tracing::trace!("Closing peer connection");
+        self.closed = true;
         self.peer_connection
             .close()
             .await
@@ -454,6 +478,27 @@ impl Drop for Peer {
             watchdog.abort();
         }
         self.rtcp_reader.abort();
+
+        // RTCPeerConnection has no Drop of its own: without an explicit
+        // close, the ICE agent, DTLS transport and bound UDP sockets outlive
+        // the peer for the rest of the process.
+        if !self.closed {
+            let peer_connection = Arc::clone(&self.peer_connection);
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(async move {
+                        if let Err(err) = peer_connection.close().await {
+                            tracing::warn!(?err, "Failed to close dropped peer connection");
+                        }
+                    });
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "Peer dropped outside a tokio runtime, leaking the peer connection"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -491,12 +536,12 @@ mod tests {
     }
 
     fn test_channels() -> (
-        mpsc::Sender<EncodedAudioFrame>,
-        mpsc::Receiver<EncodedAudioFrame>,
+        broadcast::Sender<EncodedAudioFrame>,
+        broadcast::Receiver<EncodedAudioFrame>,
         mpsc::Sender<EncodedAudioFrame>,
         mpsc::Receiver<EncodedAudioFrame>,
     ) {
-        let (input_tx, input_rx) = mpsc::channel(1);
+        let (input_tx, input_rx) = broadcast::channel(1);
         let (output_tx, output_rx) = mpsc::channel(1);
         (input_tx, input_rx, output_tx, output_rx)
     }
@@ -526,8 +571,13 @@ mod tests {
         peer.start(input_rx, output_tx)
             .expect("failed to start peer");
 
-        peer.pause();
+        let sender = peer.pause();
 
+        sender
+            .expect("pause must return the taken sender")
+            .stop()
+            .await
+            .expect("failed to stop the taken sender");
         assert!(peer.sender.is_none(), "pause must stop the sender");
         assert!(peer.receiver.is_some(), "pause must keep the receiver");
     }
@@ -539,7 +589,12 @@ mod tests {
         let (_input_tx, input_rx, output_tx, _output_rx) = test_channels();
         peer.start(input_rx, output_tx)
             .expect("failed to start peer");
-        peer.pause();
+        if let Some(sender) = peer.pause() {
+            sender
+                .stop()
+                .await
+                .expect("failed to stop the taken sender");
+        }
 
         let (_input_tx, input_rx, output_tx, _output_rx) = test_channels();
         peer.start(input_rx, output_tx)

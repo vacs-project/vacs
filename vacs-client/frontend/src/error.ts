@@ -1,6 +1,7 @@
 import {invoke, InvokeArgs, isTauri, RemoteCommand} from "./transport";
 import {useErrorOverlayStore} from "./stores/error-overlay-store.ts";
-import {CallId} from "./types/generic.ts";
+import {CallId, ClientId} from "./types/generic.ts";
+import {CallTarget} from "./types/call.ts";
 
 export type Error = {
     title: string;
@@ -9,9 +10,14 @@ export type Error = {
     timeoutMs?: number;
 };
 
+export type CallErrorOrigin =
+    {type: "call"} | {type: "client"; value: ClientId} | {type: "targets"; value: CallTarget[]};
+
 export type CallError = {
     callId: CallId;
+    origin: CallErrorOrigin;
     reason: string;
+    callEnded?: boolean;
 };
 
 export async function invokeSafe<T>(cmd: RemoteCommand, args?: InvokeArgs): Promise<T | undefined> {

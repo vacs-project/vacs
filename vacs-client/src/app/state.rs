@@ -1,4 +1,5 @@
 pub(crate) mod audio;
+pub(crate) mod calls;
 pub(crate) mod http;
 pub(crate) mod keybinds;
 pub(crate) mod playback;
@@ -7,8 +8,9 @@ mod sealed;
 pub(crate) mod signaling;
 pub(crate) mod webrtc;
 
+use crate::app::state::calls::Call;
 use crate::app::state::signaling::{AppStateSignalingExt, ConnectionState};
-use crate::app::state::webrtc::{Call, UnansweredCallGuard};
+use crate::app::state::webrtc::{LinkLimboGuard, UnansweredCallGuard};
 use crate::audio::manager::{AudioManager, AudioManagerHandle};
 use crate::config::AppConfig;
 use crate::error::{StartupError, StartupErrorExt};
@@ -27,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 use vacs_signaling::client::SignalingClient;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
 use vacs_signaling::protocol::ws::server;
-use vacs_signaling::protocol::ws::shared::{CallId, CallInvite};
+use vacs_signaling::protocol::ws::shared::{CallId, CallTarget};
 use vacs_signaling::transport::tokio::TokioTransport;
 
 pub struct AppStateInner {
@@ -38,11 +40,11 @@ pub struct AppStateInner {
     keybind_engine: KeybindEngineHandle,
     playback_recorder: PlaybackRecorderHandle,
     radio: RadioHandle,
-    active_call: Option<Call>,
-    unanswered_call_guard: Option<UnansweredCallGuard>,
-    held_calls: HashMap<CallId, Call>, // call_id -> call
-    pub(crate) outgoing_call: Option<CallInvite>,
-    pub(crate) incoming_calls: HashMap<CallId, CallInvite>,
+    unanswered_call_guards: HashMap<CallTarget, UnansweredCallGuard>,
+    establishment_guard: Option<UnansweredCallGuard>,
+    link_limbo_guards: HashMap<ClientId, LinkLimboGuard>,
+    current_call: Option<Call>,
+    incoming_calls: HashMap<CallId, Call>,
     pub test_profile_watcher: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
     pub(crate) client_id: Option<ClientId>,
     pub(crate) connection_state: ConnectionState,
@@ -86,10 +88,10 @@ impl AppStateInner {
             playback_recorder: Arc::new(RwLock::new(None)),
             radio: Arc::new(RwLock::new(None)),
             shutdown_token,
-            active_call: None,
-            unanswered_call_guard: None,
-            held_calls: HashMap::new(),
-            outgoing_call: None,
+            unanswered_call_guards: HashMap::new(),
+            establishment_guard: None,
+            link_limbo_guards: HashMap::new(),
+            current_call: None,
             incoming_calls: HashMap::new(),
             test_profile_watcher: None,
             client_id: None,

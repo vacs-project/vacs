@@ -16,7 +16,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -27,6 +27,7 @@ const RESAMPLER_BUFFER_WAIT: Duration = Duration::from_micros(500);
 
 const INPUT_VOLUME_OPS_CAPACITY: usize = 16;
 const INPUT_VOLUME_OPS_PER_DATA_CALLBACK: usize = 16;
+const ENCODED_AUDIO_FRAME_BUFFER_SIZE: usize = 512;
 
 type InputVolumeOp = Box<dyn Fn(&mut f32) + Send>;
 
@@ -37,13 +38,13 @@ pub struct CaptureStream {
     cancel: Option<CancellationToken>,
     task: Option<JoinHandle<()>>,
     is_level_meter: bool,
+    tx: broadcast::Sender<EncodedAudioFrame>,
 }
 
 impl CaptureStream {
-    #[instrument(level = "debug", skip(tx, error_tx), err)]
+    #[instrument(level = "debug", skip(error_tx), err)]
     pub fn start(
         device: StreamDevice,
-        tx: mpsc::Sender<EncodedAudioFrame>,
         mut volume: f32,
         amp: f32,
         error_tx: mpsc::Sender<AudioError>,
@@ -121,7 +122,8 @@ impl CaptureStream {
 
         let mut resampler = device.resampler()?;
 
-        let mut opus_framer = OpusFramer::new(tx)?;
+        let (tx, _) = broadcast::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
+        let mut opus_framer = OpusFramer::new(tx.clone())?;
 
         let task = tokio::runtime::Handle::current().spawn_blocking(move || {
             tracing::trace!("Input capture stream task started");
@@ -239,6 +241,7 @@ impl CaptureStream {
             cancel: Some(cancel),
             task: Some(task),
             is_level_meter: false,
+            tx,
         })
     }
 
@@ -288,6 +291,8 @@ impl CaptureStream {
 
         stream.play()?;
 
+        let (tx, _) = broadcast::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
+
         tracing::debug!("Input level meter capture stream started");
         Ok(Self {
             _stream: stream,
@@ -296,6 +301,7 @@ impl CaptureStream {
             cancel: None,
             task: None,
             is_level_meter: true,
+            tx,
         })
     }
 
@@ -305,8 +311,10 @@ impl CaptureStream {
         if let Some(cancel) = self.cancel.take() {
             cancel.cancel();
         }
-        drop(self._stream);
-        if let Some(task) = self.task.take()
+        let task = self.task.take();
+        // Drops the cpal stream before the processing task is joined.
+        drop(self);
+        if let Some(task) = task
             && let Err(err) = task.await
         {
             tracing::warn!(?err, "Input capture stream task failed");
@@ -335,6 +343,24 @@ impl CaptureStream {
     pub fn is_level_meter(&self) -> bool {
         self.is_level_meter
     }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<EncodedAudioFrame> {
+        self.tx.subscribe()
+    }
+
+    pub fn receiver_count(&self) -> usize {
+        self.tx.receiver_count()
+    }
+}
+
+impl Drop for CaptureStream {
+    fn drop(&mut self) {
+        // The blocking processing task only exits via this token, and dropping
+        // a CancellationToken does not cancel it. stop() takes the token first.
+        if let Some(cancel) = self.cancel.take() {
+            cancel.cancel();
+        }
+    }
 }
 
 struct OpusFramer {
@@ -343,11 +369,11 @@ struct OpusFramer {
     processor: MicProcessor,
     encoder: opus::Encoder,
     encoded: Vec<u8>,
-    tx: mpsc::Sender<EncodedAudioFrame>,
+    tx: broadcast::Sender<EncodedAudioFrame>,
 }
 
 impl OpusFramer {
-    fn new(tx: mpsc::Sender<EncodedAudioFrame>) -> Result<Self, AudioError> {
+    fn new(tx: broadcast::Sender<EncodedAudioFrame>) -> Result<Self, AudioError> {
         let mut encoder = opus::Encoder::new(
             TARGET_SAMPLE_RATE,
             opus::Channels::Mono,
@@ -390,7 +416,9 @@ impl OpusFramer {
                 match self.encoder.encode_float(&self.frame, &mut self.encoded) {
                     Ok(len) => {
                         let bytes = Bytes::copy_from_slice(&self.encoded[..len]);
-                        if let Err(err) = self.tx.try_send(bytes) {
+                        if self.tx.receiver_count() > 0
+                            && let Err(err) = self.tx.send(bytes)
+                        {
                             tracing::warn!(?err, "Failed to send encoded input audio frame");
                         }
                     }
