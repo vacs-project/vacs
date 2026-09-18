@@ -9,6 +9,8 @@ use crate::app::ClientConfig;
 pub(crate) mod auth;
 pub(crate) mod commands;
 
+/// The `signaling:connected` payload: the server's [`SessionInfo`] flattened,
+/// plus the client-side state the frontend needs alongside it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSessionInfo {
@@ -19,6 +21,8 @@ pub struct ClientSessionInfo {
 }
 
 impl ClientSessionInfo {
+    /// Looks up the persisted split width for the session's active profile, if it
+    /// is a specific profile with a stored entry.
     pub fn from_session_info_and_config(
         session_info: SessionInfo,
         client_config: &ClientConfig,
