@@ -40,3 +40,88 @@ impl ClientSessionInfo {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vacs_signaling::protocol::{
+        profile::{Profile, ProfileId, ProfileType, ProfileView},
+        ws::server::ClientInfo,
+    };
+
+    fn profile(id: &str) -> Profile {
+        Profile {
+            id: ProfileId::from(id),
+            view: ProfileView::Split,
+            profile_type: ProfileType::Tabbed(vec![]),
+        }
+    }
+
+    fn session_info(profile: SessionProfile) -> SessionInfo {
+        SessionInfo {
+            client: ClientInfo {
+                id: "1000000".into(),
+                display_name: "LOVV_CTR".to_string(),
+                frequency: "199.998".to_string(),
+                position_id: None,
+            },
+            profile,
+            default_call_sources: vec![],
+        }
+    }
+
+    fn config_with_width(id: &str, width: u16) -> ClientConfig {
+        let mut config = ClientConfig::default();
+        config
+            .split_profile_widths
+            .insert(ProfileId::from(id), width);
+        config
+    }
+
+    #[test]
+    fn width_follows_the_specific_active_profile() {
+        let config = config_with_width("LOVV", 320);
+        let specific = |id| {
+            session_info(SessionProfile::Changed(ActiveProfile::Specific(profile(
+                id,
+            ))))
+        };
+
+        let info = ClientSessionInfo::from_session_info_and_config(specific("LOVV"), &config);
+        assert_eq!(info.split_profile_width, Some(320));
+
+        for session_info in [
+            specific("EDGG"),
+            session_info(SessionProfile::Changed(ActiveProfile::Custom)),
+            session_info(SessionProfile::Changed(ActiveProfile::None)),
+            session_info(SessionProfile::Unchanged),
+        ] {
+            let info = ClientSessionInfo::from_session_info_and_config(session_info, &config);
+            assert_eq!(info.split_profile_width, None);
+        }
+    }
+
+    #[test]
+    fn serializes_flat_with_the_width_only_when_present() {
+        let config = config_with_width("LOVV", 320);
+        let with_width = ClientSessionInfo::from_session_info_and_config(
+            session_info(SessionProfile::Changed(ActiveProfile::Specific(profile(
+                "LOVV",
+            )))),
+            &config,
+        );
+        let value = serde_json::to_value(&with_width).unwrap();
+        assert_eq!(value["client"]["displayName"], "LOVV_CTR");
+        assert_eq!(value["profile"]["type"], "changed");
+        assert_eq!(value["defaultCallSources"], serde_json::json!([]));
+        assert_eq!(value["splitProfileWidth"], 320);
+        assert!(value.get("sessionInfo").is_none());
+
+        let without_width = ClientSessionInfo::from_session_info_and_config(
+            session_info(SessionProfile::Unchanged),
+            &config,
+        );
+        let value = serde_json::to_value(&without_width).unwrap();
+        assert!(value.get("splitProfileWidth").is_none());
+    }
+}
