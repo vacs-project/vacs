@@ -1,6 +1,6 @@
-import {setPage, useNavigationStore} from "../stores/navigation-store";
-import {retryRadioConnection} from "../stores/radio-store";
-import TabButton from "./ui/TabButton";
+import {setPage, useNavigationStore} from "../stores/navigation-store.ts";
+import {retryRadioConnection} from "../stores/radio-store.ts";
+import TabButton from "./ui/TabButton.tsx";
 
 function PageTabs() {
     const page = useNavigationStore(state => state.page);

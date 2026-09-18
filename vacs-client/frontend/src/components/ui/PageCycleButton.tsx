@@ -1,7 +1,7 @@
 import {clsx} from "clsx";
-import {closeMenu, setPage, useNavigationStore} from "../../stores/navigation-store";
-import {retryRadioConnection} from "../../stores/radio-store";
-import Button from "./Button";
+import {closeMenu, setPage, useNavigationStore} from "../../stores/navigation-store.ts";
+import {retryRadioConnection} from "../../stores/radio-store.ts";
+import Button from "./Button.tsx";
 
 function PageCycleButton() {
     const page = useNavigationStore(state => state.page);

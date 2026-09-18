@@ -1,7 +1,7 @@
 import {clsx} from "clsx";
-import {invokeSafe} from "../../error";
-import {closeMenu} from "../../stores/navigation-store";
-import ButtonLabel from "./ButtonLabel";
+import {invokeSafe} from "../../error.ts";
+import {closeMenu} from "../../stores/navigation-store.ts";
+import ButtonLabel from "./ButtonLabel.tsx";
 
 type TabButtonProps = {
     label: string[] | undefined;
