@@ -8,10 +8,11 @@ export type ClientInfo = {
     frequency: string;
 };
 
-export type SessionInfo = {
+export type ClientSessionInfo = {
     client: ClientInfo;
     profile: SessionProfile;
     defaultCallSources: StationId[];
+    splitProfileWidth: number | undefined;
 };
 
 export function splitDisplayName(name: string): [string, string] {

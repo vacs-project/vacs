@@ -22,7 +22,7 @@ function RadioPage() {
         radioConnected ? (
             <RadioPageInner radioState={radioState} />
         ) : (
-            <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600">
+            <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600 text-center">
                 <p>No TrackAudio radio connection.</p>
                 <p
                     className="text-blue-700 cursor-pointer"

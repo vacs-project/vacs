@@ -181,6 +181,7 @@ pub fn run() {
             app::commands::app_set_cpl_mode,
             app::commands::app_set_fullscreen,
             app::commands::app_set_selected_client_page_config,
+            app::commands::app_set_split_profile_width,
             app::commands::app_change_zoom_level,
             app::commands::app_unload_test_profile,
             app::commands::app_update,

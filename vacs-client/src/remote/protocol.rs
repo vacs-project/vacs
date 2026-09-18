@@ -186,6 +186,7 @@ pub enum RemoteCommand {
     AppSetClockMode,
     AppGetCplMode,
     AppSetCplMode,
+    AppSetSplitProfileWidth,
 
     AudioGetHosts,
     AudioSetHost,

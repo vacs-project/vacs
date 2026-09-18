@@ -1,5 +1,5 @@
 import type {ClientId, StationId} from "../types/generic.ts";
-import type {ClientInfo, ClientPageSettings, SessionInfo} from "../types/client.ts";
+import type {ClientInfo, ClientPageSettings, ClientSessionInfo} from "../types/client.ts";
 import type {StationInfo} from "../types/station.ts";
 import type {CallConfig} from "../types/settings.ts";
 import type {Capabilities} from "../types/capabilities.ts";
@@ -16,7 +16,7 @@ import {withSyncSuppressed} from "./store-sync.ts";
 
 export type SessionStateSnapshot = {
     connectionState: SignalingConnectionState;
-    sessionInfo: SessionInfo | null;
+    clientSessionInfo: ClientSessionInfo | null;
     defaultCallSources: StationId[];
     stations: StationInfo[];
     clients: ClientInfo[];
@@ -47,8 +47,8 @@ function applySnapshot(snapshot: SessionStateSnapshot) {
     const {setProfile} = useProfileStore.getState();
 
     setConnectionState(snapshot.connectionState);
-    if (snapshot.sessionInfo) {
-        setConnectionInfo(snapshot.sessionInfo.client);
+    if (snapshot.clientSessionInfo) {
+        setConnectionInfo(snapshot.clientSessionInfo.client);
     }
 
     if (snapshot.clientId) {
@@ -62,10 +62,13 @@ function applySnapshot(snapshot: SessionStateSnapshot) {
     setClients(snapshot.clients);
 
     if (
-        snapshot.sessionInfo?.profile.type === "changed" &&
-        snapshot.sessionInfo.profile.activeProfile?.profile
+        snapshot.clientSessionInfo?.profile.type === "changed" &&
+        snapshot.clientSessionInfo.profile.activeProfile?.profile
     ) {
-        setProfile(snapshot.sessionInfo.profile.activeProfile.profile);
+        setProfile(
+            snapshot.clientSessionInfo.profile.activeProfile.profile,
+            snapshot.clientSessionInfo.splitProfileWidth,
+        );
     }
 
     setCallConfig(snapshot.callConfig);

@@ -10,7 +10,7 @@ import {useSettingsStore} from "../stores/settings-store.ts";
 import {useStationsStore} from "../stores/stations-store.ts";
 import {listen, UnlistenFn} from "../transport";
 import {Call} from "../types/call.ts";
-import {ClientInfo, ClientPageSettings, SessionInfo} from "../types/client.ts";
+import {ClientInfo, ClientPageSettings, ClientSessionInfo} from "../types/client.ts";
 import {CallId, ClientId, PositionId} from "../types/generic.ts";
 import {Profile} from "../types/profile.ts";
 import {StationChange, StationInfo} from "../types/station.ts";
@@ -45,7 +45,7 @@ export function setupSignalingListeners() {
 
     const init = () => {
         unlistenFns.push(
-            listen<SessionInfo>("signaling:connected", event => {
+            listen<ClientSessionInfo>("signaling:connected", event => {
                 setConnectionState("connected");
                 setConnectionInfo(event.payload.client);
                 if (
@@ -53,7 +53,10 @@ export function setupSignalingListeners() {
                     event.payload.profile.activeProfile !== undefined &&
                     event.payload.profile.activeProfile.profile !== undefined
                 ) {
-                    setProfile(event.payload.profile.activeProfile.profile);
+                    setProfile(
+                        event.payload.profile.activeProfile.profile,
+                        event.payload.splitProfileWidth,
+                    );
                 }
                 setPositionDefaultSources(event.payload.defaultCallSources);
             }),
@@ -127,7 +130,7 @@ export function setupSignalingListeners() {
                 closeErrorOverlayIfTitle("Profile error");
                 setConnectionState("test");
                 resetProfileStore(false);
-                setProfile(event.payload);
+                setProfile(event.payload, undefined);
                 closeMenu();
             }),
             listen<ClientPageSettings>("signaling:client-page-config", event => {

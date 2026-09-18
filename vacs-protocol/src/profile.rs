@@ -22,6 +22,7 @@ pub struct Profile {
     /// How the client arranges the radio and phone pages in its main area.
     ///
     /// Only [`ProfileType::Tabbed`] profiles support a view other than [`ProfileView::Page`].
+    #[serde(default)]
     pub view: ProfileView,
 
     /// The type of profile and its associated configuration.

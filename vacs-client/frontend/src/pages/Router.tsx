@@ -5,8 +5,8 @@ import TelephonePage from "./TelephonePage.tsx";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 import PlaybackPage from "./PlaybackPage.tsx";
-import {ComponentChildren} from "preact";
-import clsx from "clsx";
+import MainPageContainer from "../components/ui/MainPageContainer.tsx";
+import SplitPage from "./SplitPage.tsx";
 
 function Router() {
     const page = useNavigationStore(state => state.page);
@@ -29,38 +29,17 @@ function Router() {
             )}
             {!hidePage &&
                 (page === "split" ? (
-                    <>
-                        <MainWrap>
-                            <RadioPage />
-                        </MainWrap>
-                        <MainWrap width="calc(5.5rem * 4 + 2rem + 3px)">
-                            <PhonePage />
-                        </MainWrap>
-                    </>
+                    <SplitPage />
                 ) : page === "phone" ? (
-                    <MainWrap>
+                    <MainPageContainer>
                         <PhonePage />
-                    </MainWrap>
+                    </MainPageContainer>
                 ) : (
-                    <MainWrap>
+                    <MainPageContainer>
                         <RadioPage />
-                    </MainWrap>
+                    </MainPageContainer>
                 ))}
         </>
-    );
-}
-
-function MainWrap({children, width}: {children: ComponentChildren; width?: string}) {
-    return (
-        <div
-            className={clsx(
-                "relative h-full shrink-0 bg-[#B5BBC6] border-l border-t border-r-2 border-b-2 border-gray-700 rounded-sm flex flex-row",
-                width === undefined && "flex-1 min-w-0",
-            )}
-            style={{width: width}}
-        >
-            {children}
-        </div>
     );
 }
 

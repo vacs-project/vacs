@@ -5,6 +5,7 @@ use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::SourceType;
 use crate::config::BackendEndpoint;
 use crate::error::{Error, FrontendError};
+use crate::signaling::ClientSessionInfo;
 use crate::signaling::auth::TauriTokenProvider;
 use serde::Serialize;
 use serde_json::Value;
@@ -427,15 +428,20 @@ impl AppStateInner {
                     default_call_sources: default_call_sources.clone(),
                 };
 
-                {
+                let client_session_info = {
                     let state = app.state::<AppState>();
                     let mut state = state.lock().await;
                     state.connection_state = ConnectionState::Connected;
                     state.session_info = Some(session_info.clone());
                     state.default_call_sources = default_call_sources;
-                }
 
-                app.emit("signaling:connected", session_info).ok();
+                    ClientSessionInfo::from_session_info_and_config(
+                        session_info,
+                        &state.config.client,
+                    )
+                };
+
+                app.emit("signaling:connected", client_session_info).ok();
             }
             SignalingEvent::Message(msg) => Self::handle_signaling_message(msg, app).await,
             SignalingEvent::Error(error) => {

@@ -4,6 +4,7 @@ import {useCallback, useState} from "preact/hooks";
 import {invoke} from "../../transport";
 import {useErrorOverlayStore} from "../../stores/error-overlay-store.ts";
 import {isError, openErrorOverlayFromUnknown} from "../../error.ts";
+import {useSplitView} from "../../hooks/page-hook.ts";
 
 const CALLSIGN_PATTERN = /^(?=.{4,12}$).+_[A-Z]{3,4}$/;
 
@@ -11,6 +12,7 @@ function AddRadioStation() {
     const [value, setValue] = useState<string>("");
     const [disabled, setDisabled] = useState<boolean>(true);
     const openErrorOverlay = useErrorOverlayStore(state => state.open);
+    const splitView = useSplitView();
 
     const handleAddClick = useCallback(async () => {
         if (!CALLSIGN_PATTERN.test(value)) return;
@@ -33,7 +35,7 @@ function AddRadioStation() {
     }, [value, openErrorOverlay]);
 
     return (
-        <div className="w-42 h-8 flex gap-2 items-center">
+        <div className={clsx("h-8 flex gap-2 items-center", splitView ? "w-40" : "w-42")}>
             <input
                 type="text"
                 id="add-station"
