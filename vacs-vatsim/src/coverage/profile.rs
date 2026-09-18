@@ -968,6 +968,56 @@ mod tests {
     }
 
     #[test]
+    fn profile_raw_without_view_parses_as_page() {
+        let raw: ProfileRaw = toml::from_str(
+            r#"
+id = "LOVV"
+type = "Tabbed"
+
+[[tabs]]
+label = "Main"
+page.rows = 1
+page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
+"#,
+        )
+        .unwrap();
+        assert_eq!(raw.view, ProfileView::Page);
+        assert_eq!(
+            ProtocolProfile::from(&Profile::from_raw(raw).unwrap()).view,
+            ProfileView::Page
+        );
+    }
+
+    #[test]
+    fn profile_raw_view_parses_camel_case_values() {
+        for (value, view) in [
+            ("page", ProfileView::Page),
+            ("split", ProfileView::Split),
+            ("cycle", ProfileView::Cycle),
+        ] {
+            let raw: ProfileRaw = serde_json::from_str(&format!(
+                r#"{{"id":"LOVV","type":"Tabbed","view":"{value}","tabs":[{{"label":"Main","page":{{"rows":1,"keys":[]}}}}]}}"#
+            ))
+            .unwrap();
+            assert_eq!(raw.view, view);
+            assert_eq!(
+                ProtocolProfile::from(&Profile::from_raw(raw).unwrap()).view,
+                view
+            );
+        }
+    }
+
+    #[test]
+    fn profile_raw_view_rejects_unknown_values() {
+        for value in ["Split", "pages", ""] {
+            let result: Result<ProfileRaw, _> = serde_json::from_str(&format!(
+                r#"{{"id":"LOVV","type":"Tabbed","view":"{value}","tabs":[]}}"#
+            ));
+            assert!(result.is_err(), "{value:?} parsed");
+        }
+    }
+
+    #[test]
     fn profile_type_geo_validation() {
         let empty = ProfileTypeRaw::Geo(GeoPageContainerRaw {
             height: None,
