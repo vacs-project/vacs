@@ -31,32 +31,22 @@ pub struct Profile {
 }
 
 /// The layout the client uses for the radio and phone pages.
-///
-/// The variant also determines which controls appear in the bottom button row
-/// for switching between those pages.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProfileView {
-    /// The radio and phone pages each occupy the whole main area.
+    /// The radio and phone pages each occupy the whole main area, one at a time.
     ///
-    /// The bottom button row contains a dedicated `Radio` and `Phone` button,
-    /// each switching the main area to the respective page. This is the only
-    /// view available to [`ProfileType::Geo`] profiles.
+    /// This is the only view available to [`ProfileType::Geo`] profiles.
     #[default]
     Page,
 
-    /// The radio page and the phone page are shown next to each other.
-    ///
-    /// The bottom button row contains a `Phone` and a `Radio` tab: `Phone`
-    /// shows the phone page across the whole main area, `Radio` shows the radio
-    /// page with the phone page's direct access keys next to it.
+    /// The phone page can additionally be shown next to the radio page, with
+    /// each layout selectable directly.
     Split,
 
-    /// Like [`ProfileView::Split`], but reachable through a single button.
-    ///
-    /// Instead of a tab per page, the bottom button row contains one `Page`
-    /// button that cycles through radio only (`R`), phone only (`P`) and the
-    /// mixed side-by-side layout (`M`), indicating the current one.
+    /// Like [`ProfileView::Split`], but the client steps through the radio page,
+    /// the phone page and the combined layout in a fixed order instead of
+    /// offering each one directly.
     Cycle,
 }
 
