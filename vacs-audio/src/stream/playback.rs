@@ -19,6 +19,7 @@ type MixerOp = Box<dyn FnOnce(&mut Mixer) + Send>;
 
 const MIXER_OPS_CAPACITY: usize = 256;
 const MIXER_OPS_PER_DATA_CALLBACK: usize = 32;
+const GRAVEYARD_CAPACITY: usize = 64;
 
 // Process-wide so an id kept from a torn-down stream never aliases a source on its replacement.
 static NEXT_AUDIO_SOURCE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
@@ -26,6 +27,7 @@ static NEXT_AUDIO_SOURCE_ID: atomic::AtomicUsize = atomic::AtomicUsize::new(0);
 pub struct PlaybackStream {
     _stream: cpal::Stream,
     mixer_ops: Mutex<ringbuf::HeapProd<MixerOp>>,
+    graveyard: Mutex<ringbuf::HeapCons<Box<dyn AudioSource>>>,
     deafened: Arc<AtomicBool>,
     device: StreamDevice,
 }
@@ -38,7 +40,9 @@ impl PlaybackStream {
     ) -> Result<Self, AudioError> {
         debug_assert!(matches!(device.device_type, DeviceType::Output));
 
-        let mut mixer = Mixer::default();
+        let (graveyard_prod, graveyard_cons) =
+            HeapRb::<Box<dyn AudioSource>>::new(GRAVEYARD_CAPACITY).split();
+        let mut mixer = Mixer::new(graveyard_prod);
         let (ops_prod, mut ops_cons) = HeapRb::<MixerOp>::new(MIXER_OPS_CAPACITY).split();
 
         let deafened = Arc::new(AtomicBool::new(false));
@@ -74,9 +78,16 @@ impl PlaybackStream {
         Ok(Self {
             _stream: stream,
             mixer_ops: Mutex::new(ops_prod),
+            graveyard: Mutex::new(graveyard_cons),
             deafened: deafened_clone,
             device,
         })
+    }
+
+    /// Frees sources the data callback has removed since the last call.
+    fn reap(&self) {
+        let mut graveyard = self.graveyard.lock();
+        while graveyard.try_pop().is_some() {}
     }
 
     #[instrument(level = "debug", skip(self))]
@@ -95,6 +106,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip_all)]
     pub fn add_audio_source(&self, source: Box<dyn AudioSource>) -> AudioSourceId {
+        self.reap();
         let id = NEXT_AUDIO_SOURCE_ID.fetch_add(1, atomic::Ordering::SeqCst);
 
         if self
@@ -113,6 +125,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn remove_audio_source(&self, id: AudioSourceId) {
+        self.reap();
         if self
             .mixer_ops
             .lock()
@@ -125,6 +138,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn start_audio_source(&self, id: AudioSourceId) {
+        self.reap();
         if self
             .mixer_ops
             .lock()
@@ -139,6 +153,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn stop_audio_source(&self, id: AudioSourceId) {
+        self.reap();
         if self
             .mixer_ops
             .lock()
@@ -153,6 +168,7 @@ impl PlaybackStream {
 
     #[instrument(level = "trace", skip(self))]
     pub fn restart_audio_source(&self, id: AudioSourceId) {
+        self.reap();
         if self
             .mixer_ops
             .lock()
@@ -245,6 +261,39 @@ mod tests {
             .expect("an output device is required for this test");
         let (error_tx, _error_rx) = mpsc::channel(1);
         PlaybackStream::start(device, error_tx).expect("playback stream should start")
+    }
+
+    struct DropThread(Arc<Mutex<Option<std::thread::ThreadId>>>);
+
+    impl Drop for DropThread {
+        fn drop(&mut self) {
+            *self.0.lock() = Some(std::thread::current().id());
+        }
+    }
+
+    impl AudioSource for DropThread {
+        fn mix_into(&mut self, _output: &mut [f32]) {}
+        fn start(&mut self) {}
+        fn stop(&mut self) {}
+        fn set_volume(&mut self, _volume: f32) {}
+        fn skip(&mut self, _duration: Duration) {}
+        fn rewind(&mut self, _duration: Duration) {}
+    }
+
+    #[test]
+    #[ignore = "opens the real default output device"]
+    fn removed_sources_are_freed_on_the_control_thread() {
+        let stream = open_output_stream();
+        let dropped_on = Arc::new(Mutex::new(None));
+        let id = stream.add_audio_source(Box::new(DropThread(dropped_on.clone())));
+        std::thread::sleep(Duration::from_millis(100));
+
+        stream.remove_audio_source(id);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(dropped_on.lock().is_none());
+
+        stream.stop_audio_source(id);
+        assert_eq!(*dropped_on.lock(), Some(std::thread::current().id()));
     }
 
     #[test]
