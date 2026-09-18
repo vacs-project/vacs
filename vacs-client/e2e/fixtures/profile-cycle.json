@@ -1,0 +1,21 @@
+{
+  "id": "E2E_CYCLE",
+  "type": "Tabbed",
+  "view": "cycle",
+  "tabs": [
+    {
+      "label": ["E2E", "ONE"],
+      "page": {
+        "rows": 2,
+        "keys": [{"label": ["CYCLE", "A1"]}, {"label": ["CYCLE", "A2"]}]
+      }
+    },
+    {
+      "label": ["E2E", "TWO"],
+      "page": {
+        "rows": 2,
+        "keys": [{"label": ["CYCLE", "B1"]}, {"label": ["CYCLE", "B2"]}]
+      }
+    }
+  ]
+}
