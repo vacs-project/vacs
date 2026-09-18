@@ -315,3 +315,42 @@ impl PartialOrd for Profile {
         self.id.partial_cmp(&other.id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tabbed(view: ProfileView) -> Profile {
+        Profile {
+            id: ProfileId::from("EDGG_T"),
+            view,
+            profile_type: ProfileType::Tabbed(vec![]),
+        }
+    }
+
+    #[test]
+    fn profile_serializes_the_view_in_camel_case() {
+        let json = serde_json::to_string(&tabbed(ProfileView::Split)).unwrap();
+        assert_eq!(json, r#"{"id":"EDGG_T","view":"split","tabbed":[]}"#);
+    }
+
+    #[test]
+    fn profile_without_view_deserializes_as_page() {
+        let profile: Profile = serde_json::from_str(r#"{"id":"EDGG_T","tabbed":[]}"#).unwrap();
+        assert_eq!(profile, tabbed(ProfileView::Page));
+    }
+
+    #[test]
+    fn profile_view_round_trips_every_variant() {
+        for (view, wire) in [
+            (ProfileView::Page, "page"),
+            (ProfileView::Split, "split"),
+            (ProfileView::Cycle, "cycle"),
+        ] {
+            let json = serde_json::to_string(&tabbed(view)).unwrap();
+            assert!(json.contains(&format!(r#""view":"{wire}""#)), "{json}");
+            let parsed: Profile = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed.view, view);
+        }
+    }
+}
