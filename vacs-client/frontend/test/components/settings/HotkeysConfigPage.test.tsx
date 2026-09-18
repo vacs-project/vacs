@@ -72,6 +72,41 @@ afterEach(() => {
 });
 
 describe("HotkeysConfigPage", () => {
+    it("enters capture on click, leaves it on an outside click, and cancels it with the X", async () => {
+        useCapabilitiesStore.setState({...DEFAULT_CAPABILITIES, keybindListener: true});
+        invoke.mockImplementation((cmd: string) =>
+            Promise.resolve(
+                cmd === "keybinds_get_keybinds_config"
+                    ? {...KEYBINDS_CONFIG, acceptCall: "F1"}
+                    : undefined,
+            ),
+        );
+        // jsdom has no crypto.randomUUID, which the capture session uses for its id.
+        vi.stubGlobal("crypto", {randomUUID: () => "00000000-0000-4000-8000-000000000000"});
+
+        render(<HotkeysConfigPage />);
+        await waitFor(() => expect(screen.getAllByText("Not bound")).toHaveLength(2));
+
+        // The bound row: label, then the selection field wrapper holding the field and the X.
+        const wrapper = screen.getByText("Accept first call").nextElementSibling!;
+        const field = wrapper.firstElementChild!;
+        const remove = wrapper.lastElementChild!;
+        expect(field.textContent).not.toBe("Not bound");
+
+        fireEvent.click(field);
+        expect(screen.getByText("Press your key")).toBeTruthy();
+
+        fireEvent.click(document.body);
+        await waitFor(() => expect(screen.queryByText("Press your key")).toBeNull());
+
+        fireEvent.click(field);
+        expect(screen.getByText("Press your key")).toBeTruthy();
+        fireEvent.click(remove);
+        await waitFor(() => expect(screen.queryByText("Press your key")).toBeNull());
+        expect(field.textContent).not.toBe("Not bound");
+        expect(invokedCommands()).not.toContain("keybinds_set_binding");
+    });
+
     it("binds joystick-only without fetching portal shortcuts when the portal has none", async () => {
         useCapabilitiesStore.setState(WAYLAND_WITHOUT_PORTAL);
 
