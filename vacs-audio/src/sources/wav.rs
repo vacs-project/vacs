@@ -4,31 +4,29 @@ use anyhow::{Context, Result};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Resampler, WindowFunction};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
-pub struct WavSource {
-    samples: Vec<f32>, // mono f32, resampled to output sample_rate
-
+/// A decoded WAV file: mono samples at the file's own sample rate, shareable between playback
+/// streams that resample it to their device rate through [`WavSource::from_clip`].
+#[derive(Debug, Clone)]
+pub struct WavClip {
+    samples: Arc<[f32]>,
     sample_rate: u32,
-    output_channels: usize,
-    volume: f32,
-
-    active: bool,
-    pos: usize,
-
-    update_interval: usize,                     // in ms, defaults to 100ms
-    on_update: Option<Box<dyn Fn(f32) + Send>>, // progress from 0.0 to 1.0
 }
 
-impl WavSource {
-    pub fn from_file(
-        path: impl AsRef<Path>,
-        sample_rate: u32,
-        output_channels: usize,
-        volume: f32,
-        update_interval: Option<usize>,
-        on_update: Option<Box<dyn Fn(f32) + Send>>,
-    ) -> Result<Self> {
+impl WavClip {
+    /// Reads only the header and reports the clip length, so a caller can reject an oversized file
+    /// before decoding it.
+    pub fn probe_duration(path: impl AsRef<Path>) -> Result<Duration> {
+        let reader = hound::WavReader::open(path)?;
+        let spec = reader.spec();
+        Ok(Duration::from_secs_f64(
+            reader.duration() as f64 / spec.sample_rate as f64,
+        ))
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let mut reader = hound::WavReader::open(path)?;
         let spec = reader.spec();
         let file_channels = spec.channels as usize;
@@ -44,7 +42,7 @@ impl WavSource {
             }
         };
 
-        let mut samples = if file_channels == 1 {
+        let samples = if file_channels == 1 {
             interleaved
         } else {
             let mut mono = Vec::new();
@@ -52,9 +50,101 @@ impl WavSource {
             mono
         };
 
-        if spec.sample_rate != sample_rate {
-            samples = resample(&samples, spec.sample_rate as usize, sample_rate as usize)?;
+        Ok(Self {
+            samples: samples.into(),
+            sample_rate: spec.sample_rate,
+        })
+    }
+
+    pub fn from_samples(samples: Vec<f32>, sample_rate: u32) -> Self {
+        Self {
+            samples: samples.into(),
+            sample_rate,
         }
+    }
+
+    pub fn duration(&self) -> Duration {
+        Duration::from_secs_f64(self.samples.len() as f64 / self.sample_rate as f64)
+    }
+
+    pub fn peak(&self) -> f32 {
+        self.samples.iter().fold(0.0, |peak, s| peak.max(s.abs()))
+    }
+
+    /// Scales the clip so its loudest sample sits at `target`. A silent clip is returned unchanged.
+    pub fn normalized_to_peak(&self, target: f32) -> Self {
+        let peak = self.peak();
+        if peak == 0.0 {
+            return self.clone();
+        }
+        let gain = target / peak;
+        Self {
+            samples: self.samples.iter().map(|s| s * gain).collect(),
+            sample_rate: self.sample_rate,
+        }
+    }
+}
+
+const RELEASE_DURATION: Duration = Duration::from_millis(10);
+
+pub struct WavSource {
+    samples: Arc<[f32]>, // mono f32, resampled to output sample_rate
+
+    sample_rate: u32,
+    output_channels: usize,
+    volume: f32,
+
+    active: bool,
+    pos: usize,
+    release_frames: usize,
+    releasing: bool,
+    release_total: usize,
+    release_remaining: usize,
+    restart_after_release: bool,
+
+    update_interval: usize,                     // in ms, defaults to 100ms
+    on_update: Option<Box<dyn Fn(f32) + Send>>, // progress from 0.0 to 1.0
+}
+
+impl WavSource {
+    pub fn from_file(
+        path: impl AsRef<Path>,
+        sample_rate: u32,
+        output_channels: usize,
+        volume: f32,
+        update_interval: Option<usize>,
+        on_update: Option<Box<dyn Fn(f32) + Send>>,
+    ) -> Result<Self> {
+        Self::from_clip(
+            &WavClip::load(path)?,
+            sample_rate,
+            output_channels,
+            volume,
+            update_interval,
+            on_update,
+        )
+    }
+
+    /// Builds a source for `clip` at the stream's `sample_rate`. The decoded samples are shared
+    /// with the clip when no resampling is needed.
+    pub fn from_clip(
+        clip: &WavClip,
+        sample_rate: u32,
+        output_channels: usize,
+        volume: f32,
+        update_interval: Option<usize>,
+        on_update: Option<Box<dyn Fn(f32) + Send>>,
+    ) -> Result<Self> {
+        let samples = if clip.sample_rate != sample_rate {
+            resample(
+                &clip.samples,
+                clip.sample_rate as usize,
+                sample_rate as usize,
+            )?
+            .into()
+        } else {
+            clip.samples.clone()
+        };
 
         Ok(Self {
             samples,
@@ -63,9 +153,41 @@ impl WavSource {
             output_channels: output_channels.max(1),
             volume: volume.clamp(0.0, 1.0),
             active: false,
+            release_frames: ((RELEASE_DURATION.as_secs_f32() * sample_rate as f32) as usize).max(1),
+            releasing: false,
+            release_total: 0,
+            release_remaining: 0,
+            restart_after_release: false,
             update_interval: update_interval.unwrap_or(500),
             on_update,
         })
+    }
+
+    fn is_playing(&self) -> bool {
+        self.active && self.pos < self.samples.len()
+    }
+
+    fn begin_release(&mut self, restart: bool) {
+        self.restart_after_release = restart;
+        if !self.releasing {
+            self.releasing = true;
+            self.release_total = self
+                .release_frames
+                .min(self.samples.len() - self.pos)
+                .max(1);
+            self.release_remaining = self.release_total;
+        }
+    }
+
+    fn cancel_release(&mut self) {
+        self.releasing = false;
+        self.release_remaining = 0;
+        self.restart_after_release = false;
+    }
+
+    /// Length of the loaded clip at the output sample rate.
+    pub fn duration(&self) -> Duration {
+        Duration::from_secs_f64(self.samples.len() as f64 / self.sample_rate as f64)
     }
 }
 
@@ -84,10 +206,25 @@ impl AudioSource for WavSource {
         }
 
         for frame in output.chunks_mut(self.output_channels) {
-            let sample = self.samples[self.pos] * self.volume;
+            let mut sample = self.samples[self.pos] * self.volume;
+            if self.releasing {
+                sample *= self.release_remaining as f32 / self.release_total as f32;
+                self.release_remaining -= 1;
+            }
             self.pos += 1;
             for s in frame.iter_mut() {
                 *s += sample;
+            }
+
+            if self.releasing && self.release_remaining == 0 {
+                let restart = self.restart_after_release;
+                self.cancel_release();
+                if restart {
+                    self.pos = 0;
+                    continue;
+                }
+                self.active = false;
+                return;
             }
 
             if self.pos >= self.samples.len() {
@@ -108,16 +245,26 @@ impl AudioSource for WavSource {
     }
 
     fn start(&mut self) {
+        self.cancel_release();
         self.active = true;
     }
 
     fn stop(&mut self) {
-        self.active = false;
+        if self.is_playing() {
+            self.begin_release(false);
+        } else {
+            self.active = false;
+        }
     }
 
     fn restart(&mut self) {
-        self.pos = 0;
-        self.active = true;
+        if self.is_playing() {
+            self.begin_release(true);
+        } else {
+            self.cancel_release();
+            self.pos = 0;
+            self.active = true;
+        }
     }
 
     fn set_volume(&mut self, volume: f32) {
@@ -174,7 +321,7 @@ fn resample(samples: &[f32], in_rate: usize, out_rate: usize) -> anyhow::Result<
 
 #[cfg(test)]
 mod tests {
-    use super::{WavSource, resample};
+    use super::{WavClip, WavSource, resample};
     use crate::sources::AudioSource;
     use std::sync::{Arc, Mutex};
 
@@ -182,16 +329,16 @@ mod tests {
     fn finished_source_stays_silent_when_started_again() {
         let updates = Arc::new(Mutex::new(Vec::new()));
         let sink = updates.clone();
-        let mut source = WavSource {
-            samples: vec![0.5; 8],
-            pos: 0,
-            sample_rate: 48_000,
-            output_channels: 1,
-            volume: 1.0,
-            active: true,
-            update_interval: 500,
-            on_update: Some(Box::new(move |p| sink.lock().unwrap().push(p))),
-        };
+        let mut source = WavSource::from_clip(
+            &WavClip::from_samples(vec![0.5; 8], 48_000),
+            48_000,
+            1,
+            1.0,
+            Some(500),
+            Some(Box::new(move |p| sink.lock().unwrap().push(p))),
+        )
+        .unwrap();
+        source.active = true;
 
         let mut out = vec![0.0f32; 16];
         source.mix_into(&mut out);
@@ -323,6 +470,118 @@ mod tests {
                 "{in_rate}->{out_rate} changed amplitude to {amp}"
             );
         }
+    }
+
+    #[test]
+    fn clip_normalizes_to_target_peak_and_keeps_silence() {
+        let clip = WavClip::from_samples(vec![0.25, -0.5, 0.1], 48_000);
+        let normalized = clip.normalized_to_peak(0.2);
+        assert!((normalized.peak() - 0.2).abs() < 1e-6);
+        assert!((normalized.samples[0] - 0.1).abs() < 1e-6);
+        assert_eq!(clip.peak(), 0.5);
+
+        let silent = WavClip::from_samples(vec![0.0; 4], 48_000);
+        assert_eq!(silent.normalized_to_peak(0.2).peak(), 0.0);
+    }
+
+    #[test]
+    fn source_from_clip_shares_samples_at_matching_rate_and_resamples_otherwise() {
+        let clip = WavClip::from_samples(vec![0.5; 4_800], 48_000);
+        assert_eq!(clip.duration(), std::time::Duration::from_millis(100));
+
+        let shared = WavSource::from_clip(&clip, 48_000, 2, 1.0, None, None).unwrap();
+        assert!(Arc::ptr_eq(&shared.samples, &clip.samples));
+
+        let resampled = WavSource::from_clip(&clip, 96_000, 2, 1.0, None, None).unwrap();
+        assert_eq!(resampled.samples.len(), 9_600);
+        assert_eq!(resampled.duration(), std::time::Duration::from_millis(100));
+    }
+
+    fn constant_source(len: usize) -> WavSource {
+        let mut source = WavSource::from_clip(
+            &WavClip::from_samples(vec![0.5; len], 48_000),
+            48_000,
+            1,
+            1.0,
+            None,
+            None,
+        )
+        .unwrap();
+        source.start();
+        source
+    }
+
+    #[test]
+    fn stop_fades_out_over_the_release_and_then_goes_silent() {
+        let mut source = constant_source(48_000);
+        let mut out = vec![0.0f32; 480];
+        source.mix_into(&mut out);
+        assert!(out.iter().all(|s| (*s - 0.5).abs() < 1e-6));
+
+        source.stop();
+        let mut out = vec![0.0f32; 480];
+        source.mix_into(&mut out);
+        assert!((out[0] - 0.5).abs() < 1e-6, "{}", out[0]);
+        assert!(out[1] < 0.5 && out[240] < out[1], "{} {}", out[1], out[240]);
+        assert!((out[479]).abs() < 2e-3, "{}", out[479]);
+        assert!(out.windows(2).all(|w| w[1] <= w[0] + 1e-6));
+
+        let mut out = vec![0.0f32; 480];
+        source.mix_into(&mut out);
+        assert!(out.iter().all(|s| *s == 0.0));
+        assert!(!source.active);
+    }
+
+    #[test]
+    fn restart_while_playing_fades_out_then_plays_from_the_start() {
+        let mut source = constant_source(48_000);
+        let mut out = vec![0.0f32; 9_600];
+        source.mix_into(&mut out);
+        assert_eq!(source.pos, 9_600);
+
+        source.restart();
+        let mut out = vec![0.0f32; 960];
+        source.mix_into(&mut out);
+        assert!(out[479] < 0.01, "{}", out[479]);
+        assert!((out[480] - 0.5).abs() < 1e-6, "{}", out[480]);
+        assert_eq!(source.pos, 480);
+        assert!(source.active);
+    }
+
+    #[test]
+    fn stop_near_the_end_of_the_clip_fades_from_the_current_level() {
+        let mut source = constant_source(500);
+        let mut out = vec![0.0f32; 400];
+        source.mix_into(&mut out);
+
+        source.stop();
+        let mut out = vec![0.0f32; 200];
+        source.mix_into(&mut out);
+        assert!((out[0] - 0.5).abs() < 1e-6, "{}", out[0]);
+        assert!(out[1] < 0.5 && out[50] < out[1], "{} {}", out[1], out[50]);
+        assert!(out[..100].windows(2).all(|w| w[1] <= w[0] + 1e-6));
+        assert!(out[100..].iter().all(|s| *s == 0.0));
+        assert!(!source.active);
+    }
+
+    #[test]
+    fn stop_and_restart_on_a_finished_clip_do_not_fade() {
+        let mut source = constant_source(100);
+        let mut out = vec![0.0f32; 200];
+        source.mix_into(&mut out);
+        assert!(!source.active);
+
+        source.stop();
+        assert!(!source.active && !source.releasing);
+        source.restart();
+        assert!(source.active && source.pos == 0 && !source.releasing);
+    }
+
+    #[test]
+    fn duration_reflects_loaded_samples_at_output_rate() {
+        let clip = WavClip::from_samples(vec![0.0; 24_000], 48_000);
+        let source = WavSource::from_clip(&clip, 48_000, 2, 1.0, None, None).unwrap();
+        assert_eq!(source.duration(), std::time::Duration::from_millis(500));
     }
 
     #[test]
