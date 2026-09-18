@@ -116,20 +116,9 @@ impl KeybindEngine {
             || self.toggle_radio_prio_trigger.is_some()
             || self.say_again_trigger.is_some();
 
-        if self.call_mic_mode == CallMicMode::VoiceActivation
-            && self.radio_trigger.is_none()
-            && !has_controls
-        {
+        if self.call_trigger.is_none() && self.radio_trigger.is_none() && !has_controls {
             log::trace!(
-                "TransmitMode set to voice activation, no radio PTT set and no control keybinds defined -> no keybind engine required"
-            );
-            return Ok(());
-        } else if self.call_mic_mode != CallMicMode::VoiceActivation
-            && self.call_trigger.is_none()
-            && self.radio_trigger.is_none()
-        {
-            log::trace!(
-                "No keybind set for TransmitMode {:?}, keybind engine not starting",
+                "No transmit keybind for {:?} and no control keybinds defined, keybind engine not starting",
                 self.call_mic_mode
             );
             return Ok(());
