@@ -14,7 +14,7 @@ pub(crate) mod commands;
 pub struct ClientSessionInfo {
     #[serde(flatten)]
     pub session_info: SessionInfo,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub split_profile_width: Option<u16>,
 }
 

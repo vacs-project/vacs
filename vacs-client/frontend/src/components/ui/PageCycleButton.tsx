@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import {clsx} from "clsx";
 import {closeMenu, setPage, useNavigationStore} from "../../stores/navigation-store";
 import {retryRadioConnection} from "../../stores/radio-store";
 import Button from "./Button";

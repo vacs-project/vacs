@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import {clsx} from "clsx";
 import {invokeSafe} from "../../error";
 import {closeMenu} from "../../stores/navigation-store";
 import ButtonLabel from "./ButtonLabel";

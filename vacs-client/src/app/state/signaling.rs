@@ -804,13 +804,18 @@ impl AppStateInner {
                     log::debug!("Active profile changed: {active_profile}");
                 }
 
-                {
+                let client_session_info = {
                     let state = app.state::<AppState>();
                     let mut state = state.lock().await;
                     state.session_info = Some(session_info.clone());
-                }
 
-                app.emit("signaling:connected", session_info).ok();
+                    ClientSessionInfo::from_session_info_and_config(
+                        session_info,
+                        &state.config.client,
+                    )
+                };
+
+                app.emit("signaling:connected", client_session_info).ok();
             }
             ServerMessage::StationList(server::StationList { stations }) => {
                 log::trace!(

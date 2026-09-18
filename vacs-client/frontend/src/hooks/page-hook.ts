@@ -1,5 +1,5 @@
 import {useEffect} from "preact/hooks";
-import {goToPage, setPage, useNavigationStore} from "../stores/navigation-store.ts";
+import {setPage, useNavigationStore} from "../stores/navigation-store.ts";
 import {useProfileStore, useProfileType} from "../stores/profile-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
 
@@ -26,7 +26,7 @@ export function usePageSync() {
 
     useEffect(() => {
         if (profileId === undefined || !radioConfigLoaded || !splitView) return;
-        goToPage("split");
+        setPage("split");
     }, [profileId, radioConfigLoaded, splitView]);
 
     useEffect(() => {

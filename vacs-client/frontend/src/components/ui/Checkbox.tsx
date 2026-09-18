@@ -1,7 +1,7 @@
 import "../../styles/checkbox.css";
 import {TargetedEvent} from "preact";
 import {invokeSafe} from "../../error.ts";
-import clsx from "clsx";
+import {clsx} from "clsx";
 
 type CheckboxProps = {
     name: string;

@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import {clsx} from "clsx";
 import {ComponentChildren} from "preact";
 import {ForwardedRef, forwardRef} from "preact/compat";
 

@@ -1,10 +1,10 @@
 import {useEffect, useRef} from "preact/hooks";
-import MainPageContainer from "../components/ui/MainPageContainer";
-import PhonePage from "./PhonePage";
-import RadioPage from "./RadioPage";
-import {useEventCallback} from "../hooks/event-callback-hook";
-import {useProfileStore} from "../stores/profile-store";
-import {invokeSafe} from "../error";
+import MainPageContainer from "../components/ui/MainPageContainer.tsx";
+import {invokeSafe} from "../error.ts";
+import {useEventCallback} from "../hooks/event-callback-hook.ts";
+import {useProfileStore} from "../stores/profile-store.ts";
+import PhonePage from "./PhonePage.tsx";
+import RadioPage from "./RadioPage.tsx";
 
 const DEFAULT_WIDTH = "calc(5.5rem * 4 + 2rem + 3px)";
 
@@ -29,8 +29,8 @@ function SplitPage() {
     const calculateAndSetWidth = (x: number) => {
         if (phoneContainerRightBorderRef.current === undefined) return;
 
-        let zoom = parseFloat(document.documentElement.style.zoom) || 1;
-        let width = Math.round((phoneContainerRightBorderRef.current - x) / zoom);
+        const zoom = parseFloat(document.documentElement.style.zoom) || 1;
+        const width = Math.round((phoneContainerRightBorderRef.current - x) / zoom);
         setSplitProfileWidth(width);
     };
 
@@ -49,14 +49,14 @@ function SplitPage() {
         if (draggingRef.current) {
             const profileId = useProfileStore.getState().profile?.id;
 
-            if (profileId === undefined) return;
+            if (profileId !== undefined) {
+                const width =
+                    splitProfileWidth !== undefined
+                        ? Math.min(Math.max(splitProfileWidth, 0), 65535)
+                        : undefined;
 
-            const width =
-                splitProfileWidth !== undefined
-                    ? Math.min(Math.max(splitProfileWidth, 0), 65535)
-                    : undefined;
-
-            void invokeSafe("app_set_split_profile_width", {profileId, width});
+                void invokeSafe("app_set_split_profile_width", {profileId, width});
+            }
         }
 
         window.removeEventListener("mousemove", handleOnMouseMove);
@@ -85,7 +85,7 @@ function SplitPage() {
             window.removeEventListener("mouseup", handleOnDragEnd);
             window.removeEventListener("touchend", handleOnDragEnd);
         };
-    }, [handleOnDragEnd, handleOnMouseMove]);
+    }, [handleOnDragEnd, handleOnMouseMove, handleOnTouchMove]);
 
     const width = splitProfileWidth !== undefined ? `${splitProfileWidth}px` : DEFAULT_WIDTH;
 
@@ -108,7 +108,7 @@ function SplitPage() {
                 onTouchEnd={handleOnDragEnd}
                 onDblClick={handleOnDblClick}
                 style={{
-                    right: `clamp(calc(5.5rem + 0.875rem - 3px), calc(${width} - 6px), calc(100% - 11.125rem - 5px)`,
+                    right: `clamp(calc(5.5rem + 0.875rem - 3px), calc(${width} - 6px), calc(100% - 11.125rem - 5px))`,
                 }}
             />
             <MainPageContainer
