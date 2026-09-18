@@ -26,15 +26,26 @@ function SplitPage() {
         };
     };
 
-    const handleOnMouseMove = useEventCallback((e: MouseEvent) => {
+    const calculateAndSetWidth = (x: number) => {
         if (phoneContainerRightBorderRef.current === undefined) return;
 
         let zoom = parseFloat(document.documentElement.style.zoom) || 1;
-        let width = Math.round((phoneContainerRightBorderRef.current - e.x) / zoom);
+        let width = Math.round((phoneContainerRightBorderRef.current - x) / zoom);
         setSplitProfileWidth(width);
+    };
+
+    const handleOnMouseMove = useEventCallback((e: MouseEvent) => {
+        calculateAndSetWidth(e.x);
     });
 
-    const handleOnMouseUp = useEventCallback(() => {
+    const handleOnTouchMove = useEventCallback((e: TouchEvent) => {
+        const touch = e.touches[0];
+        if (!touch) return;
+
+        calculateAndSetWidth(touch.clientX);
+    });
+
+    const handleOnDragEnd = useEventCallback(() => {
         if (draggingRef.current) {
             const profileId = useProfileStore.getState().profile?.id;
 
@@ -49,6 +60,7 @@ function SplitPage() {
         }
 
         window.removeEventListener("mousemove", handleOnMouseMove);
+        window.removeEventListener("touchmove", handleOnTouchMove);
         draggingRef.current = false;
     });
 
@@ -63,14 +75,17 @@ function SplitPage() {
     };
 
     useEffect(() => {
-        window.addEventListener("mouseup", handleOnMouseUp);
+        window.addEventListener("mouseup", handleOnDragEnd);
+        window.addEventListener("touchend", handleOnDragEnd);
 
         return () => {
             draggingRef.current = false;
             window.removeEventListener("mousemove", handleOnMouseMove);
-            window.removeEventListener("mouseup", handleOnMouseUp);
+            window.removeEventListener("touchmove", handleOnTouchMove);
+            window.removeEventListener("mouseup", handleOnDragEnd);
+            window.removeEventListener("touchend", handleOnDragEnd);
         };
-    }, [handleOnMouseUp, handleOnMouseMove]);
+    }, [handleOnDragEnd, handleOnMouseMove]);
 
     const width = splitProfileWidth !== undefined ? `${splitProfileWidth}px` : DEFAULT_WIDTH;
 
@@ -85,7 +100,12 @@ function SplitPage() {
                     draggingRef.current = true;
                     window.addEventListener("mousemove", handleOnMouseMove);
                 }}
-                onMouseUp={handleOnMouseUp}
+                onTouchStart={() => {
+                    draggingRef.current = true;
+                    window.addEventListener("touchmove", handleOnTouchMove);
+                }}
+                onMouseUp={handleOnDragEnd}
+                onTouchEnd={handleOnDragEnd}
                 onDblClick={handleOnDblClick}
                 style={{
                     right: `clamp(calc(5.5rem + 0.875rem - 3px), calc(${width} - 6px), calc(100% - 11.125rem - 5px)`,
