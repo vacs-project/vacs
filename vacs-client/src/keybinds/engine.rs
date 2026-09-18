@@ -34,6 +34,7 @@ pub struct KeybindEngine {
     accept_call_trigger: Option<Trigger>,
     end_call_trigger: Option<Trigger>,
     toggle_radio_prio_trigger: Option<Trigger>,
+    say_again_trigger: Option<Trigger>,
     app: AppHandle,
     listener: RwLock<Option<DynKeybindListener>>,
     rx_task: Option<JoinHandle<()>>,
@@ -59,7 +60,7 @@ impl KeybindEngine {
     pub fn new(
         app: AppHandle,
         transmit_config: &TransmitConfig,
-        call_control_config: &KeybindsConfig,
+        control_config: &KeybindsConfig,
         radio_integration_enabled: bool,
         shutdown_token: CancellationToken,
     ) -> Self {
@@ -70,9 +71,10 @@ impl KeybindEngine {
             call_mic_mode: transmit_config.call_mic_mode,
             call_trigger: transmit_config.active_call_trigger(),
             radio_trigger: transmit_config.active_radio_trigger(radio_integration_enabled),
-            accept_call_trigger: Self::select_accept_call_trigger(call_control_config),
-            end_call_trigger: Self::select_end_call_trigger(call_control_config),
-            toggle_radio_prio_trigger: Self::select_toggle_radio_prio_trigger(call_control_config),
+            accept_call_trigger: Self::select_accept_call_trigger(control_config),
+            end_call_trigger: Self::select_end_call_trigger(control_config),
+            toggle_radio_prio_trigger: Self::select_toggle_radio_prio_trigger(control_config),
+            say_again_trigger: Self::select_say_again_trigger(control_config),
             app,
             listener: RwLock::new(None),
             rx_task: None,
@@ -98,6 +100,7 @@ impl KeybindEngine {
             &self.accept_call_trigger,
             &self.end_call_trigger,
             &self.toggle_radio_prio_trigger,
+            &self.say_again_trigger,
         ]
         .into_iter()
         .flatten()
@@ -108,16 +111,17 @@ impl KeybindEngine {
         if self.rx_task.is_some() {
             return Ok(());
         }
-        let has_call_controls = self.accept_call_trigger.is_some()
+        let has_controls = self.accept_call_trigger.is_some()
             || self.end_call_trigger.is_some()
-            || self.toggle_radio_prio_trigger.is_some();
+            || self.toggle_radio_prio_trigger.is_some()
+            || self.say_again_trigger.is_some();
 
         if self.call_mic_mode == CallMicMode::VoiceActivation
             && self.radio_trigger.is_none()
-            && !has_call_controls
+            && !has_controls
         {
             log::trace!(
-                "TransmitMode set to voice activation, no radio PTT set and no call controls defined -> no keybind engine required"
+                "TransmitMode set to voice activation, no radio PTT set and no control keybinds defined -> no keybind engine required"
             );
             return Ok(());
         } else if self.call_mic_mode != CallMicMode::VoiceActivation
@@ -251,6 +255,7 @@ impl KeybindEngine {
         self.accept_call_trigger = Self::select_accept_call_trigger(keybinds_config);
         self.end_call_trigger = Self::select_end_call_trigger(keybinds_config);
         self.toggle_radio_prio_trigger = Self::select_toggle_radio_prio_trigger(keybinds_config);
+        self.say_again_trigger = Self::select_say_again_trigger(keybinds_config);
 
         self.reset_input_state();
 
@@ -401,12 +406,13 @@ impl KeybindEngine {
             .set_input_muted(muted);
     }
 
-    async fn handle_call_control_event(
+    async fn handle_control_event(
         app: &AppHandle,
         trigger: &Trigger,
         accept_call: Option<&Trigger>,
         end_call: Option<&Trigger>,
         toggle_radio_prio: Option<&Trigger>,
+        say_again: Option<&Trigger>,
     ) {
         let is_accept = accept_call == Some(trigger);
         let is_end = end_call == Some(trigger);
@@ -467,6 +473,9 @@ impl KeybindEngine {
                 keybind_engine.set_radio_prio(prio);
                 app.emit("audio:radio-prio", prio).ok();
             }
+        } else if say_again == Some(trigger) {
+            log::trace!("Say again key pressed");
+            app.emit("playback:say-again", ()).ok();
         }
     }
 
@@ -477,11 +486,13 @@ impl KeybindEngine {
         let accept_call = self.accept_call_trigger.clone();
         let end_call = self.end_call_trigger.clone();
         let toggle_radio_prio = self.toggle_radio_prio_trigger.clone();
+        let say_again = self.say_again_trigger.clone();
 
         if call_trigger.is_none()
             && accept_call.is_none()
             && end_call.is_none()
             && toggle_radio_prio.is_none()
+            && say_again.is_none()
             && radio_trigger.is_none()
         {
             return;
@@ -509,13 +520,14 @@ impl KeybindEngine {
 
         let handle = tauri::async_runtime::spawn(async move {
             log::debug!(
-                "Keybind engine starting: mode={mode:?}, transmit={call_trigger:?}, radio={radio_trigger:?}, accept_call={accept_call:?}, end_call={end_call:?}",
+                "Keybind engine starting: mode={mode:?}, transmit={call_trigger:?}, radio={radio_trigger:?}, accept_call={accept_call:?}, end_call={end_call:?}, say_again={say_again:?}",
             );
 
             let mut held_controls = HeldControls::new(&[
                 accept_call.as_ref(),
                 end_call.as_ref(),
                 toggle_radio_prio.as_ref(),
+                say_again.as_ref(),
             ]);
 
             loop {
@@ -526,7 +538,7 @@ impl KeybindEngine {
                         let Some(event) = res else { break; };
 
                         if held_controls.transition(&event.trigger, event.state) {
-                            Self::handle_call_control_event(&app, &event.trigger, accept_call.as_ref(), end_call.as_ref(), toggle_radio_prio.as_ref()).await;
+                            Self::handle_control_event(&app, &event.trigger, accept_call.as_ref(), end_call.as_ref(), toggle_radio_prio.as_ref(), say_again.as_ref()).await;
                         }
 
                         refresh_radio_follows_call(
@@ -640,6 +652,16 @@ impl KeybindEngine {
         }
 
         config.toggle_radio_prio.clone().map(Trigger::Input)
+    }
+
+    #[inline]
+    fn select_say_again_trigger(config: &KeybindsConfig) -> Option<Trigger> {
+        #[cfg(target_os = "linux")]
+        if matches!(Platform::get(), Platform::LinuxWayland) {
+            return compose_wayland_trigger(Some(PortalAction::SayAgain), &config.say_again);
+        }
+
+        config.say_again.clone().map(Trigger::Input)
     }
 
     #[inline]
@@ -960,6 +982,30 @@ mod tests {
         assert!(!held.transition(&radio(), KeyState::Down));
         assert!(held.held.is_empty());
         assert!(held.transition(&call(), KeyState::Down));
+    }
+
+    #[test]
+    fn say_again_trigger_follows_the_configured_input() {
+        let config = KeybindsConfig {
+            say_again: Some(InputCode::Key(keyboard_types::Code::F9)),
+            ..Default::default()
+        };
+        let trigger = KeybindEngine::select_say_again_trigger(&config);
+
+        #[cfg(target_os = "linux")]
+        if matches!(Platform::get(), Platform::LinuxWayland) {
+            assert_eq!(trigger, Some(Trigger::Portal(PortalAction::SayAgain)));
+            return;
+        }
+
+        assert_eq!(
+            trigger,
+            Some(Trigger::Input(InputCode::Key(keyboard_types::Code::F9)))
+        );
+        assert_eq!(
+            KeybindEngine::select_say_again_trigger(&KeybindsConfig::default()),
+            None
+        );
     }
 
     #[test]

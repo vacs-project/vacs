@@ -1,9 +1,11 @@
 import {create} from "zustand/react";
+import {invokeStrict} from "../error.ts";
 import {createSetter, StateSetter} from "../types/generic.ts";
 import {isTauri} from "../transport";
 import {INSTANCE_ID} from "../transport/store-sync.ts";
 import {startBlink, tryStopBlink} from "./blink-store.ts";
 import {PlaybackDeviceType} from "../types/audio.ts";
+import {ClipMeta} from "../types/playback.ts";
 
 export type PlaybackStatus = {
     id: number;
@@ -56,4 +58,32 @@ export const isPlaybackRoot = () => {
     const openInstanceIds = [...usePlaybackStore.getState().openInstanceIds].sort();
     if (openInstanceIds.length === 0) return isTauri;
     return openInstanceIds[0] === INSTANCE_ID;
+};
+
+export const toggleSayAgain = async () => {
+    const {status, playbackDevice, actions} = usePlaybackStore.getState();
+
+    if (status?.sayAgain === true) {
+        try {
+            await invokeStrict("playback_stop");
+            actions.setStatus(undefined);
+        } catch {}
+        return;
+    }
+
+    try {
+        const clip = await invokeStrict<ClipMeta | null>("playback_say_again", {
+            deviceType: playbackDevice,
+        });
+        if (clip === null) return;
+        actions.setStatus({
+            id: clip.id,
+            status: "playing",
+            continuously: false,
+            sayAgain: true,
+            progress: 0,
+        });
+    } catch {
+        actions.setStatus(undefined);
+    }
 };

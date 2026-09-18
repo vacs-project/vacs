@@ -95,6 +95,8 @@ async function fetchClientPageConfigs() {
     } catch {}
 }
 
+export const selectRadioEnabled = (state: SettingsState) => state.radioConfig?.integration != null;
+
 export async function fetchSettings() {
     void fetchClientPageConfigs();
 
