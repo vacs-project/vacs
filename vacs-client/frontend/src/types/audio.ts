@@ -12,6 +12,18 @@ export type AudioVolumes = {
     chime: number;
 };
 
+export type RingSoundType = "ring" | "priorityRing";
+
+export type RingSound = {
+    path: string;
+    available: boolean; // false when the file could not be loaded and the built-in chime plays
+};
+
+export type RingSounds = {
+    ring?: RingSound;
+    priorityRing?: RingSound;
+};
+
 export type AudioHosts = {
     selected: string;
     all: string[];

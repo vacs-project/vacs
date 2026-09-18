@@ -1,5 +1,6 @@
 use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
+use crate::audio::source_type::RingSoundError;
 use crate::keybinds::KeybindsError;
 use crate::playback::PlaybackError;
 use crate::radio::RadioError;
@@ -32,6 +33,8 @@ pub enum Error {
     Radio(#[from] Box<RadioError>),
     #[error("Playback error: {0}")]
     Playback(#[from] Box<PlaybackError>),
+    #[error("Ring sound error: {0}")]
+    RingSound(#[from] Box<RingSoundError>),
     #[error("Capability {0} not available on your platform")]
     CapabilityNotAvailable(String),
     #[error(transparent)]
@@ -71,6 +74,12 @@ impl From<RadioError> for Error {
 impl From<PlaybackError> for Error {
     fn from(err: PlaybackError) -> Self {
         Error::Playback(Box::new(err))
+    }
+}
+
+impl From<RingSoundError> for Error {
+    fn from(err: RingSoundError) -> Self {
+        Error::RingSound(Box::new(err))
     }
 }
 
@@ -208,6 +217,7 @@ impl From<&Error> for FrontendError {
             Error::Keybinds(err) => FrontendError::new("Keybinds error", err.to_string()),
             Error::Radio(err) => FrontendError::new("Radio error", err.to_string()),
             Error::Playback(err) => FrontendError::new("Playback error", err.to_string()),
+            Error::RingSound(err) => FrontendError::new("Ring sound error", err.to_string()),
             Error::CapabilityNotAvailable(capability) => FrontendError::new(
                 "Not implemented",
                 format!("{capability} functionality is not available on your platform"),

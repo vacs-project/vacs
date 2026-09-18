@@ -554,6 +554,20 @@ async fn dispatch_command(
                 audio_set_volume(app.clone(), app_state, audio_manager, volume_type, volume).await,
             )
         }
+        AudioGetRingSounds => {
+            let app_state = app.state::<AppState>();
+            let audio_manager = app.state::<AudioManagerHandle>();
+            dispatch(audio_get_ring_sounds(app_state, audio_manager).await)
+        }
+        AudioPickRingSound => dispatch(audio_pick_ring_sound().await),
+        AudioSetRingSound => {
+            let (ring_type, path) = args!(args, "ringType", "path");
+            let app_state = app.state::<AppState>();
+            let audio_manager = app.state::<AudioManagerHandle>();
+            dispatch(
+                audio_set_ring_sound(app.clone(), app_state, audio_manager, ring_type, path).await,
+            )
+        }
         AudioPlayUiClick => {
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(audio_play_ui_click(audio_manager).await)

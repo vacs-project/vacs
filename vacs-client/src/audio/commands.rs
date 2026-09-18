@@ -1,14 +1,15 @@
 use crate::app::state::AppState;
 use crate::app::state::webrtc::AppStateWebrtcExt;
 use crate::audio::manager::AudioManagerHandle;
-use crate::audio::source_type::SourceType;
+use crate::audio::source_type::{RingSoundError, SourceType, load_ring_clip};
 use crate::audio::{
     AudioConfig, AudioDevices, AudioHosts, AudioVolumes, ClientAudioDeviceType,
-    PersistedAudioConfig, PlaybackDeviceType, VolumeType,
+    PersistedAudioConfig, PlaybackDeviceType, RingSoundType, RingSounds, VolumeType,
 };
 use crate::config::{AUDIO_SETTINGS_FILE_NAME, Persistable};
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -285,7 +286,6 @@ pub async fn audio_set_volume(
             state.config.audio.chime_volume = volume;
         }
     }
-
     let persisted_audio_config: PersistedAudioConfig = state.config.audio.clone().into();
 
     let config_dir = app
@@ -295,6 +295,76 @@ pub async fn audio_set_volume(
     persisted_audio_config.persist(&config_dir, AUDIO_SETTINGS_FILE_NAME)?;
 
     Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn audio_get_ring_sounds(
+    app_state: State<'_, AppState>,
+    audio_manager: State<'_, AudioManagerHandle>,
+) -> Result<RingSounds, Error> {
+    log::debug!("Getting ring sounds");
+
+    let state = app_state.lock().await;
+    let audio_manager = audio_manager.read();
+    Ok(RingSounds::new(&state.config.audio, |ring_type| {
+        audio_manager.has_ring_clip(ring_type)
+    }))
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn audio_pick_ring_sound() -> Result<Option<String>, Error> {
+    log::debug!("Picking ring sound file");
+
+    Ok(rfd::AsyncFileDialog::new()
+        .set_title("Select a ring sound")
+        .add_filter("WAV audio", &["wav"])
+        .pick_file()
+        .await
+        .map(|file| file.path().to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn audio_set_ring_sound(
+    app: AppHandle,
+    app_state: State<'_, AppState>,
+    audio_manager: State<'_, AudioManagerHandle>,
+    ring_type: RingSoundType,
+    path: Option<String>,
+) -> Result<RingSounds, Error> {
+    log::info!("Setting ring sound (type: {ring_type:?}, path: {path:?})");
+
+    let path = path.filter(|p| !p.is_empty()).map(PathBuf::from);
+    let clip = match path.clone() {
+        Some(path) => Some(
+            tokio::task::spawn_blocking(move || load_ring_clip(&path))
+                .await
+                .map_err(RingSoundError::Task)??,
+        ),
+        None => None,
+    };
+
+    let mut state = app_state.lock().await;
+    {
+        let mut audio_manager = audio_manager.write();
+        audio_manager.set_ring_sound(ring_type, clip, state.config.audio.chime_volume)?;
+        audio_manager.restart(ring_type.into());
+    }
+    state.config.audio.set_ring_sound(ring_type, path);
+
+    let persisted_audio_config: PersistedAudioConfig = state.config.audio.clone().into();
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("Cannot get config directory");
+    persisted_audio_config.persist(&config_dir, AUDIO_SETTINGS_FILE_NAME)?;
+
+    let audio_manager = audio_manager.read();
+    Ok(RingSounds::new(&state.config.audio, |ring_type| {
+        audio_manager.has_ring_clip(ring_type)
+    }))
 }
 
 #[tauri::command]

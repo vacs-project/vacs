@@ -1,8 +1,8 @@
 use crate::app::state::AppState;
 use crate::app::state::signaling::AppStateSignalingExt;
 use crate::app::state::webrtc::AppStateWebrtcExt;
-use crate::audio::source_type::SourceType;
-use crate::audio::{AudioConfig, PlaybackDeviceType};
+use crate::audio::source_type::{SourceType, load_ring_clip};
+use crate::audio::{AudioConfig, PlaybackDeviceType, RingSoundType};
 use crate::error::{Error, FrontendError};
 use parking_lot::RwLock;
 use serde_json::Value;
@@ -15,6 +15,7 @@ use vacs_audio::EncodedAudioFrame;
 use vacs_audio::device::{DeviceSelector, DeviceType, StreamDevice};
 use vacs_audio::error::AudioError;
 use vacs_audio::sources::opus::OpusSource;
+use vacs_audio::sources::wav::WavClip;
 use vacs_audio::sources::{AudioSource, AudioSourceId};
 use vacs_audio::stream::capture::{CaptureStream, InputLevel};
 use vacs_audio::stream::playback::PlaybackStream;
@@ -26,6 +27,7 @@ const AUDIO_STREAM_ERROR_CHANNEL_SIZE: usize = 32;
 const RESTART_COOLDOWN: Duration = Duration::from_secs(2);
 
 type SourceMap = HashMap<SourceType, AudioSourceId>;
+type RingClipMap = HashMap<RingSoundType, WavClip>;
 
 pub struct AudioManager {
     output: PlaybackStream,
@@ -33,12 +35,28 @@ pub struct AudioManager {
     input: Option<CaptureStream>,
     output_source_ids: SourceMap,
     speaker_source_ids: SourceMap,
+    // Decoded once, so stream rebuilds (device switches, recovery) never touch the disk.
+    ring_clips: RingClipMap,
 }
 
 pub type AudioManagerHandle = Arc<RwLock<AudioManager>>;
 
 impl AudioManager {
     pub fn new(app: AppHandle, audio_config: &AudioConfig) -> Result<Self, Error> {
+        let mut ring_clips = RingClipMap::new();
+        for ring_type in [RingSoundType::Ring, RingSoundType::PriorityRing] {
+            if let Some(path) = audio_config.ring_sound(ring_type) {
+                match load_ring_clip(path) {
+                    Ok(clip) => {
+                        ring_clips.insert(ring_type, clip);
+                    }
+                    Err(err) => {
+                        log::warn!("Using the built-in chime for {ring_type:?}: {err}");
+                    }
+                }
+            }
+        }
+
         let (output_device, is_fallback) = DeviceSelector::open(
             DeviceType::Output,
             audio_config.host_name.as_deref(),
@@ -50,6 +68,7 @@ impl AudioManager {
             output_device,
             is_fallback,
             audio_config,
+            &ring_clips,
             None,
             PlaybackDeviceType::Output,
         )?;
@@ -66,6 +85,7 @@ impl AudioManager {
                 speaker_device,
                 is_fallback,
                 audio_config,
+                &ring_clips,
                 None,
                 PlaybackDeviceType::Speaker,
             )?;
@@ -80,7 +100,12 @@ impl AudioManager {
             speaker,
             output_source_ids,
             speaker_source_ids,
+            ring_clips,
         })
+    }
+
+    pub fn has_ring_clip(&self, ring_type: RingSoundType) -> bool {
+        self.ring_clips.contains_key(&ring_type)
     }
 
     pub fn output_device_name(&self) -> String {
@@ -126,6 +151,7 @@ impl AudioManager {
             output_device,
             is_fallback,
             audio_config,
+            &self.ring_clips,
             restarted_at,
             device_type,
         )?;
@@ -437,6 +463,57 @@ impl AudioManager {
         Ok(())
     }
 
+    /// Replaces the ring source on every playback stream with `clip`, or with the built-in chime
+    /// when `clip` is `None`. Fails without touching the streams if the clip cannot be prepared.
+    pub fn set_ring_sound(
+        &mut self,
+        ring_type: RingSoundType,
+        clip: Option<WavClip>,
+        volume: f32,
+    ) -> Result<(), Error> {
+        let source_type = SourceType::from(ring_type);
+        let output_source = source_type.into_ring_source(
+            clip.as_ref(),
+            self.output.sample_rate(),
+            self.output.channels() as usize,
+            volume,
+        )?;
+        let speaker_source = self
+            .speaker
+            .as_ref()
+            .map(|speaker| {
+                source_type.into_ring_source(
+                    clip.as_ref(),
+                    speaker.sample_rate(),
+                    speaker.channels() as usize,
+                    volume,
+                )
+            })
+            .transpose()?;
+
+        // Remove before add, so the mixer map never grows inside the data callback.
+        if let Some(previous) = self.output_source_ids.remove(&source_type) {
+            self.output.remove_audio_source(previous);
+        }
+        self.output_source_ids
+            .insert(source_type, self.output.add_audio_source(output_source));
+
+        if let (Some(speaker), Some(source)) = (&self.speaker, speaker_source) {
+            if let Some(previous) = self.speaker_source_ids.remove(&source_type) {
+                speaker.remove_audio_source(previous);
+            }
+            self.speaker_source_ids
+                .insert(source_type, speaker.add_audio_source(source));
+        }
+
+        match clip {
+            Some(clip) => self.ring_clips.insert(ring_type, clip),
+            None => self.ring_clips.remove(&ring_type),
+        };
+
+        Ok(())
+    }
+
     pub fn detach_call_output(&mut self) {
         if let Some(source_id) = self.output_source_ids.remove(&SourceType::Opus) {
             self.output.remove_audio_source(source_id);
@@ -451,6 +528,7 @@ impl AudioManager {
         device: StreamDevice,
         is_fallback: bool,
         audio_config: &AudioConfig,
+        ring_clips: &RingClipMap,
         restarted_at: Option<Instant>,
         device_type: PlaybackDeviceType,
     ) -> Result<(PlaybackStream, SourceMap), Error> {
@@ -500,12 +578,26 @@ impl AudioManager {
                 );
             };
 
-        insert_waveform_source(&mut source_ids, SourceType::Ring, audio_config.chime_volume);
-        insert_waveform_source(
-            &mut source_ids,
-            SourceType::PriorityRing,
-            audio_config.chime_volume,
-        );
+        for ring_type in [RingSoundType::Ring, RingSoundType::PriorityRing] {
+            let source_type = SourceType::from(ring_type);
+            let source = match source_type.into_ring_source(
+                ring_clips.get(&ring_type),
+                sample_rate as u32,
+                channels,
+                audio_config.chime_volume,
+            ) {
+                Ok(source) => source,
+                Err(err) => {
+                    log::warn!("Falling back to the built-in chime for {ring_type:?}: {err:?}");
+                    Box::new(source_type.into_waveform_source(
+                        sample_rate,
+                        channels,
+                        audio_config.chime_volume,
+                    ))
+                }
+            };
+            source_ids.insert(source_type, output.add_audio_source(source));
+        }
         insert_waveform_source(
             &mut source_ids,
             SourceType::Click,
