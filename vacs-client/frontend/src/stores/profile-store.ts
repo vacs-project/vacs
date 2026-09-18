@@ -15,11 +15,13 @@ type ProfileState = {
     profile: Profile | undefined;
     page: SelectedPage;
     testProfilePath: string | undefined;
-    setProfile: (profile: Profile | undefined) => void;
+    splitProfileWidth: number | undefined;
+    setProfile: (profile: Profile | undefined, width: number | undefined) => void;
     setPage: (page: DirectAccessPage | undefined) => void;
     setSubpage: (page: DirectAccessPage, parent: DirectAccessPage) => void;
     navigateParentPage: () => void;
     setTestProfilePath: (path: string | undefined) => void;
+    setSplitProfileWidth: (width: number | undefined) => void;
     reset: (resetTestProfilePath?: boolean) => void;
 };
 
@@ -27,7 +29,8 @@ export const useProfileStore = create<ProfileState>()((set, get, store) => ({
     profile: undefined,
     page: {current: undefined, parent: undefined},
     testProfilePath: undefined,
-    setProfile: profile => set({profile}),
+    splitProfileWidth: undefined,
+    setProfile: (profile, width) => set({profile, splitProfileWidth: width}),
     setPage: page => set({page: {current: page, parent: undefined}}),
     setSubpage: (page, parent) => set({page: {current: page, parent: get().page.parent ?? parent}}),
     navigateParentPage: () => {
@@ -35,6 +38,7 @@ export const useProfileStore = create<ProfileState>()((set, get, store) => ({
         if (parent === undefined) return;
         set({page: {current: parent, parent: undefined}});
     },
+    setSplitProfileWidth: width => set({splitProfileWidth: width}),
     setTestProfilePath: path => set({testProfilePath: path}),
     reset: (resetTestProfilePath = true) =>
         set({

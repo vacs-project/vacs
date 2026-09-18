@@ -7,6 +7,7 @@ import {invokeSafe} from "../../error.ts";
 import {useRadioStore} from "../../stores/radio-store.ts";
 import xc from "../../assets/xc.svg";
 import speaker from "../../assets/speaker.svg";
+import {useSplitView} from "../../hooks/page-hook.ts";
 
 type FrequencyObjectProps = {
     station: RadioStation;
@@ -15,12 +16,19 @@ type FrequencyObjectProps = {
 };
 
 function FrequencyObject({station, rxActive, txActive}: FrequencyObjectProps) {
+    const splitView = useSplitView();
+
     const update = useAsyncDebounce(async (update: StationStateUpdate) => {
         await invokeSafe("radio_set_station_state", {update, frequency: station.frequency});
     });
 
     return (
-        <div className="grid grid-rows-2 grid-cols-[55%_45%] h-[6.188rem] w-42 bg-gray-300 rounded-md border-gray-800 override-gray">
+        <div
+            className={clsx(
+                "grid grid-rows-2 h-[6.188rem] bg-gray-300 rounded-md border-gray-800 override-gray",
+                splitView ? "grid-cols-[58%_42%] w-40" : "grid-cols-[55%_45%] w-42",
+            )}
+        >
             <div
                 className="border border-gray-800 rounded-tl-md rounded-bl-md"
                 style={{gridRow: `span 2 / span 2`}}

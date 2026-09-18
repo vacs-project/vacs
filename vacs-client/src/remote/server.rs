@@ -18,6 +18,7 @@ use crate::remote::commands::FrontendRemoteConfigWithStatus;
 use crate::remote::protocol::{
     ClientMessage, ProblemDetails, RemoteCommand, RemoteEvent, ServerMessage,
 };
+use crate::signaling::ClientSessionInfo;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::connect_info::ConnectInfo;
@@ -36,7 +37,7 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use vacs_signaling::protocol::vatsim::{ClientId, StationId};
-use vacs_signaling::protocol::ws::server::{ClientInfo, SessionInfo, StationInfo};
+use vacs_signaling::protocol::ws::server::{ClientInfo, StationInfo};
 use vacs_signaling::protocol::ws::shared::CallInvite;
 
 const BROADCAST_CHANNEL_SIZE: usize = 256;
@@ -417,7 +418,7 @@ macro_rules! args {
 #[serde(rename_all = "camelCase")]
 struct SessionStateSnapshot {
     connection_state: ConnectionState,
-    session_info: Option<SessionInfo>,
+    session_info: Option<ClientSessionInfo>,
     default_call_sources: Vec<StationId>,
     stations: Vec<StationInfo>,
     clients: Vec<ClientInfo>,
@@ -503,6 +504,11 @@ async fn dispatch_command(
             let cpl_mode = args!(args, "cplMode");
             let app_state = app.state::<AppState>();
             dispatch(app_set_cpl_mode(app.clone(), app_state, cpl_mode).await)
+        }
+        AppSetSplitProfileWidth => {
+            let (profile_id, width) = args!(args, "profileId", "width");
+            let app_state = app.state::<AppState>();
+            dispatch(app_set_split_profile_width(app.clone(), app_state, profile_id, width).await)
         }
 
         AudioGetHosts => {
@@ -867,7 +873,12 @@ async fn dispatch_command(
 
             let snapshot = SessionStateSnapshot {
                 connection_state: state.connection_state,
-                session_info: state.session_info.clone(),
+                session_info: state.session_info.as_ref().map(|session_info| {
+                    ClientSessionInfo::from_session_info_and_config(
+                        session_info.clone(),
+                        &state.config.client,
+                    )
+                }),
                 default_call_sources: state.default_call_sources.clone(),
                 stations: state.stations.clone(),
                 clients: state.clients.clone(),

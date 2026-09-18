@@ -1,12 +1,11 @@
 import {ClientInfo, ClientPageConfig, splitDisplayName} from "../../types/client.ts";
-import Button from "./Button.tsx";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {invokeStrict} from "../../error.ts";
 import {startCall, useCallStore} from "../../stores/call-store.ts";
-import {clsx} from "clsx";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
 import {useBlinkStore} from "../../stores/blink-store.ts";
+import DirectAccessKeyButton from "./DirectAccessKeyButton.tsx";
 
 type DAKeyProps = {
     client: ClientInfo;
@@ -71,12 +70,9 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
     });
 
     return (
-        <Button
+        <DirectAccessKeyButton
             color={color}
-            className={clsx(
-                "w-25 h-full rounded leading-4.5!",
-                color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
-            )}
+            className="leading-4.5!"
             highlight={highlight}
             onClick={handleClick}
         >
@@ -85,7 +81,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
             </p>
             {stationType !== "" && <p>{stationType}</p>}
             {showFrequency && <p title={client.frequency}>{client.frequency}</p>}
-        </Button>
+        </DirectAccessKeyButton>
     );
 }
 

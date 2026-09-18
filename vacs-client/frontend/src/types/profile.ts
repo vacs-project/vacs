@@ -14,6 +14,7 @@ export type ActiveProfile = {
 
 export type Profile = {
     id: ProfileId;
+    view: "page" | "split" | "cycle";
     geo?: GeoPageContainer;
     tabbed?: Tab[];
 };

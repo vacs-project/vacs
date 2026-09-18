@@ -1,5 +1,6 @@
 import {create} from "zustand/react";
 import {startBlink, tryStopBlink} from "./blink-store.ts";
+import {invokeStrict} from "../error.ts";
 import {RadioState} from "../types/radio.ts";
 
 type RadioStoreState = {
@@ -23,3 +24,14 @@ export const useRadioStore = create<RadioStoreState>()(set => ({
         set({cpl});
     },
 }));
+
+/**
+ * Reconnects the radio if it is currently disconnected or in an error state.
+ */
+export const retryRadioConnection = () => {
+    const state = useRadioStore.getState().radioState?.state;
+
+    if (state === "Disconnected" || state === "Error") {
+        void invokeStrict("radio_reconnect");
+    }
+};

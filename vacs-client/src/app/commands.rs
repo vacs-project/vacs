@@ -16,6 +16,7 @@ use serde::Deserialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use vacs_signaling::protocol::profile::ProfileId;
 use vacs_vatsim::coverage::profile::Profile;
 
 #[tauri::command]
@@ -679,6 +680,38 @@ pub async fn app_set_cpl_mode(
     let config: PersistedClientConfig = {
         let mut state = app_state.lock().await;
         state.config.client.cpl_mode = cpl_mode;
+
+        state.config.client.clone().into()
+    };
+
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("Cannot get config directory");
+    config.persist(&config_dir, CLIENT_SETTINGS_FILE_NAME)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn app_set_split_profile_width(
+    app: AppHandle,
+    app_state: State<'_, AppState>,
+    profile_id: ProfileId,
+    width: Option<u16>,
+) -> Result<(), Error> {
+    let config: PersistedClientConfig = {
+        let mut state = app_state.lock().await;
+
+        match width {
+            Some(width) => state
+                .config
+                .client
+                .split_profile_widths
+                .insert(profile_id, width),
+            None => state.config.client.split_profile_widths.remove(&profile_id),
+        };
 
         state.config.client.clone().into()
     };

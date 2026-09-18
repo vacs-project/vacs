@@ -19,9 +19,35 @@ pub struct Profile {
     /// The unique identifier for this profile.
     pub id: ProfileId,
 
+    /// How the client arranges the radio and phone pages in its main area.
+    ///
+    /// Only [`ProfileType::Tabbed`] profiles support a view other than [`ProfileView::Page`].
+    #[serde(default)]
+    pub view: ProfileView,
+
     /// The type of profile and its associated configuration.
     #[serde(flatten)]
     pub profile_type: ProfileType,
+}
+
+/// The layout the client uses for the radio and phone pages.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfileView {
+    /// The radio and phone pages each occupy the whole main area, one at a time.
+    ///
+    /// This is the only view available to [`ProfileType::Geo`] profiles.
+    #[default]
+    Page,
+
+    /// The phone page can additionally be shown next to the radio page, with
+    /// each layout selectable directly.
+    Split,
+
+    /// Like [`ProfileView::Split`], but the client steps through the radio page,
+    /// the phone page and the combined layout in a fixed order instead of
+    /// offering each one directly.
+    Cycle,
 }
 
 /// The specific configuration type of a profile.
@@ -29,7 +55,7 @@ pub struct Profile {
 #[serde(rename_all = "camelCase")]
 pub enum ProfileType {
     /// A GEO profile with a container-based layout.
-    Geo(GeoPageContainer),
+    Geo(Box<GeoPageContainer>),
 
     /// A tabbed profile with pages accessible via tabs.
     ///
@@ -238,7 +264,25 @@ impl std::borrow::Borrow<String> for ProfileId {
 
 impl std::fmt::Display for Profile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Profile({}, {})", self.id, self.profile_type)
+        write!(
+            f,
+            "Profile({}, {}, {})",
+            self.id, self.view, self.profile_type
+        )
+    }
+}
+
+impl std::fmt::Display for ProfileView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ProfileView::Page => "Page",
+                ProfileView::Split => "Split",
+                ProfileView::Cycle => "Cycle",
+            }
+        )
     }
 }
 
@@ -269,5 +313,44 @@ impl<T: ProfileReference + std::fmt::Display> std::fmt::Display for ActiveProfil
 impl PartialOrd for Profile {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.id.partial_cmp(&other.id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tabbed(view: ProfileView) -> Profile {
+        Profile {
+            id: ProfileId::from("EDGG_T"),
+            view,
+            profile_type: ProfileType::Tabbed(vec![]),
+        }
+    }
+
+    #[test]
+    fn profile_serializes_the_view_in_camel_case() {
+        let json = serde_json::to_string(&tabbed(ProfileView::Split)).unwrap();
+        assert_eq!(json, r#"{"id":"EDGG_T","view":"split","tabbed":[]}"#);
+    }
+
+    #[test]
+    fn profile_without_view_deserializes_as_page() {
+        let profile: Profile = serde_json::from_str(r#"{"id":"EDGG_T","tabbed":[]}"#).unwrap();
+        assert_eq!(profile, tabbed(ProfileView::Page));
+    }
+
+    #[test]
+    fn profile_view_round_trips_every_variant() {
+        for (view, wire) in [
+            (ProfileView::Page, "page"),
+            (ProfileView::Split, "split"),
+            (ProfileView::Cycle, "cycle"),
+        ] {
+            let json = serde_json::to_string(&tabbed(view)).unwrap();
+            assert!(json.contains(&format!(r#""view":"{wire}""#)), "{json}");
+            let parsed: Profile = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed.view, view);
+        }
     }
 }

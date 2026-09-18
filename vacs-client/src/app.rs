@@ -19,6 +19,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use url::Url;
 use vacs_macros::Frontend;
 use vacs_signaling::protocol::http::version::ReleaseChannel;
+use vacs_signaling::protocol::profile::ProfileId;
 use vacs_signaling::protocol::profile::client_page::{
     ClientGroupMode, ClientPageConfig, FrequencyDisplayMode,
 };
@@ -200,6 +201,8 @@ pub struct ClientConfig {
     /// these devices keep working; they just can no longer win a capture.
     #[serde(default)]
     pub ignored_joysticks: HashSet<JoystickDevice>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub split_profile_widths: HashMap<ProfileId, u16>,
 }
 
 fn default_zoom_level() -> f64 {
@@ -230,6 +233,7 @@ impl Default for ClientConfig {
             clock_mode: ClockMode::default(),
             cpl_mode: CplMode::default(),
             ignored_joysticks: Default::default(),
+            split_profile_widths: Default::default(),
         }
     }
 }

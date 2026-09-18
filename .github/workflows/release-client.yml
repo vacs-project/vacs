@@ -304,6 +304,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_SIGNING_RPM_KEY: ${{ secrets.TAURI_SIGNING_RPM_KEY }}
           TAURI_SIGNING_RPM_KEY_PASSPHRASE: ${{ secrets.TAURI_SIGNING_RPM_KEY_PASSPHRASE }}
+          # aws-lc-sys >= 0.45 links a system AWS-LC when it finds one, which would make the
+          # binary depend on a library the users' machines do not have
+          AWS_LC_SYS_USE_SYSTEM: "0"
         with:
           projectPath: vacs-client
           args: ${{ matrix.target && format('--target {0}', matrix.target) }} ${{ env.EXTRA_TAURI_ARGS }} ${{ env.CARGO_FEATURES }}

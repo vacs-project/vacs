@@ -1,26 +1,29 @@
 import {DirectAccessPage as DirectAccessPageModel} from "../types/profile.ts";
 import {CSSProperties} from "preact";
 import DirectAccessStationKey from "./ui/DirectAccessStationKey.tsx";
-import {clsx} from "clsx";
 import ButtonLabel from "./ui/ButtonLabel.tsx";
-import Button from "./ui/Button.tsx";
 import {useProfileStore} from "../stores/profile-store.ts";
 import {useCallState} from "../hooks/call-state-hook.ts";
 import ClientPage from "./ClientPage.tsx";
 import {CustomButtonColor} from "../types/custom-button-colors.ts";
+import {useSplitView} from "../hooks/page-hook.ts";
+import DirectAccessKeyButton from "./ui/DirectAccessKeyButton.tsx";
 
 type DirectAccessPageProps = {
     data: DirectAccessPageModel;
 };
 
 function DirectAccessPage({data}: DirectAccessPageProps) {
+    const splitView = useSplitView();
+
     const style: CSSProperties = {
         gridTemplateRows: `repeat(${data.rows}, 1fr)`,
+        gap: splitView ? "0.375rem" : "0.5rem",
     };
 
     return (
-        <div className="w-full h-full overflow-auto">
-            <div className="w-min min-h-full py-3 px-2 grid grid-flow-col gap-2" style={style}>
+        <div className="w-full h-full overflow-auto scrollbar-none">
+            <div className="w-min min-h-full py-3 px-2 grid grid-flow-col" style={style}>
                 {data.keys !== undefined ? (
                     data.keys.map((key, index) =>
                         key.page !== undefined ? (
@@ -66,18 +69,14 @@ function DirectAccessSubpageKey(props: DirectAccessSubpageKeyProps) {
     const setSubpage = useProfileStore(state => state.setSubpage);
 
     return (
-        <Button
+        <DirectAccessKeyButton
             color={color}
             highlight={beingCalled || isRejected ? "green" : undefined}
-            className={clsx(
-                props.className,
-                "w-25 h-full rounded",
-                color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
-            )}
+            className={props.className}
             onClick={() => setSubpage(props.page, props.parent)}
         >
             <ButtonLabel label={props.label} />
-        </Button>
+        </DirectAccessKeyButton>
     );
 }
 

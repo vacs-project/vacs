@@ -1,16 +1,19 @@
 import {clsx} from "clsx";
 import {useEffect, useState} from "preact/hooks";
 import cycle from "../assets/cycle.svg";
-import {invokeSafe} from "../error.ts";
-import {goToPage, useNavigationStore} from "../stores/navigation-store.ts";
+import {useSplitView} from "../hooks/page-hook.ts";
+import {setPage as setNavigationPage, useNavigationStore} from "../stores/navigation-store.ts";
 import {useProfileStore} from "../stores/profile-store.ts";
 import {Tab} from "../types/profile.ts";
 import Button from "./ui/Button.tsx";
-import ButtonLabel from "./ui/ButtonLabel.tsx";
+import TabButton from "./ui/TabButton.tsx";
 
-function Tabs() {
+function ProfileTabs() {
     const tabs = useProfileStore(state => state.profile?.tabbed);
     const setPage = useProfileStore(state => state.setPage);
+    const navigationPage = useNavigationStore(state => state.page);
+    const settingsOpen = useNavigationStore(state => state.menu === "settings");
+    const splitView = useSplitView();
     const [active, setActive] = useState<number>(0);
     const [offset, setOffset] = useState<number>(0);
 
@@ -74,7 +77,11 @@ function Tabs() {
                     active={active === index}
                     onClick={() => {
                         setActive(index);
+                        if (navigationPage === "radio") {
+                            setNavigationPage(splitView ? "split" : "phone");
+                        }
                     }}
+                    tabViewHidden={settingsOpen || navigationPage === "radio"}
                 />
             ))}
         </div>
@@ -91,41 +98,4 @@ function daSwitchLabel(offset: number, tabsLength: number) {
     return from !== to ? `${from}-${to}` : from;
 }
 
-type TabButtonProps = {
-    label: string[] | undefined;
-    active?: boolean;
-    onClick?: () => void;
-};
-
-function TabButton(props: TabButtonProps) {
-    const settingsOpen = useNavigationStore(state => state.menu === "settings");
-    const disabled = props.label === undefined;
-
-    return (
-        <div className="w-20 relative">
-            <button
-                className={clsx(
-                    "absolute -top-[calc(0.5rem+2px)] h-[calc(100%+0.5rem+2px)] w-20 rounded-b-lg border-t-0 font-semibold cursor-pointer leading-5",
-                    "border-4 outline-2 outline-gray-700 -outline-offset-2 px-1.5 flex flex-col justify-center items-center c",
-                    props.active &&
-                        !settingsOpen &&
-                        "active-tab border-b-gray-300 bg-linear-0/oklch from-gray-300 to-[#B5BBC6]",
-                    disabled && "cursor-not-allowed! bg-gray-400",
-                    (props.active && !settingsOpen) || disabled
-                        ? "border-transparent"
-                        : "bg-gray-300 border-l-gray-100 border-r-gray-700 border-b-gray-700 active:border-r-gray-100 active:border-b-gray-100 active:border-t-gray-700 active:border-l-gray-700 active:*:translate-y-px active:*:translate-x-px",
-                )}
-                disabled={(props.active && !settingsOpen) || disabled}
-                onClick={() => {
-                    void invokeSafe("audio_play_ui_click");
-                    props.onClick?.();
-                    if (settingsOpen) goToPage("phone");
-                }}
-            >
-                {props.label && <ButtonLabel label={props.label} />}
-            </button>
-        </div>
-    );
-}
-
-export default Tabs;
+export default ProfileTabs;

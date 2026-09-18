@@ -1,16 +1,16 @@
 import {clsx} from "clsx";
-import {invokeStrict} from "../../error.ts";
 import {goToPage} from "../../stores/navigation-store.ts";
 import {useProfileType} from "../../stores/profile-store.ts";
-import {useRadioStore} from "../../stores/radio-store.ts";
+import {retryRadioConnection, useRadioStore} from "../../stores/radio-store.ts";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import Button from "./Button.tsx";
 
 function RadioButton() {
     const radioState = useRadioStore(state => state.radioState?.state ?? "NotConfigured");
-    const disabled = radioState === "NotConfigured" || radioState === "Disconnected";
     const textMuted = radioState === "NotConfigured";
-    const radioIntegration = useSettingsStore(state => state.radioConfig?.integration);
+    const radioIsTrackAudio = useSettingsStore(
+        state => state.radioConfig?.integration === "TrackAudio",
+    );
 
     const collapsed = useProfileType() === "tabbed";
 
@@ -36,23 +36,17 @@ function RadioButton() {
     };
 
     const handleButtonClick = () => {
-        if (!disabled && radioIntegration === "TrackAudio") {
+        if (radioIsTrackAudio) {
             goToPage("radio");
         }
 
-        if (
-            radioState !== "NotConfigured" &&
-            (radioState === "Disconnected" || radioState === "Error")
-        ) {
-            void invokeStrict("radio_reconnect");
-        }
+        retryRadioConnection();
     };
 
     return (
         <Button
             color={buttonColor()}
             disabled={radioState === "NotConfigured"}
-            softDisabled={disabled}
             onClick={handleButtonClick}
             className={clsx(
                 "text-lg transition-[width]",

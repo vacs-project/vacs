@@ -1,8 +1,8 @@
-import {DirectAccessKey} from "../../types/profile.ts";
-import Button from "./Button.tsx";
 import {clsx} from "clsx";
 import ButtonLabel from "./ButtonLabel.tsx";
 import {useStationKeyInteraction} from "../../hooks/station-key-interaction-hook.ts";
+import DirectAccessKeyButton from "./DirectAccessKeyButton.tsx";
+import {DirectAccessKey} from "../../types/profile.ts";
 
 type DirectAccessStationKeyProps = {
     data: DirectAccessKey;
@@ -19,20 +19,15 @@ function DirectAccessStationKey({
     );
 
     return (
-        <Button
+        <DirectAccessKeyButton
             color={color}
             highlight={highlight}
             disabled={disabled}
-            className={clsx(
-                className,
-                "w-25 h-full rounded",
-                (own || stationId === undefined) && "text-gray-500",
-                color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
-            )}
+            className={clsx((own || stationId === undefined) && "text-gray-500", className)}
             onClick={handleClick}
         >
             <ButtonLabel label={label} />
-        </Button>
+        </DirectAccessKeyButton>
     );
 }
 

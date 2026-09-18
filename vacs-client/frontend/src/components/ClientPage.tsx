@@ -3,10 +3,9 @@ import DirectAccessClientKey from "./ui/DirectAccessClientKey.tsx";
 import {useMemo} from "preact/hooks";
 import {ClientInfo, ClientPageConfig, filterAndSortClients} from "../types/client.ts";
 import {useFilterStore} from "../stores/filter-store.ts";
-import Button from "./ui/Button.tsx";
 import {useCallStore} from "../stores/call-store.ts";
-import {clsx} from "clsx";
 import {useBlinkStore} from "../stores/blink-store.ts";
+import DirectAccessKeyButton from "./ui/DirectAccessKeyButton.tsx";
 
 type ClientPageProps = {
     config: ClientPageConfig;
@@ -128,13 +127,10 @@ function ClientPageGroupKey({
             : "gray";
 
     return (
-        <Button
+        <DirectAccessKeyButton
             color={color}
             highlight={beingCalled || isRejected ? "green" : undefined}
-            className={clsx(
-                "w-25 h-full rounded leading-4.5!",
-                color === "gray" ? "p-1.5" : "p-[calc(0.375rem+1px)]",
-            )}
+            className="leading-4.5!"
             onClick={() => setFilter(group)}
         >
             <p className="w-full truncate leading-3.5" title={group}>
@@ -142,7 +138,7 @@ function ClientPageGroupKey({
                 <br />
                 ...
             </p>
-        </Button>
+        </DirectAccessKeyButton>
     );
 }
 

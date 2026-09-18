@@ -6,6 +6,7 @@ import {useFilterStore} from "../../stores/filter-store.ts";
 import {goToPage} from "../../stores/navigation-store.ts";
 import {useProfileStore, useProfileType} from "../../stores/profile-store.ts";
 import Button from "./Button.tsx";
+import {useSplitView} from "../../hooks/page-hook.ts";
 
 function EndButton() {
     const callDisplay = useCallStore(state => state.callDisplay);
@@ -13,6 +14,7 @@ function EndButton() {
     const setFilter = useFilterStore(state => state.setFilter);
     const setSelectedPage = useProfileStore(state => state.setPage);
     const navigateParentPage = useProfileStore(state => state.navigateParentPage);
+    const splitView = useSplitView();
 
     const isTabbedProfile = useProfileType() === "tabbed";
 
@@ -36,7 +38,7 @@ function EndButton() {
         } else {
             setSelectedPage(undefined);
         }
-        goToPage("phone");
+        goToPage(splitView ? "split" : "phone");
 
         void endAnyCall();
     };

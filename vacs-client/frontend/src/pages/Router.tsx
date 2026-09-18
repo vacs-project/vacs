@@ -5,6 +5,8 @@ import TelephonePage from "./TelephonePage.tsx";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 import PlaybackPage from "./PlaybackPage.tsx";
+import MainPageContainer from "../components/ui/MainPageContainer.tsx";
+import SplitPage from "./SplitPage.tsx";
 
 function Router() {
     const page = useNavigationStore(state => state.page);
@@ -25,7 +27,18 @@ function Router() {
             ) : (
                 <></>
             )}
-            {!hidePage && (page === "phone" ? <PhonePage /> : <RadioPage />)}
+            {!hidePage &&
+                (page === "split" ? (
+                    <SplitPage />
+                ) : page === "phone" ? (
+                    <MainPageContainer>
+                        <PhonePage />
+                    </MainPageContainer>
+                ) : (
+                    <MainPageContainer>
+                        <RadioPage />
+                    </MainPageContainer>
+                ))}
         </>
     );
 }

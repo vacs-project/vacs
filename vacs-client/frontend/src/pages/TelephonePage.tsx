@@ -24,8 +24,7 @@ function TelephonePage() {
     return (
         <div
             className={clsx(
-                "z-10 absolute h-[calc(100%+5rem+3px-0.5rem+0.25rem)] -top-px right-[-2px]",
-                "bg-blue-700 px-2 pb-2 flex flex-col overflow-auto rounded-md",
+                "z-10 absolute h-[calc(100%+5rem-0.5rem)] right-0 bg-blue-700 px-2 pb-2 flex flex-col overflow-auto rounded-md",
                 page === "dir" && "w-[calc(100%+3px)]",
             )}
         >

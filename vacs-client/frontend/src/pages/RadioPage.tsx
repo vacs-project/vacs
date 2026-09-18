@@ -1,25 +1,53 @@
 import FrequencyObject from "../components/radio/FrequencyObject.tsx";
 import {useEffect, useState} from "preact/hooks";
 import {invokeSafe} from "../error.ts";
-import {RadioStation} from "../types/radio.ts";
+import {RadioState, RadioStation} from "../types/radio.ts";
 import {listen, UnlistenFn} from "../transport";
 import AddRadioStation from "../components/radio/AddRadioStation.tsx";
 import {sortCallsigns} from "../types/client.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
-import {setPage} from "../stores/navigation-store.ts";
+import {useSettingsStore} from "../stores/settings-store.ts";
 
 function RadioPage() {
-    const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
     const radioState = useRadioStore(state => state.radioState);
 
-    useEffect(() => {
-        if (
-            radioState?.state !== undefined &&
-            (radioState.state === "NotConfigured" || radioState.state === "Disconnected")
-        ) {
-            setPage("phone");
-        }
-    }, [radioState?.state]);
+    const radioIsTrackAudio = useSettingsStore(
+        state => state.radioConfig?.integration === "TrackAudio",
+    );
+
+    const radioConnected =
+        radioState?.state !== "NotConfigured" &&
+        radioState?.state !== "Disconnected" &&
+        radioState?.state !== "Error";
+
+    return radioIsTrackAudio ? (
+        radioConnected ? (
+            <RadioPageInner radioState={radioState} />
+        ) : (
+            <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600 text-center">
+                <p>
+                    {radioState?.state === "Error"
+                        ? "TrackAudio radio connection failed."
+                        : "No TrackAudio radio connection."}
+                </p>
+                <p
+                    className="text-blue-700 cursor-pointer"
+                    onClick={() => {
+                        void invokeSafe("audio_play_ui_click");
+                        void invokeSafe("radio_reconnect");
+                    }}
+                >
+                    Retry
+                </p>
+            </div>
+        )
+    ) : (
+        <></>
+    );
+}
+
+function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
+    const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
 
     useEffect(() => {
         const fetch = async () => {

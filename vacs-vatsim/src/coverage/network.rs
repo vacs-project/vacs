@@ -632,6 +632,37 @@ mod tests {
     }
 
     #[test]
+    fn load_from_dir_rejects_geo_profile_with_split_view() {
+        let dir = tempfile::tempdir().unwrap();
+        create_minimal_valid_fir(dir.path(), "LOVV");
+        let profiles = dir.path().join("LOVV").join("profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        std::fs::write(
+            profiles.join("LOVV_GEO.toml"),
+            r#"
+id = "LOVV_GEO"
+type = "Geo"
+view = "split"
+direction = "row"
+
+[[children]]
+label = "CTR"
+size = 1.0
+page.rows = 1
+page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
+"#,
+        )
+        .unwrap();
+
+        let errors = Network::load_from_dir(dir.path()).unwrap_err();
+        assert!(errors.iter().any(|e| causes(e, |x| matches!(
+            x,
+            CoverageError::Structure(StructureError::Load { entity, id, reason })
+                if entity == "FIR" && id.ends_with("LOVV") && reason.contains("invalid value for `view`")
+        ))));
+    }
+
+    #[test]
     fn load_from_dir_valid_single() {
         let dir = tempfile::tempdir().unwrap();
         create_minimal_valid_fir(dir.path(), "LOVV");

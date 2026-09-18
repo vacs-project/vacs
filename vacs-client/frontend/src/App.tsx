@@ -22,20 +22,26 @@ import RadioButton from "./components/ui/RadioButton.tsx";
 import ConnectionTerminateOverlay from "./components/overlays/ConnectionTerminateOverlay.tsx";
 import {useConnectionStore} from "./stores/connection-store.ts";
 import PositionSelectOverlay from "./components/overlays/PositionSelectOverlay.tsx";
-import Tabs from "./components/Tabs.tsx";
-import {useProfileType} from "./stores/profile-store.ts";
+import ProfileTabs from "./components/ProfileTabs.tsx";
+import {useProfileStore, useProfileType} from "./stores/profile-store.ts";
 import {fetchSettings} from "./stores/settings-store.ts";
+import {usePageSync, useSplitView} from "./hooks/page-hook.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
 import CplButton from "./components/ui/CplButton.tsx";
 import {fetchRadioState, setupRadioListener} from "./listeners/radio-listener.ts";
 import Router from "./pages/Router.tsx";
+import PageTabs from "./components/PageTabs.tsx";
+import PageCycleButton from "./components/ui/PageCycleButton.tsx";
 
 function App() {
     const connected = useConnectionStore(state => state.connectionState === "connected");
     const testing = useConnectionStore(state => state.connectionState === "test");
     const profileType = useProfileType();
+    const profileView = useProfileStore(state => state.profile?.view);
+    const splitView = useSplitView();
 
     useZoomHotkey();
+    usePageSync();
 
     useEffect(() => {
         void invoke("app_frontend_ready");
@@ -71,7 +77,7 @@ function App() {
                 <FunctionKeys />
                 <div className="flex flex-row w-full h-[calc(100%-10rem)] pl-1">
                     {/* Main Area */}
-                    <div className="relative h-full w-[calc(100%-6rem)] bg-[#B5BBC6] border-l border-t border-r-2 border-b-2 border-gray-700 rounded-sm flex flex-row">
+                    <div className="relative h-full w-[calc(100%-6rem)] shrink-0 rounded-sm flex flex-row">
                         <Router />
                     </div>
                     {/* Right Button Row */}
@@ -92,8 +98,16 @@ function App() {
                     <div className="h-full flex flex-row gap-3">
                         {profileType === "tabbed" ? (
                             <>
-                                <RadioButton />
-                                <PhoneButton />
+                                {splitView && profileView === "split" ? (
+                                    <PageTabs />
+                                ) : splitView && profileView === "cycle" ? (
+                                    <PageCycleButton />
+                                ) : (
+                                    <>
+                                        <RadioButton />
+                                        <PhoneButton />
+                                    </>
+                                )}
                                 <CplButton />
                                 <RadioPrioButton />
                             </>
@@ -107,7 +121,7 @@ function App() {
                         )}
                     </div>
                     <div className="h-full flex flex-row gap-5">
-                        {(connected || testing) && profileType === "tabbed" && <Tabs />}
+                        {(connected || testing) && profileType === "tabbed" && <ProfileTabs />}
                         <EndButton />
                     </div>
                 </div>
