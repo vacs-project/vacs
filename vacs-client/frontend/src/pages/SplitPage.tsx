@@ -1,7 +1,6 @@
-import {useEffect, useRef} from "preact/hooks";
+import {useRef} from "preact/hooks";
 import MainPageContainer from "../components/ui/MainPageContainer.tsx";
 import {invokeSafe} from "../error.ts";
-import {useEventCallback} from "../hooks/event-callback-hook.ts";
 import {useProfileStore} from "../stores/profile-store.ts";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
@@ -34,35 +33,33 @@ function SplitPage() {
         setSplitProfileWidth(width);
     };
 
-    const handleOnMouseMove = useEventCallback((e: MouseEvent) => {
-        calculateAndSetWidth(e.x);
-    });
+    const handleOnPointerDown = (e: PointerEvent) => {
+        if (e.button !== 0) return;
 
-    const handleOnTouchMove = useEventCallback((e: TouchEvent) => {
-        const touch = e.touches[0];
-        if (!touch) return;
+        (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+        draggingRef.current = true;
+    };
 
-        calculateAndSetWidth(touch.clientX);
-    });
+    const handleOnPointerMove = (e: PointerEvent) => {
+        if (!draggingRef.current) return;
 
-    const handleOnDragEnd = useEventCallback(() => {
-        if (draggingRef.current) {
-            const profileId = useProfileStore.getState().profile?.id;
+        calculateAndSetWidth(e.clientX);
+    };
 
-            if (profileId !== undefined) {
-                const width =
-                    splitProfileWidth !== undefined
-                        ? Math.min(Math.max(splitProfileWidth, 0), 65535)
-                        : undefined;
-
-                void invokeSafe("app_set_split_profile_width", {profileId, width});
-            }
-        }
-
-        window.removeEventListener("mousemove", handleOnMouseMove);
-        window.removeEventListener("touchmove", handleOnTouchMove);
+    const handleOnDragEnd = () => {
+        if (!draggingRef.current) return;
         draggingRef.current = false;
-    });
+
+        const profileId = useProfileStore.getState().profile?.id;
+        if (profileId === undefined) return;
+
+        const width =
+            splitProfileWidth !== undefined
+                ? Math.min(Math.max(splitProfileWidth, 0), 65535)
+                : undefined;
+
+        void invokeSafe("app_set_split_profile_width", {profileId, width});
+    };
 
     const handleOnDblClick = () => {
         setSplitProfileWidth(undefined);
@@ -74,19 +71,6 @@ function SplitPage() {
         void invokeSafe("app_set_split_profile_width", {profileId, width: undefined});
     };
 
-    useEffect(() => {
-        window.addEventListener("mouseup", handleOnDragEnd);
-        window.addEventListener("touchend", handleOnDragEnd);
-
-        return () => {
-            draggingRef.current = false;
-            window.removeEventListener("mousemove", handleOnMouseMove);
-            window.removeEventListener("touchmove", handleOnTouchMove);
-            window.removeEventListener("mouseup", handleOnDragEnd);
-            window.removeEventListener("touchend", handleOnDragEnd);
-        };
-    }, [handleOnDragEnd, handleOnMouseMove, handleOnTouchMove]);
-
     const width = splitProfileWidth !== undefined ? `${splitProfileWidth}px` : DEFAULT_WIDTH;
 
     return (
@@ -95,17 +79,11 @@ function SplitPage() {
                 <RadioPage />
             </MainPageContainer>
             <div
-                className="absolute z-10 h-full w-[calc(0.625rem+3px)] cursor-ew-resize opacity-0 bg-gray-500 hover:opacity-30 transition-opacity"
-                onMouseDown={() => {
-                    draggingRef.current = true;
-                    window.addEventListener("mousemove", handleOnMouseMove);
-                }}
-                onTouchStart={() => {
-                    draggingRef.current = true;
-                    window.addEventListener("touchmove", handleOnTouchMove);
-                }}
-                onMouseUp={handleOnDragEnd}
-                onTouchEnd={handleOnDragEnd}
+                className="absolute z-10 h-full w-[calc(0.625rem+3px)] cursor-ew-resize touch-none opacity-0 bg-gray-500 hover:opacity-30 transition-opacity"
+                onPointerDown={handleOnPointerDown}
+                onPointerMove={handleOnPointerMove}
+                onPointerUp={handleOnDragEnd}
+                onPointerCancel={handleOnDragEnd}
                 onDblClick={handleOnDblClick}
                 style={{
                     right: `clamp(calc(5.5rem + 0.875rem - 3px), calc(${width} - 6px), calc(100% - 11.125rem - 5px))`,
