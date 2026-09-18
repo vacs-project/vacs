@@ -188,6 +188,37 @@ export function clearPersistedAppState(): void {
     rmSync(path.join(APP_DATA_DIR, ".cookies.bak"), {force: true});
 }
 
+// The E2E bundle identifier's config dir, which is where the client writes
+// the settings it persists (client.toml). Under the e2e feature nothing reads
+// these files back, so they are only ever an assertion target.
+const APP_CONFIG_DIR = (() => {
+    switch (process.platform) {
+        case "darwin":
+            return path.join(os.homedir(), "Library", "Application Support", E2E_IDENTIFIER);
+        case "win32":
+            return path.join(
+                process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"),
+                E2E_IDENTIFIER,
+            );
+        default:
+            return path.join(
+                process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"),
+                E2E_IDENTIFIER,
+            );
+    }
+})();
+
+/** The persisted client settings, or undefined while the file does not exist. */
+export function readPersistedClientSettings(): string | undefined {
+    const file = path.join(APP_CONFIG_DIR, "client.toml");
+    return existsSync(file) ? readFileSync(file, "utf-8") : undefined;
+}
+
+/** Drops the persisted client settings, so a spec starts from a known file. */
+export function clearPersistedClientSettings(): void {
+    rmSync(path.join(APP_CONFIG_DIR, "client.toml"), {force: true});
+}
+
 /**
  * Removes the archived log files of the E2E bundle identifier. Every instance
  * logs into that one directory under one file name, and tauri-plugin-log's

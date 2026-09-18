@@ -1,0 +1,21 @@
+{
+  "id": "E2E_SPLIT",
+  "type": "Tabbed",
+  "view": "split",
+  "tabs": [
+    {
+      "label": ["E2E", "ONE"],
+      "page": {
+        "rows": 2,
+        "keys": [{"label": ["SPLIT", "A1"]}, {"label": ["SPLIT", "A2"]}]
+      }
+    },
+    {
+      "label": ["E2E", "TWO"],
+      "page": {
+        "rows": 2,
+        "keys": [{"label": ["SPLIT", "B1"]}, {"label": ["SPLIT", "B2"]}]
+      }
+    }
+  ]
+}
