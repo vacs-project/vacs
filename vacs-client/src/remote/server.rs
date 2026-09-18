@@ -418,7 +418,7 @@ macro_rules! args {
 #[serde(rename_all = "camelCase")]
 struct SessionStateSnapshot {
     connection_state: ConnectionState,
-    client_session_info: Option<ClientSessionInfo>,
+    session_info: Option<ClientSessionInfo>,
     default_call_sources: Vec<StationId>,
     stations: Vec<StationInfo>,
     clients: Vec<ClientInfo>,
@@ -873,7 +873,7 @@ async fn dispatch_command(
 
             let snapshot = SessionStateSnapshot {
                 connection_state: state.connection_state,
-                client_session_info: state.session_info.as_ref().map(|session_info| {
+                session_info: state.session_info.as_ref().map(|session_info| {
                     ClientSessionInfo::from_session_info_and_config(
                         session_info.clone(),
                         &state.config.client,

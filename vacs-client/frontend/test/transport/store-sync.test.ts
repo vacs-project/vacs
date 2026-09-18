@@ -22,7 +22,7 @@ import {setupStoreSync} from "../../src/transport/store-sync.ts";
 
 const snapshot: SessionStateSnapshot = {
     connectionState: "disconnected",
-    clientSessionInfo: null,
+    sessionInfo: null,
     defaultCallSources: [],
     stations: [],
     clients: [],

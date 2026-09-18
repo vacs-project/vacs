@@ -16,7 +16,7 @@ import {withSyncSuppressed} from "./store-sync.ts";
 
 export type SessionStateSnapshot = {
     connectionState: SignalingConnectionState;
-    clientSessionInfo: ClientSessionInfo | null;
+    sessionInfo: ClientSessionInfo | null;
     defaultCallSources: StationId[];
     stations: StationInfo[];
     clients: ClientInfo[];
@@ -47,8 +47,8 @@ function applySnapshot(snapshot: SessionStateSnapshot) {
     const {setProfile} = useProfileStore.getState();
 
     setConnectionState(snapshot.connectionState);
-    if (snapshot.clientSessionInfo) {
-        setConnectionInfo(snapshot.clientSessionInfo.client);
+    if (snapshot.sessionInfo) {
+        setConnectionInfo(snapshot.sessionInfo.client);
     }
 
     if (snapshot.clientId) {
@@ -62,12 +62,12 @@ function applySnapshot(snapshot: SessionStateSnapshot) {
     setClients(snapshot.clients);
 
     if (
-        snapshot.clientSessionInfo?.profile.type === "changed" &&
-        snapshot.clientSessionInfo.profile.activeProfile?.profile
+        snapshot.sessionInfo?.profile.type === "changed" &&
+        snapshot.sessionInfo.profile.activeProfile?.profile
     ) {
         setProfile(
-            snapshot.clientSessionInfo.profile.activeProfile.profile,
-            snapshot.clientSessionInfo.splitProfileWidth,
+            snapshot.sessionInfo.profile.activeProfile.profile,
+            snapshot.sessionInfo.splitProfileWidth,
         );
     }
 
