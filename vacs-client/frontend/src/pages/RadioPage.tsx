@@ -16,14 +16,20 @@ function RadioPage() {
     );
 
     const radioConnected =
-        radioState?.state !== "NotConfigured" && radioState?.state !== "Disconnected";
+        radioState?.state !== "NotConfigured" &&
+        radioState?.state !== "Disconnected" &&
+        radioState?.state !== "Error";
 
     return radioIsTrackAudio ? (
         radioConnected ? (
             <RadioPageInner radioState={radioState} />
         ) : (
             <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600 text-center">
-                <p>No TrackAudio radio connection.</p>
+                <p>
+                    {radioState?.state === "Error"
+                        ? "TrackAudio radio connection failed."
+                        : "No TrackAudio radio connection."}
+                </p>
                 <p
                     className="text-blue-700 cursor-pointer"
                     onClick={() => {
