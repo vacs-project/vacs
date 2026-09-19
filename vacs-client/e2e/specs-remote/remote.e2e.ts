@@ -1,15 +1,48 @@
 import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
-import {callQueueSlot, click, getClient, waitForCallColor} from "../helpers/browser.ts";
+import {
+    callQueueSlot,
+    click,
+    clickSvg,
+    getClient,
+    mockCommandOn,
+    ringSoundField,
+    ringSoundReset,
+    waitForCallColor,
+    waitForRingSound,
+} from "../helpers/browser.ts";
 import {REMOTE_ADDR, setRemoteEnabled} from "../helpers/remote.ts";
+import {RING_SOUND_NAME, writeRingSound} from "../helpers/ring-sound.ts";
 import {SignalingTestClient} from "../helpers/signaling-client.ts";
 
 const APP_CID = "10000004";
 // A caller without a datafeed controller keeps its CID as display name.
 const CALLER_CID = "10000005";
 
+const BUILT_IN_CHIME = "Built-in chime";
+
+/** Toggles the settings menu, which also closes any open settings page. */
+async function toggleSettings(browser: WebdriverIO.Browser): Promise<void> {
+    const settingsButton = await browser.$('//button[.//img[@alt="Settings"]]');
+    await settingsButton.waitForDisplayed();
+    await click(browser, settingsButton);
+}
+
+async function openCallSettings(browser: WebdriverIO.Browser): Promise<void> {
+    await toggleSettings(browser);
+    const callButton = await browser.$('//button[./p[text()="Call"]]');
+    await callButton.waitForDisplayed();
+    await click(browser, callButton);
+    await ringSoundField(browser, "Ring").waitForDisplayed();
+}
+
 describe("Remote Control", () => {
     let caller: SignalingTestClient | undefined;
+    let ringSound = "";
+
+    before(() => {
+        ringSound = writeRingSound();
+    });
 
     beforeEach(async () => {
         await resetMockState();
@@ -87,5 +120,38 @@ describe("Remote Control", () => {
         await setRemoteEnabled(clientA, true);
         await overlayTitle.waitForDisplayed({reverse: true, timeout: 15000});
         await endButton.waitForDisplayed();
+    });
+
+    it("shows the app's custom ring sound in the remote browser and resets it from there", async () => {
+        const clientA = getClient("clientA");
+        const remoteBrowser = getClient("remoteBrowser");
+
+        // Not mockCommand: this config runs without @wdio/tauri-service, so
+        // the app instance has no browser.tauri to install the mock through.
+        await mockCommandOn(clientA, "audio_pick_ring_sound", {resolve: ringSound});
+
+        await openCallSettings(clientA);
+        await click(clientA, ringSoundField(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", RING_SOUND_NAME);
+        // Closes the Call page, so the assertion at the end runs against
+        // fields that fetched their state after the reset.
+        await toggleSettings(clientA);
+
+        await openCallSettings(remoteBrowser);
+        await waitForRingSound(remoteBrowser, "Ring", RING_SOUND_NAME);
+
+        // Picking a file needs the app's native dialog, so the field is inert
+        // in a browser session. Deliberately not clicked: were it live, the
+        // click would open a modal dialog on the app that nothing closes.
+        const classes = (await ringSoundField(remoteBrowser, "Ring").getAttribute("class")) ?? "";
+        if (!classes.includes("cursor-not-allowed")) {
+            throw new Error("The ring sound field is not inert in the remote browser");
+        }
+
+        await clickSvg(remoteBrowser, ringSoundReset(remoteBrowser, "Ring"));
+        await waitForRingSound(remoteBrowser, "Ring", BUILT_IN_CHIME);
+
+        await openCallSettings(clientA);
+        await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
     });
 });

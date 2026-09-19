@@ -1,8 +1,20 @@
 import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
-import {click, getClient, selectOption} from "../helpers/browser.ts";
+import {
+    click,
+    clickSvg,
+    getClient,
+    mockCommand,
+    ringSoundField,
+    ringSoundReset,
+    selectOption,
+    waitForRingSound,
+} from "../helpers/browser.ts";
+import {RING_SOUND_NAME, writeInvalidRingSound, writeRingSound} from "../helpers/ring-sound.ts";
 
 const CID_A = "10000004";
+
+const BUILT_IN_CHIME = "Built-in chime";
 
 async function openSettings(browser: WebdriverIO.Browser): Promise<void> {
     const settingsButton = await browser.$('//button[.//img[@alt="Settings"]]');
@@ -17,7 +29,34 @@ async function openAdvancedSettings(browser: WebdriverIO.Browser): Promise<void>
     await click(browser, advancedButton);
 }
 
+/** Opens the Call page of an already open settings menu. */
+async function openCallSettings(browser: WebdriverIO.Browser): Promise<void> {
+    const callButton = await browser.$('//button[./p[text()="Call"]]');
+    await callButton.waitForDisplayed();
+    await click(browser, callButton);
+    await ringSoundField(browser, "Ring").waitForDisplayed();
+}
+
+/**
+ * Reopens the Call page over the advanced page. The ring sound fields fetch
+ * their state once, when they mount, so anything the backend changed while the
+ * page was open is only visible after it has been through another page.
+ */
+async function reopenCallSettings(browser: WebdriverIO.Browser): Promise<void> {
+    await click(browser, browser.$("button*=Advanced"));
+    await browser.$('select[name="cpl-mode"]').waitForDisplayed();
+    await openCallSettings(browser);
+}
+
 describe("Settings", () => {
+    let ringSound = "";
+    let invalidRingSound = "";
+
+    before(() => {
+        ringSound = writeRingSound();
+        invalidRingSound = writeInvalidRingSound();
+    });
+
     beforeEach(async () => {
         await resetMockState();
         await restartApps();
@@ -122,5 +161,62 @@ describe("Settings", () => {
         await clientA.waitUntil(async () => (await clock.getAttribute("title")) !== initialTitle, {
             timeoutMsg: "Clock mode did not change on click",
         });
+    });
+
+    it("applies a custom ring sound and resets it to the built-in chime", async () => {
+        const clientA = getClient("clientA");
+        // Only the file dialog is mocked; the real backend command still
+        // decodes and validates the generated file.
+        await mockCommand("clientA", "audio_pick_ring_sound", {resolve: ringSound});
+
+        await openSettings(clientA);
+        await openCallSettings(clientA);
+        await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
+
+        await click(clientA, ringSoundField(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", RING_SOUND_NAME);
+        if (await clientA.$("p=Ring sound error").isExisting()) {
+            throw new Error("The backend rejected the generated ring sound");
+        }
+
+        await clickSvg(clientA, ringSoundReset(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
+    });
+
+    it("keeps the custom ring sound across an output device switch", async () => {
+        const clientA = getClient("clientA");
+        await mockCommand("clientA", "audio_pick_ring_sound", {resolve: ringSound});
+
+        await openSettings(clientA);
+        await openCallSettings(clientA);
+        await click(clientA, ringSoundField(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", RING_SOUND_NAME);
+
+        // The switch rebuilds the playback stream, which has to carry the
+        // decoded clip over to the new one.
+        const outputSelect = await clientA.$('select[name="Output"]');
+        await selectOption(clientA, 'select[name="Output"]', "Mock Speaker");
+        await clientA.waitUntil(async () => (await outputSelect.getValue()) === "Mock Speaker", {
+            timeoutMsg: "Output device selection was not applied",
+        });
+
+        await reopenCallSettings(clientA);
+        await waitForRingSound(clientA, "Ring", RING_SOUND_NAME);
+        const classes = (await ringSoundField(clientA, "Ring").getAttribute("class")) ?? "";
+        if (classes.includes("text-red-700")) {
+            throw new Error("The ring sound is flagged unavailable after the device switch");
+        }
+    });
+
+    it("rejects a file that is not a WAV and keeps the built-in chime", async () => {
+        const clientA = getClient("clientA");
+        await mockCommand("clientA", "audio_pick_ring_sound", {resolve: invalidRingSound});
+
+        await openSettings(clientA);
+        await openCallSettings(clientA);
+        await click(clientA, ringSoundField(clientA, "Ring"));
+
+        await clientA.$("p=Ring sound error").waitForDisplayed();
+        await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
     });
 });
