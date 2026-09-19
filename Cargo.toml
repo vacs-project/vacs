@@ -65,7 +65,7 @@ pretty_assertions = "1.4.1"
 proc-macro2 = "1.0.95"
 quote = "1.0.45"
 rand = "0.10.1"
-regex = "1.12.3"
+regex = "1.13.1"
 reqwest = { version = "0.13.4", features = ["cookies", "json", "query", "rustls"] }
 rfd = { version = "0.17.2", features = ["common-controls-v6"] }
 ringbuf = "0.5.0"
