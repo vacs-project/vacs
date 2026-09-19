@@ -194,6 +194,9 @@ pub enum RemoteCommand {
     AudioSetDevice,
     AudioGetVolumes,
     AudioSetVolume,
+    AudioGetRingSounds,
+    AudioPickRingSound,
+    AudioSetRingSound,
     AudioPlayUiClick,
     AudioStartInputLevelMeter,
     AudioStopInputLevelMeter,
@@ -266,6 +269,7 @@ impl RemoteCommand {
                 | Self::AppSetFullscreen
                 | Self::AppResetWindowSize
                 | Self::AppLoadExtraClientPageConfig
+                | Self::AudioPickRingSound
                 | Self::AuthOpenOauthUrl
                 | Self::KeybindsOpenSystemShortcutsSettings
         )

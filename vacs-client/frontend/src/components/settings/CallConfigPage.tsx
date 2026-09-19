@@ -2,6 +2,7 @@ import {invokeStrict} from "../../error.ts";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {CallConfig} from "../../types/settings.ts";
 import Checkbox from "../ui/Checkbox.tsx";
+import RingSoundSettings from "./RingSoundSettings.tsx";
 import SettingsSubPage from "./SettingsSubPage.tsx";
 
 function CallConfigPage() {
@@ -56,6 +57,7 @@ function CallConfigPage() {
                 callConfig={callConfig}
                 setCallConfig={setCallConfig}
             />
+            <RingSoundSettings />
         </SettingsSubPage>
     );
 }

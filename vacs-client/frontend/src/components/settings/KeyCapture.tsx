@@ -1,8 +1,8 @@
-import {clsx} from "clsx";
 import {useCallback, useEffect, useRef, useState} from "preact/hooks";
 import {invokeSafe, invokeStrict} from "../../error.ts";
 import {useCapabilitiesStore} from "../../stores/capabilities-store.ts";
 import {InputBinding, JoystickButton} from "../../types/transmit.ts";
+import SelectionField from "../ui/SelectionField.tsx";
 
 type KeyCaptureProps = {
     label: string | null;
@@ -93,19 +93,11 @@ function KeyCapture(props: KeyCaptureProps) {
         setCapturing(false);
     }, []);
 
-    const handleKeySelectOnClick = async () => {
-        if (props.disabled) return;
-
-        void invokeSafe("audio_play_ui_click");
-
+    const handleKeySelectOnClick = () => {
         setCapturing(!capturing);
     };
 
     const handleOnRemoveClick = async () => {
-        if (isRemoveDisabled) return;
-
-        void invokeSafe("audio_play_ui_click");
-
         if (capturing) {
             setCapturing(false);
             return;
@@ -187,45 +179,17 @@ function KeyCapture(props: KeyCaptureProps) {
               : "Press your key";
 
     return (
-        <div className="grow h-full min-w-0 flex flex-row items-center justify-center">
-            <div
-                ref={keySelectRef}
-                onClick={handleKeySelectOnClick}
-                className={clsx(
-                    "w-full h-full min-w-10 min-h-8 grow text-sm py-1 px-2 rounded text-center flex items-center justify-center",
-                    "bg-gray-300 border-2",
-                    capturing
-                        ? "border-r-gray-100 border-b-gray-100 border-t-gray-700 border-l-gray-700 *:translate-y-px *:translate-x-px"
-                        : "border-t-gray-100 border-l-gray-100 border-r-gray-700 border-b-gray-700",
-                    props.disabled ? "brightness-90 cursor-not-allowed" : "cursor-pointer",
-                    props.className,
-                )}
-            >
-                <p className="truncate max-w-full" title={props.label ?? undefined}>
-                    {capturing ? capturePrompt : (props.label ?? "Not bound")}
-                </p>
-            </div>
-            <svg
-                onClick={handleOnRemoveClick}
-                xmlns="http://www.w3.org/2000/svg"
-                width="27"
-                height="27"
-                viewBox="0 0 24 24"
-                fill="none"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={clsx(
-                    "shrink-0 p-1 pr-0!",
-                    isRemoveDisabled
-                        ? "stroke-gray-500 cursor-not-allowed"
-                        : "stroke-gray-700 hover:stroke-red-500 transition-colors cursor-pointer",
-                )}
-            >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-            </svg>
-        </div>
+        <SelectionField
+            ref={keySelectRef}
+            label={capturing ? capturePrompt : (props.label ?? "Not bound")}
+            title={props.label ?? undefined}
+            active={capturing}
+            disabled={props.disabled}
+            removeDisabled={isRemoveDisabled}
+            className={props.className}
+            onClick={handleKeySelectOnClick}
+            onRemove={handleOnRemoveClick}
+        />
     );
 }
 
