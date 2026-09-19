@@ -29,6 +29,7 @@ import {usePageSync, useSplitView} from "./hooks/page-hook.ts";
 import {useZoomHotkey} from "./hooks/zoom-hotkey-hook.ts";
 import CplButton from "./components/ui/CplButton.tsx";
 import {fetchRadioState, setupRadioListener} from "./listeners/radio-listener.ts";
+import {setupPlaybackListener} from "./listeners/playback-listener.ts";
 import Router from "./pages/Router.tsx";
 import PageTabs from "./components/PageTabs.tsx";
 import PageCycleButton from "./components/ui/PageCycleButton.tsx";
@@ -54,6 +55,7 @@ function App() {
         cleanups.push(setupWebrtcListeners());
         cleanups.push(setupStoreSync());
         cleanups.push(setupRadioListener());
+        cleanups.push(setupPlaybackListener());
 
         void invokeSafe("auth_check_session");
 

@@ -25,6 +25,9 @@ export const useRadioStore = create<RadioStoreState>()(set => ({
     },
 }));
 
+export const selectRadioConnected = (state: RadioStoreState) =>
+    state.radioState?.state !== "NotConfigured" && state.radioState?.state !== "Disconnected";
+
 /**
  * Reconnects the radio if it is currently disconnected or in an error state.
  */

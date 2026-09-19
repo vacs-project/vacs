@@ -1,7 +1,13 @@
 import {CallMicMode, InputBinding} from "./transmit.ts";
 
 export type KeybindType =
-    "PushToTalk" | "PushToMute" | "RadioPushToTalk" | "AcceptCall" | "EndCall" | "ToggleRadioPrio";
+    | "PushToTalk"
+    | "PushToMute"
+    | "RadioPushToTalk"
+    | "AcceptCall"
+    | "EndCall"
+    | "ToggleRadioPrio"
+    | "SayAgain";
 
 /// A joystick device identified by its stable SDL GUID. `name` is the
 /// last-seen device name, kept for display while the device is unplugged.
@@ -22,6 +28,7 @@ export type KeybindsConfig = {
     acceptCall: InputBinding | null;
     endCall: InputBinding | null;
     toggleRadioPrio: InputBinding | null;
+    sayAgain: InputBinding | null;
 };
 
 export function callMicModeToKeybind(mode: CallMicMode): KeybindType | null {

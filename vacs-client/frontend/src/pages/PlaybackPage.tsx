@@ -10,8 +10,8 @@ import {usePlaybackControls} from "../hooks/playback-controls-hook.ts";
 import {useCapabilitiesStore} from "../stores/capabilities-store.ts";
 import {openSettingsSubmenu} from "../stores/navigation-store.ts";
 import {isPlaybackRoot, usePlaybackStore} from "../stores/playback-store.ts";
-import {useRadioStore} from "../stores/radio-store.ts";
-import {useSettingsStore} from "../stores/settings-store.ts";
+import {selectRadioConnected, useRadioStore} from "../stores/radio-store.ts";
+import {selectRadioEnabled, useSettingsStore} from "../stores/settings-store.ts";
 import {listen, UnlistenFn} from "../transport";
 import {INSTANCE_ID} from "../transport/store-sync.ts";
 import {ClipMeta, sortClips} from "../types/playback.ts";
@@ -21,15 +21,9 @@ function PlaybackPage() {
     const capPlayback = useCapabilitiesStore(state => state.playback);
     const capPlatform = useCapabilitiesStore(state => state.platform);
 
-    const radioEnabled = useSettingsStore(state => state.radioConfig?.integration != null);
-
+    const radioEnabled = useSettingsStore(selectRadioEnabled);
     const playbackEnabled = useSettingsStore(state => state.playbackEnabled);
-
-    const radioConnected = useRadioStore(
-        state =>
-            state.radioState?.state !== "NotConfigured" &&
-            state.radioState?.state !== "Disconnected",
-    );
+    const radioConnected = useRadioStore(selectRadioConnected);
 
     return (
         <div

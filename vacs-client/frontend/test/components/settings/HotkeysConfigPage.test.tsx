@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {cleanup, render, screen, waitFor} from "@testing-library/preact";
+import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/preact";
 
 const {invoke, listen} = vi.hoisted(() => ({
     invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
@@ -16,7 +16,12 @@ import {useErrorOverlayStore} from "../../../src/stores/error-overlay-store.ts";
 import {Capabilities} from "../../../src/types/capabilities.ts";
 import {KeybindsConfig} from "../../../src/types/keybinds.ts";
 
-const KEYBINDS_CONFIG: KeybindsConfig = {acceptCall: null, endCall: null, toggleRadioPrio: null};
+const KEYBINDS_CONFIG: KeybindsConfig = {
+    acceptCall: null,
+    endCall: null,
+    toggleRadioPrio: null,
+    sayAgain: null,
+};
 
 const DEFAULT_CAPABILITIES: Capabilities = {
     alwaysOnTop: false,
@@ -60,6 +65,7 @@ beforeEach(() => {
 
 afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     useCapabilitiesStore.setState(DEFAULT_CAPABILITIES);
     useErrorOverlayStore.getState().close();
     vi.clearAllMocks();
@@ -71,7 +77,7 @@ describe("HotkeysConfigPage", () => {
 
         render(<HotkeysConfigPage />);
 
-        await waitFor(() => expect(screen.getAllByText("Not bound")).toHaveLength(3));
+        await waitFor(() => expect(screen.getAllByText("Not bound")).toHaveLength(4));
         expect(invokedCommands()).toContain("keybinds_get_keybinds_config");
         expect(invokedCommands()).not.toContain("keybinds_get_external_binding");
         expect(screen.getByText(HINT)).toBeTruthy();
@@ -83,11 +89,12 @@ describe("HotkeysConfigPage", () => {
 
         render(<HotkeysConfigPage />);
 
-        await waitFor(() => expect(externalBindingCalls()).toHaveLength(3));
+        await waitFor(() => expect(externalBindingCalls()).toHaveLength(4));
         expect(externalBindingCalls()).toEqual([
             {keybind: "AcceptCall"},
             {keybind: "EndCall"},
             {keybind: "ToggleRadioPrio"},
+            {keybind: "SayAgain"},
         ]);
         expect(screen.queryByText(HINT)).toBeNull();
         expect(useErrorOverlayStore.getState().visible).toBe(false);
@@ -103,8 +110,28 @@ describe("HotkeysConfigPage", () => {
 
         render(<HotkeysConfigPage />);
 
-        await waitFor(() => expect(screen.getAllByText("Not bound")).toHaveLength(3));
+        await waitFor(() => expect(screen.getAllByText("Not bound")).toHaveLength(4));
         expect(invokedCommands()).not.toContain("keybinds_get_external_binding");
         expect(screen.queryByText(HINT)).toBeNull();
+    });
+
+    it("saves the SAY AGAIN binding under its own keybind", async () => {
+        useCapabilitiesStore.setState({...DEFAULT_CAPABILITIES, keybindListener: true});
+        vi.stubGlobal("crypto", {randomUUID: () => "00000000-0000-4000-8000-000000000000"});
+
+        render(<HotkeysConfigPage />);
+        await waitFor(() => expect(screen.getAllByText("Not bound")).toHaveLength(4));
+
+        const field = screen.getByText("SAY AGAIN").nextElementSibling!.firstElementChild!;
+        fireEvent.click(field);
+        fireEvent.keyDown(document, {code: "F9", key: "F9"});
+
+        await waitFor(() =>
+            expect(invoke).toHaveBeenCalledWith("keybinds_set_binding", {
+                keybind: "SayAgain",
+                input: "F9",
+            }),
+        );
+        await waitFor(() => expect(screen.queryByText("Press your key")).toBeNull());
     });
 });

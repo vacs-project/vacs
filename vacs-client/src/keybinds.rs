@@ -180,6 +180,7 @@ pub enum PortalAction {
     RadioPushToTalk,
     CallControl,
     ToggleRadioPrio,
+    SayAgain,
 }
 
 #[derive(Debug, Clone)]
@@ -229,6 +230,7 @@ pub enum Keybind {
     AcceptCall,
     EndCall,
     ToggleRadioPrio,
+    SayAgain,
 }
 
 /// Parse an optional frontend key-code string (e.g. `"KeyA"`) into a [`Code`].
@@ -463,10 +465,11 @@ impl<'de> Deserialize<'de> for TransmitConfig {
     }
 }
 
-/// Configuration for generic call control keybinds.
+/// Configuration for generic call and playback control keybinds.
 ///
-/// These keybinds allow accepting and ending calls as well as toggling radio prio without needing
-/// to use the UI and can be used independently of the transmit mode.
+/// These keybinds allow accepting and ending calls, toggling radio prio and replaying the last
+/// radio transmission without needing to use the UI and can be used independently of the transmit
+/// mode.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Frontend)]
 pub struct KeybindsConfig {
     /// Input binding to accept an incoming call.
@@ -475,6 +478,8 @@ pub struct KeybindsConfig {
     pub end_call: Option<InputCode>,
     /// Input binding to toggle radio prio during an active call.
     pub toggle_radio_prio: Option<InputCode>,
+    /// Input binding to start or stop the SAY AGAIN replay.
+    pub say_again: Option<InputCode>,
 }
 
 #[cfg(test)]
@@ -580,6 +585,18 @@ mod tests {
             ))
         );
         assert_eq!(config.push_to_mute, Some(InputCode::Key(Code::F22)));
+    }
+
+    #[test]
+    fn keybinds_config_without_say_again_deserializes() {
+        let toml = r#"
+            accept_call = "F1"
+            end_call = "F1"
+        "#;
+
+        let config: KeybindsConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.accept_call, Some(InputCode::Key(Code::F1)));
+        assert_eq!(config.say_again, None);
     }
 
     #[test]

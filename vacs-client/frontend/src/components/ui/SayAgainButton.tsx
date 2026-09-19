@@ -1,19 +1,15 @@
 import {clsx} from "clsx";
 import {useSayAgain} from "../../hooks/say-again-hook.ts";
 import {useCapabilitiesStore} from "../../stores/capabilities-store.ts";
-import {useRadioStore} from "../../stores/radio-store.ts";
-import {useSettingsStore} from "../../stores/settings-store.ts";
+import {selectRadioConnected, useRadioStore} from "../../stores/radio-store.ts";
+import {selectRadioEnabled, useSettingsStore} from "../../stores/settings-store.ts";
 import Button from "./Button.tsx";
 
 function SayAgainButton() {
     const capPlayback = useCapabilitiesStore(state => state.playback);
-    const radioEnabled = useSettingsStore(state => state.radioConfig?.integration != null);
+    const radioEnabled = useSettingsStore(selectRadioEnabled);
     const playbackEnabled = useSettingsStore(state => state.playbackEnabled);
-    const radioConnected = useRadioStore(
-        state =>
-            state.radioState?.state !== "NotConfigured" &&
-            state.radioState?.state !== "Disconnected",
-    );
+    const radioConnected = useRadioStore(selectRadioConnected);
 
     const {active, handlePress} = useSayAgain();
 

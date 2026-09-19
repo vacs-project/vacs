@@ -56,6 +56,7 @@ pub enum PortalShortcutId {
     RadioPushToTalk,
     CallControl,
     ToggleRadioPrio,
+    SayAgain,
 }
 
 impl PortalShortcutId {
@@ -66,6 +67,7 @@ impl PortalShortcutId {
             PortalShortcutId::RadioPushToTalk => "radio_push_to_talk",
             PortalShortcutId::CallControl => "call_control",
             PortalShortcutId::ToggleRadioPrio => "toggle_radio_prio",
+            PortalShortcutId::SayAgain => "say_again",
         }
     }
 
@@ -78,6 +80,7 @@ impl PortalShortcutId {
             }
             PortalShortcutId::CallControl => "Call Control (end active/accept next)",
             PortalShortcutId::ToggleRadioPrio => "Toggle Radio Priority (during active call)",
+            PortalShortcutId::SayAgain => "Say Again (replay the last radio transmission)",
         }
     }
 
@@ -88,6 +91,7 @@ impl PortalShortcutId {
             PortalShortcutId::RadioPushToTalk,
             PortalShortcutId::CallControl,
             PortalShortcutId::ToggleRadioPrio,
+            PortalShortcutId::SayAgain,
         ]
     }
 }
@@ -101,6 +105,7 @@ impl FromStr for PortalShortcutId {
             "radio_push_to_talk" => Ok(PortalShortcutId::RadioPushToTalk),
             "call_control" => Ok(PortalShortcutId::CallControl),
             "toggle_radio_prio" => Ok(PortalShortcutId::ToggleRadioPrio),
+            "say_again" => Ok(PortalShortcutId::SayAgain),
             _ => Err(format!("unknown portal shortcut id {s}")),
         }
     }
@@ -146,6 +151,7 @@ impl From<PortalShortcutId> for PortalAction {
             PortalShortcutId::RadioPushToTalk => PortalAction::RadioPushToTalk,
             PortalShortcutId::CallControl => PortalAction::CallControl,
             PortalShortcutId::ToggleRadioPrio => PortalAction::ToggleRadioPrio,
+            PortalShortcutId::SayAgain => PortalAction::SayAgain,
         }
     }
 }
@@ -159,6 +165,39 @@ impl From<Keybind> for PortalShortcutId {
             Keybind::AcceptCall => PortalShortcutId::CallControl,
             Keybind::EndCall => PortalShortcutId::CallControl,
             Keybind::ToggleRadioPrio => PortalShortcutId::ToggleRadioPrio,
+            Keybind::SayAgain => PortalShortcutId::SayAgain,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn every_portal_shortcut_id_round_trips_through_its_string() {
+        for id in PortalShortcutId::all() {
+            assert_eq!(id.as_str().parse::<PortalShortcutId>(), Ok(*id));
+        }
+    }
+
+    #[test]
+    fn every_portal_shortcut_id_maps_to_a_distinct_action() {
+        let actions: HashSet<_> = PortalShortcutId::all()
+            .iter()
+            .map(|id| format!("{:?}", PortalAction::from(*id)))
+            .collect();
+
+        assert_eq!(actions.len(), PortalShortcutId::all().len());
+    }
+
+    #[test]
+    fn say_again_keybind_uses_its_own_portal_shortcut() {
+        assert_eq!(
+            PortalShortcutId::from(Keybind::SayAgain),
+            PortalShortcutId::SayAgain
+        );
+        assert_eq!("say_again".parse(), Ok(PortalShortcutId::SayAgain));
     }
 }

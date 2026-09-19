@@ -23,6 +23,7 @@ function HotkeysConfigPage() {
     const [acceptCall, setAcceptCall] = useState<Keybind | undefined>(undefined);
     const [endCall, setEndCall] = useState<Keybind | undefined>(undefined);
     const [toggleRadioPrio, setToggleRadioPrio] = useState<Keybind | undefined>(undefined);
+    const [sayAgain, setSayAgain] = useState<Keybind | undefined>(undefined);
 
     useEffect(() => {
         const fetchConfig = async () => {
@@ -31,6 +32,7 @@ function HotkeysConfigPage() {
                 setAcceptCall(await inputToKeybind(config.acceptCall));
                 setEndCall(await inputToKeybind(config.endCall));
                 setToggleRadioPrio(await inputToKeybind(config.toggleRadioPrio));
+                setSayAgain(await inputToKeybind(config.sayAgain));
             } catch {}
         };
 
@@ -68,6 +70,12 @@ function HotkeysConfigPage() {
                     label="Toggle RADIO PRIO"
                     keybind={toggleRadioPrio}
                     setKeybind={setToggleRadioPrio}
+                />
+                <KeybindField
+                    type="SayAgain"
+                    label="SAY AGAIN"
+                    keybind={sayAgain}
+                    setKeybind={setSayAgain}
                 />
             </div>
         </SettingsSubPage>

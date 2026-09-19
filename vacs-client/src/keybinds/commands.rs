@@ -128,6 +128,7 @@ pub async fn keybinds_set_binding(
             Keybind::AcceptCall => keybinds_config.accept_call = input,
             Keybind::EndCall => keybinds_config.end_call = input,
             Keybind::ToggleRadioPrio => keybinds_config.toggle_radio_prio = input,
+            Keybind::SayAgain => keybinds_config.say_again = input,
             _ => {}
         }
 

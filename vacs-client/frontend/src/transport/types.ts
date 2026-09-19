@@ -129,7 +129,9 @@ export type RemoteEvent =
     | "update:progress"
     | "remote:status"
     | "playback:clips-modified"
-    | "playback:progress";
+    | "playback:progress"
+    // Desktop only: the Rust RemoteEvent enum deliberately omits it, so remotes never subscribe.
+    | "playback:say-again";
 
 export type InvokeArgs = Record<string, unknown>;
 
