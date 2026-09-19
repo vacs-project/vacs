@@ -20,7 +20,7 @@ impl WavClip {
     /// before decoding it.
     pub fn probe_duration(path: impl AsRef<Path>) -> Result<Duration> {
         let reader = hound::WavReader::open(path)?;
-        let spec = reader.spec();
+        let spec = checked_spec(&reader)?;
         Ok(Duration::from_secs_f64(
             reader.duration() as f64 / spec.sample_rate as f64,
         ))
@@ -28,7 +28,7 @@ impl WavClip {
 
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let mut reader = hound::WavReader::open(path)?;
-        let spec = reader.spec();
+        let spec = checked_spec(&reader)?;
         let file_channels = spec.channels as usize;
 
         let interleaved: Vec<f32> = match spec.sample_format {
@@ -317,6 +317,16 @@ fn resample(samples: &[f32], in_rate: usize, out_rate: usize) -> anyhow::Result<
     out.truncate(duration_frames);
 
     Ok(out)
+}
+
+/// hound validates channels and bit depth but accepts a sample rate of 0, which would turn every
+/// duration into a non-finite value and panic in `Duration::from_secs_f64`.
+fn checked_spec<R: std::io::Read>(reader: &hound::WavReader<R>) -> Result<hound::WavSpec> {
+    let spec = reader.spec();
+    if spec.sample_rate == 0 {
+        anyhow::bail!("WAV header declares a sample rate of 0");
+    }
+    Ok(spec)
 }
 
 #[cfg(test)]

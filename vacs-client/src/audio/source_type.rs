@@ -285,6 +285,33 @@ mod tests {
     }
 
     #[test]
+    fn zero_sample_rate_header_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("zero-rate.wav");
+        // hound refuses to write such a header, so the file is assembled by hand.
+        let data = [0x00, 0x40].repeat(4_800);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&data);
+        std::fs::write(&path, bytes).unwrap();
+
+        let err = load_ring_clip(&path).unwrap_err();
+        assert!(matches!(err, RingSoundError::Decode { .. }), "{err:?}");
+        assert!(err.to_string().contains("sample rate of 0"), "{err}");
+    }
+
+    #[test]
     fn missing_clip_falls_back_to_the_built_in_chime() {
         assert!(
             SourceType::PriorityRing
