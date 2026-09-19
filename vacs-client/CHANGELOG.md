@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.8.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.7.0...vacs-client-v2.8.0) (2026-09-19)
+
+
+### Features
+
+* **vacs-client:** add a say again key binding ([#1175](https://github.com/vacs-project/vacs/issues/1175)) ([7e4e744](https://github.com/vacs-project/vacs/commit/7e4e7440308827181f94d76e0d47199fabd1d7b3))
+* **vacs-client:** add split and cycle profile views ([#1172](https://github.com/vacs-project/vacs/issues/1172)) ([9e752e3](https://github.com/vacs-project/vacs/commit/9e752e3193549bcf9d8e5f9a926ca20e97d00f75))
+* **vacs-client:** allow custom wav ring sounds for incoming calls ([#1174](https://github.com/vacs-project/vacs/issues/1174)) ([c967dc8](https://github.com/vacs-project/vacs/commit/c967dc8961065374549c538b863b209ac646fc89))
+
 ## [2.7.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.6.0...vacs-client-v2.7.0) (2026-09-11)
 
 
