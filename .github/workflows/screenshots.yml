@@ -1,6 +1,11 @@
 name: Documentation screenshots
 
 on:
+  # A workflow that is not on the default branch cannot be dispatched, so the
+  # capture branch of a release runs on push with the defaults below.
+  push:
+    branches:
+      - screenshots/2.8.0
   workflow_dispatch:
     inputs:
       platform:
@@ -20,10 +25,13 @@ permissions: {}
 
 jobs:
   screenshots:
-    runs-on: ${{ inputs.platform }}
+    runs-on: ${{ inputs.platform || 'windows-latest' }}
     timeout-minutes: 60
     permissions:
       contents: read
+    env:
+      PLATFORM: ${{ inputs.platform || 'windows-latest' }}
+      VERSION: ${{ inputs.version || '2.8.0' }}
     defaults:
       run:
         working-directory: vacs-client
@@ -39,23 +47,23 @@ jobs:
         with:
           # Same key the test workflow uses, so a capture starts from its
           # warm cache instead of a cold workspace build.
-          platform: ${{ inputs.platform }}
+          platform: ${{ env.PLATFORM }}
 
       - name: Capture screenshots (Linux)
-        if: inputs.platform == 'ubuntu-24.04'
+        if: env.PLATFORM == 'ubuntu-24.04'
         run: xvfb-run npm run screenshots -w e2e
         env:
           RUST_BACKTRACE: "1"
           VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
-          VACS_SCREENSHOT_VERSION: ${{ inputs.version }}
+          VACS_SCREENSHOT_VERSION: ${{ env.VERSION }}
 
       - name: Capture screenshots (Windows, macOS)
-        if: inputs.platform != 'ubuntu-24.04'
+        if: env.PLATFORM != 'ubuntu-24.04'
         run: npm run screenshots -w e2e
         env:
           RUST_BACKTRACE: "1"
           VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
-          VACS_SCREENSHOT_VERSION: ${{ inputs.version }}
+          VACS_SCREENSHOT_VERSION: ${{ env.VERSION }}
 
       # Uploaded even on failure: a run that captures ten of thirteen images
       # and then trips over one case still produces usable output, and the
@@ -64,7 +72,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: screenshots-${{ inputs.platform }}
+          name: screenshots-${{ env.PLATFORM }}
           path: vacs-client/e2e/screenshots
           if-no-files-found: error
 
@@ -74,9 +82,9 @@ jobs:
         working-directory: .
         run: |
           {
-            echo "### Documentation screenshots (${{ inputs.platform }})"
+            echo "### Documentation screenshots ($PLATFORM)"
             echo
-            echo "Download the \`screenshots-${{ inputs.platform }}\` artifact and copy its"
+            echo "Download the \`screenshots-$PLATFORM\` artifact and copy its"
             echo "contents into the docs repo's \`static/img/\`."
             echo
             find vacs-client/e2e/screenshots -type f -name '*.png' | sort | sed 's|^vacs-client/e2e/screenshots/|- |'
