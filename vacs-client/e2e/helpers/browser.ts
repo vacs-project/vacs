@@ -408,6 +408,15 @@ export function splitPhonePane(browser: WebdriverIO.Browser): ChainablePromiseEl
 }
 
 /**
+ * Returns the frequency objects of the radio page. Keyed off the tile's fixed
+ * height, which is the one class it keeps in both the full and the split radio
+ * page; its width and column template change with the layout.
+ */
+export function frequencyObjects(browser: WebdriverIO.Browser): ChainablePromiseArray {
+    return browser.$$('//div[contains(@class, "h-[6.188rem]")]');
+}
+
+/**
  * Drags an element horizontally by dispatching pointer events on it.
  *
  * Two reasons this is not a WebDriver pointer action: the embedded driver
