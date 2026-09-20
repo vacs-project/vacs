@@ -30,7 +30,9 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn parse() -> anyhow::Result<Self> {
+    /// Reads the layered configuration without validating the secrets, for tooling that only
+    /// needs the addresses.
+    pub fn load() -> anyhow::Result<Self> {
         let config = Config::builder()
             .add_source(Config::try_from(&AppConfig::default())?)
             .add_source(File::with_name(config_file_path("config.toml")?.as_str()).required(false))
@@ -44,6 +46,12 @@ impl AppConfig {
             .context("Failed to build config")?
             .try_deserialize::<Self>()
             .context("Failed to deserialize config")?;
+
+        Ok(config)
+    }
+
+    pub fn parse() -> anyhow::Result<Self> {
+        let config = Self::load()?;
 
         if config.auth.oauth.client_id.is_empty() {
             anyhow::bail!("OAuth client ID is empty");

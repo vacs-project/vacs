@@ -27,6 +27,10 @@ async fn main() -> anyhow::Result<()> {
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return vacs_server::health::probe().await;
+    }
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         format!(
             "{}=trace,vacs_=trace,tower_http=debug,tower_sessions=debug,axum::rejection=trace",
