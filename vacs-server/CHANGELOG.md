@@ -1,5 +1,12 @@
 # Changelog 
 
+## [2.4.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.5...vacs-server-v2.4.0) (2026-09-20)
+
+
+### Features
+
+* **vacs-server:** serve the profile view field to clients ([#1180](https://github.com/vacs-project/vacs/issues/1180)) ([8078a89](https://github.com/vacs-project/vacs/commit/8078a89087327b775944e810ec27a063109644ef))
+
 ## [2.3.5](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.4...vacs-server-v2.3.5) (2026-08-24)
 
 
@@ -177,4 +184,3 @@
 - **vacs-server:** fix tests after refactor ([4389afd](https://github.com/vacs-project/vacs/commit/4389afdba4fd523bbbfe240e7feddb8994f28653))
 - **vacs-server:** fix trait impl for AuthnBackend ([460435e](https://github.com/vacs-project/vacs/commit/460435ea63332d7ec75e85fd65e4fdfa8da98caf))
 - **vacs-server:** prevent tracing span leaking through axum handlers ([b55e3ea](https://github.com/vacs-project/vacs/commit/b55e3eae67b5568f6da872533d7626a4d51a22ab))
-
