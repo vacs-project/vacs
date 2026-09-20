@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
     --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git \
     cargo build --release --bin vacs-server
 
-FROM debian:13.6-slim AS runtime
+FROM debian:13.7-slim AS runtime
 
 LABEL org.opencontainers.image.title="vacs-server" \
       org.opencontainers.image.description="VATSIM ATC Comm System - Signaling Server" \
@@ -32,7 +32,9 @@ LABEL org.opencontainers.image.title="vacs-server" \
 # Create a non-root user and group
 RUN useradd -m -u 10001 -U vacs
 
+# The base tag lags Debian's security updates, and the image is only rebuilt on a release.
 RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
       ca-certificates \
       tzdata \
