@@ -76,6 +76,16 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }},match=(\d+\.\d+\.\d+.*),enable=${{ github.event_name == 'workflow_dispatch' }}
             type=semver,pattern={{major}},value=${{ inputs.version }},match=(\d+\.\d+\.\d+.*),enable=${{ github.event_name == 'workflow_dispatch' }}
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify the distroless base image signature
+        run: |
+          base="$(grep -oE '^FROM gcr.io/distroless/[^ ]+' vacs-server/Dockerfile | cut -d' ' -f2)"
+          cosign verify "$base" \
+            --certificate-oidc-issuer https://accounts.google.com \
+            --certificate-identity keyless@distroless.iam.gserviceaccount.com
+
       # Scan before pushing, so a CRITICAL/HIGH finding never reaches GHCR; the pushed
       # build below reuses this build's layers from the buildx cache.
       - name: Build image for scan
@@ -118,9 +128,6 @@ jobs:
           subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign images using Cosign with GitHub OIDC Token
         env:
