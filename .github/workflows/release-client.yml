@@ -435,6 +435,28 @@ jobs:
           pattern: bundles-*
           merge-multiple: true
 
+      # A build leg only proves that some bundle exists, and a published release cannot be repaired.
+      - name: Verify every bundle is present
+        working-directory: dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          for pattern in \
+            '*.rpm' '*.rpm.sig' \
+            '*_amd64.deb' '*_amd64.deb.sig' \
+            '*_amd64.AppImage' '*_amd64.AppImage.sig' \
+            '*_x64-setup.exe' '*_x64-setup.exe.sig' \
+            '*_aarch64.dmg' '*_aarch64.app.tar.gz' '*_aarch64.app.tar.gz.sig' \
+            '*_x64.dmg' '*_x86_64.app.tar.gz' '*_x86_64.app.tar.gz.sig'; do
+            count=$(find . -type f -name "$pattern" | wc -l)
+            if [[ "$count" -ne 1 ]]; then
+              echo "Expected exactly one $pattern, found $count" >&2
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: Generate checksums
         working-directory: dist
         env:
@@ -483,6 +505,26 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
 
+      # Without the draft the release would publish with no changelog; with two releases on the
+      # tag, gh picks whichever GitHub returns first.
+      - name: Verify the draft release exists
+        if: needs.prep.outputs.draft == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          TAG: ${{ needs.prep.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t drafts < <(gh api --paginate "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == $ENV.TAG) | .draft')
+          if [[ "${#drafts[@]}" -ne 1 || "${drafts[0]}" != "true" ]]; then
+            echo "Expected exactly one draft release for ${TAG}, found: ${drafts[*]:-none}" >&2
+            exit 1
+          fi
+
+      # The draft is invisible to users and to the server's release catalog until this step has
+      # uploaded every bundle and publishes it last. Immutable releases forbid uploads after
+      # publishing.
       # Release-body content is contributor-controlled; it must only ever flow through
       # `with:` parameters, never through a shell.
       - name: Create/update GitHub release
