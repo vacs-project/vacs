@@ -549,6 +549,41 @@ jobs:
           files: |
             dist/**
 
+  # The servers cache the GitHub release list for hours. Prereleases reload too, since the
+  # prerelease channels serve them.
+  reload-releases:
+    needs: [prep, release]
+    if: needs.prep.outputs.draft == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    # Dev being unreachable must not fail a production release.
+    continue-on-error: ${{ matrix.environment == 'dev' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ matrix.environment }}
+      url: ${{ vars.VACS_SERVER_URL }}
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Checkout actions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Reload release catalog
+        uses: $/.github/actions/reload-releases
+        with:
+          oidc-audience: ${{ vars.VACS_OIDC_AUDIENCE }}
+          server-url: ${{ vars.VACS_SERVER_URL }}
+          version: ${{ needs.prep.outputs.version }}
+          channel: ${{ needs.prep.outputs.rc == 'true' && 'rc' || (needs.prep.outputs.prerelease == 'true' && 'beta' || 'stable') }}
+
   update-brew-tap:
     needs: [prep, release]
     if: |
