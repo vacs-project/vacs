@@ -67,8 +67,33 @@ impl GitHubCatalog {
         release_cache_ttl: Duration,
         signature_cache_ttl: Duration,
     ) -> Result<Self, AppError> {
+        Self::with_api_base(
+            owner,
+            repo,
+            credentials,
+            release_cache_ttl,
+            signature_cache_ttl,
+            None,
+        )
+        .await
+    }
+
+    async fn with_api_base(
+        owner: String,
+        repo: String,
+        credentials: Option<GitHubCredentials>,
+        release_cache_ttl: Duration,
+        signature_cache_ttl: Duration,
+        api_base: Option<&str>,
+    ) -> Result<Self, AppError> {
         let mut client_builder =
             Octocrab::builder().add_header(header::USER_AGENT, APP_USER_AGENT.to_string());
+
+        if let Some(api_base) = api_base {
+            client_builder = client_builder
+                .base_uri(api_base)
+                .context("Failed to set GitHub API base URI")?;
+        }
 
         let client = if let Some(credentials) = credentials {
             tracing::info!(?credentials, "Using GitHub app authentication");
@@ -529,4 +554,161 @@ pub(super) fn default_release_cache_ttl() -> Duration {
 
 pub(super) fn default_signature_cache_ttl() -> Duration {
     Duration::from_hours(24)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+    use test_log::test;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const OWNER: &str = "vacs-project";
+    const REPO: &str = "vacs";
+
+    fn bundles(version: &str) -> Vec<String> {
+        [
+            "SHA256SUMS-{v}.txt",
+            "SHA256SUMS-{v}.txt.bundle.json",
+            "vacs_{v}_amd64.AppImage",
+            "vacs_{v}_amd64.AppImage.sig",
+            "vacs_{v}_amd64.deb",
+            "vacs_{v}_amd64.deb.sig",
+            "vacs-{v}-1.x86_64.rpm",
+            "vacs-{v}-1.x86_64.rpm.sig",
+            "vacs_{v}_x64-setup.exe",
+            "vacs_{v}_x64-setup.exe.sig",
+            "vacs_{v}_aarch64.app.tar.gz",
+            "vacs_{v}_aarch64.app.tar.gz.sig",
+            "vacs_{v}_aarch64.dmg",
+            "vacs_{v}_x86_64.app.tar.gz",
+            "vacs_{v}_x86_64.app.tar.gz.sig",
+            "vacs_{v}_x64.dmg",
+        ]
+        .iter()
+        .map(|name| name.replace("{v}", version))
+        .collect()
+    }
+
+    fn release(id: u64, version: &str, draft: bool, assets: &[String], base: &str) -> Value {
+        let tag = format!("vacs-client-v{version}");
+        let assets: Vec<Value> = assets
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let asset_id = id * 100 + i as u64;
+                json!({
+                    "url": format!("{base}/repos/{OWNER}/{REPO}/releases/assets/{asset_id}"),
+                    "browser_download_url":
+                        format!("{base}/{OWNER}/{REPO}/releases/download/{tag}/{name}"),
+                    "id": asset_id,
+                    "node_id": format!("RA_{asset_id}"),
+                    "name": name,
+                    "label": null,
+                    "state": "uploaded",
+                    "content_type": "application/octet-stream",
+                    "size": 1,
+                    "download_count": 0,
+                    "created_at": "2026-09-21T08:00:00Z",
+                    "updated_at": "2026-09-21T08:00:00Z",
+                    "uploader": null,
+                })
+            })
+            .collect();
+        json!({
+            "url": format!("{base}/repos/{OWNER}/{REPO}/releases/{id}"),
+            "html_url": format!("{base}/{OWNER}/{REPO}/releases/tag/{tag}"),
+            "assets_url": format!("{base}/repos/{OWNER}/{REPO}/releases/{id}/assets"),
+            "upload_url": format!("{base}/repos/{OWNER}/{REPO}/releases/{id}/assets{{?name,label}}"),
+            "tarball_url": null,
+            "zipball_url": null,
+            "id": id,
+            "node_id": format!("RE_{id}"),
+            "tag_name": tag,
+            "target_commitish": "main",
+            "name": format!("vacs-client: v{version}"),
+            "body": "## What's Changed",
+            "draft": draft,
+            "prerelease": false,
+            "created_at": "2026-09-21T08:00:00Z",
+            "published_at": if draft { Value::Null } else { json!("2026-09-21T08:30:00Z") },
+            "author": null,
+            "assets": assets,
+        })
+    }
+
+    async fn catalog_serving(releases: Vec<Value>) -> (MockServer, GitHubCatalog) {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("/repos/{OWNER}/{REPO}/releases")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(releases))
+            .mount(&server)
+            .await;
+        let catalog = GitHubCatalog::with_api_base(
+            OWNER.to_string(),
+            REPO.to_string(),
+            None,
+            Duration::from_secs(3600),
+            Duration::from_secs(3600),
+            Some(&server.uri()),
+        )
+        .await
+        .expect("catalog should build against the mock server");
+        (server, catalog)
+    }
+
+    async fn stable_versions(catalog: &GitHubCatalog) -> Vec<Version> {
+        catalog
+            .list(ReleaseChannel::Stable)
+            .await
+            .expect("listing should succeed")
+            .into_iter()
+            .map(|meta| meta.version)
+            .collect()
+    }
+
+    #[test(tokio::test)]
+    async fn a_draft_release_is_not_listed() {
+        let server = MockServer::start().await;
+        let base = server.uri();
+        let (_server, catalog) = catalog_serving(vec![
+            release(2, "2.9.0", true, &bundles("2.9.0")[..4], &base),
+            release(1, "2.8.0", false, &bundles("2.8.0"), &base),
+        ])
+        .await;
+
+        assert_eq!(stable_versions(&catalog).await, vec![Version::new(2, 8, 0)]);
+    }
+
+    #[test(tokio::test)]
+    async fn a_release_without_bundles_is_not_listed() {
+        let server = MockServer::start().await;
+        let base = server.uri();
+        let (_server, catalog) = catalog_serving(vec![release(
+            1,
+            "2.9.0",
+            false,
+            &bundles("2.9.0")[..2],
+            &base,
+        )])
+        .await;
+
+        assert!(stable_versions(&catalog).await.is_empty());
+    }
+
+    #[test]
+    fn release_titles_from_the_workflow_are_recognized() {
+        for (title, version) in [
+            ("vacs-client: v2.9.0", "2.9.0"),
+            ("vacs-client-v2.9.0", "2.9.0"),
+            ("vacs-client: v2.9.0-rc.1", "2.9.0-rc.1"),
+        ] {
+            let captures = title_pattern()
+                .captures(title)
+                .unwrap_or_else(|| panic!("{title} should match"));
+            assert_eq!(&captures["version"], version);
+        }
+        assert!(title_pattern().captures("v2.9.0").is_none());
+    }
 }

@@ -9243,6 +9243,7 @@ dependencies = [
  "vacs-vatsim",
  "vatsim-api",
  "vergen-git2",
+ "wiremock",
 ]
 
 [[package]]
