@@ -522,32 +522,59 @@ jobs:
             exit 1
           fi
 
-      # The draft is invisible to users and to the server's release catalog until this step has
-      # uploaded every bundle and publishes it last. Immutable releases forbid uploads after
-      # publishing.
-      # Release-body content is contributor-controlled; it must only ever flow through
-      # `with:` parameters, never through a shell.
+      # Upload into the draft, then publish: immutable releases refuse uploads after publishing.
+      # The changelog body only ever moves between files and gh, never through shell interpolation.
       - name: Create/update GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
-          tag_name: ${{ needs.prep.outputs.tag }}
-          name: ${{ needs.prep.outputs.release_name }}
-          draft: ${{ needs.prep.outputs.draft }}
-          prerelease: ${{ needs.prep.outputs.prerelease }}
-          make_latest: ${{ needs.prep.outputs.draft == 'false' && needs.prep.outputs.prerelease == 'false' }}
-          append_body: true
-          body: |
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prep.outputs.tag }}
+          RELEASE_NAME: ${{ needs.prep.outputs.release_name }}
+          DRAFT: ${{ needs.prep.outputs.draft }}
+          PRERELEASE: ${{ needs.prep.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/release-notes.md"
+          if gh release view "$TAG" --json body --jq .body > "$notes" 2>/dev/null; then
+            exists=true
+          else
+            exists=false
+            : > "$notes"
+          fi
+          if [[ "$DRAFT" == "false" && "$exists" != "true" ]]; then
+            echo "Release ${TAG} was not found although the draft check passed" >&2
+            exit 1
+          fi
 
-            ---
+          if ! grep -q '^## Looking for downloads' "$notes"; then
+            cat >> "$notes" <<'FOOTER'
 
-            ## Looking for downloads or missing an installer?
+          ---
 
-            GitHub collapses the assets section on long release notes. Click the **"Assets"** heading below to expand it, then click **"Show all assets"** at the bottom of the list to see all available downloads. Alternatively, use the download button on [our website](https://vacs.network) for easier access.
+          ## Looking for downloads or missing an installer?
 
-            For detailed installation instructions, visit [our documentation](https://docs.vacs.network/getting-started/installation).
-          files: |
-            dist/**
+          GitHub collapses the assets section on long release notes. Click the **"Assets"** heading below to expand it, then click **"Show all assets"** at the bottom of the list to see all available downloads. Alternatively, use the download button on [our website](https://vacs.network) for easier access.
+
+          For detailed installation instructions, visit [our documentation](https://docs.vacs.network/getting-started/installation).
+          FOOTER
+          fi
+
+          args=(--title "$RELEASE_NAME" --notes-file "$notes")
+          [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
+          if [[ "$exists" == "true" ]]; then
+            gh release edit "$TAG" "${args[@]}"
+          else
+            gh release create "$TAG" --draft "${args[@]}"
+          fi
+
+          mapfile -d '' files < <(find dist -type f -print0 | sort -z)
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+          if [[ "$DRAFT" == "false" ]]; then
+            latest=--latest
+            [[ "$PRERELEASE" == "true" ]] && latest=--latest=false
+            gh release edit "$TAG" --draft=false "$latest"
+          fi
 
   # The servers cache the GitHub release list for hours. Prereleases reload too, since the
   # prerelease channels serve them.

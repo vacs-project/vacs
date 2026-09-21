@@ -30,8 +30,8 @@ Two guards run before anything is published:
   job checks for exactly one file per expected bundle pattern (deb, rpm, AppImage, NSIS installer,
   both DMGs, both app archives, and each `.sig`).
 - **Exactly one draft exists for the tag.** Without the draft, publishing would produce a release
-  without its changelog. With two releases on the tag, the action would publish whichever it finds
-  first, so stale manual drafts for a version must be deleted before its release PR is merged.
+  without its changelog. With two releases on the tag, the publish step would pick whichever GitHub
+  returns first, so stale manual drafts for a version must be deleted before its release PR is merged.
 
 ### Reruns
 
