@@ -28,6 +28,8 @@ export type Controller = {
  * Throws if authentication fails for the given CID.
  */
 export async function authenticate(browser: WebdriverIO.Browser, cid: string): Promise<void> {
+    await browser.$("button=Login via VATSIM").waitForDisplayed();
+
     const result = await browser.execute(async (targetCid: string) => {
         try {
             await window.__TAURI_INTERNALS__.invoke("auth_login_test", {cid: targetCid});
