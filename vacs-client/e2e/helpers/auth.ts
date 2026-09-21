@@ -27,8 +27,27 @@ export type Controller = {
  * `auth_login_test` Tauri command (only available with the `e2e` feature).
  * Throws if authentication fails for the given CID.
  */
+/**
+ * Waits for the login page. The frontend learns its auth state from an event
+ * the backend emits during the startup session check; when the event fires
+ * before the listener is registered the page stays blank, so the check is
+ * issued again until the page shows.
+ */
+async function waitForLoginPage(browser: WebdriverIO.Browser): Promise<void> {
+    const loginButton = browser.$("button=Login via VATSIM");
+    for (let attempt = 1; ; attempt++) {
+        try {
+            await loginButton.waitForDisplayed({timeout: 5000});
+            return;
+        } catch (err) {
+            if (attempt >= 4) throw err;
+        }
+        await browser.execute(() => window.__TAURI_INTERNALS__.invoke("auth_check_session"));
+    }
+}
+
 export async function authenticate(browser: WebdriverIO.Browser, cid: string): Promise<void> {
-    await browser.$("button=Login via VATSIM").waitForDisplayed();
+    await waitForLoginPage(browser);
 
     const result = await browser.execute(async (targetCid: string) => {
         try {
