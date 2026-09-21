@@ -530,6 +530,11 @@ impl Catalog for GitHubCatalog {
             }
         }
     }
+
+    #[instrument(level = "debug", skip(self), err)]
+    async fn refresh(&self) -> Result<(), AppError> {
+        self.fetch_releases().await
+    }
 }
 
 impl Debug for GitHubCatalog {
@@ -561,7 +566,7 @@ mod tests {
     use super::*;
     use serde_json::{Value, json};
     use test_log::test;
-    use wiremock::matchers::{method, path};
+    use wiremock::matchers::{method, path, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const OWNER: &str = "vacs-project";
@@ -638,14 +643,28 @@ mod tests {
         })
     }
 
-    async fn catalog_serving(releases: Vec<Value>) -> (MockServer, GitHubCatalog) {
+    async fn github_api() -> MockServer {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
-            .and(path(format!("/repos/{OWNER}/{REPO}/releases")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(releases))
+            .and(path_regex(r"\.sig$"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("signature"))
             .mount(&server)
             .await;
-        let catalog = GitHubCatalog::with_api_base(
+        server
+    }
+
+    async fn serve_releases(server: &MockServer, releases: Vec<Value>, times: Option<u64>) {
+        let mock = Mock::given(method("GET"))
+            .and(path(format!("/repos/{OWNER}/{REPO}/releases")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(releases));
+        match times {
+            Some(times) => mock.up_to_n_times(times).mount(server).await,
+            None => mock.mount(server).await,
+        }
+    }
+
+    async fn catalog_for(server: &MockServer) -> GitHubCatalog {
+        GitHubCatalog::with_api_base(
             OWNER.to_string(),
             REPO.to_string(),
             None,
@@ -654,8 +673,7 @@ mod tests {
             Some(&server.uri()),
         )
         .await
-        .expect("catalog should build against the mock server");
-        (server, catalog)
+        .expect("catalog should build against the mock server")
     }
 
     async fn stable_versions(catalog: &GitHubCatalog) -> Vec<Version> {
@@ -670,31 +688,55 @@ mod tests {
 
     #[test(tokio::test)]
     async fn a_draft_release_is_not_listed() {
-        let server = MockServer::start().await;
+        let server = github_api().await;
         let base = server.uri();
-        let (_server, catalog) = catalog_serving(vec![
-            release(2, "2.9.0", true, &bundles("2.9.0")[..4], &base),
-            release(1, "2.8.0", false, &bundles("2.8.0"), &base),
-        ])
+        serve_releases(
+            &server,
+            vec![
+                release(2, "2.9.0", true, &bundles("2.9.0")[..4], &base),
+                release(1, "2.8.0", false, &bundles("2.8.0"), &base),
+            ],
+            None,
+        )
         .await;
+        let catalog = catalog_for(&server).await;
 
         assert_eq!(stable_versions(&catalog).await, vec![Version::new(2, 8, 0)]);
     }
 
     #[test(tokio::test)]
     async fn a_release_without_bundles_is_not_listed() {
-        let server = MockServer::start().await;
+        let server = github_api().await;
         let base = server.uri();
-        let (_server, catalog) = catalog_serving(vec![release(
-            1,
-            "2.9.0",
-            false,
-            &bundles("2.9.0")[..2],
-            &base,
-        )])
+        serve_releases(
+            &server,
+            vec![release(1, "2.9.0", false, &bundles("2.9.0")[..2], &base)],
+            None,
+        )
         .await;
+        let catalog = catalog_for(&server).await;
 
         assert!(stable_versions(&catalog).await.is_empty());
+    }
+
+    #[test(tokio::test)]
+    async fn refresh_picks_up_a_newly_published_release() {
+        let server = github_api().await;
+        let base = server.uri();
+        let old = release(1, "2.8.0", false, &bundles("2.8.0"), &base);
+        let new = release(2, "2.9.0", false, &bundles("2.9.0"), &base);
+        serve_releases(&server, vec![old.clone()], Some(1)).await;
+        serve_releases(&server, vec![old, new], None).await;
+        let catalog = catalog_for(&server).await;
+
+        assert_eq!(stable_versions(&catalog).await, vec![Version::new(2, 8, 0)]);
+
+        catalog.refresh().await.expect("refresh should succeed");
+
+        assert_eq!(
+            stable_versions(&catalog).await,
+            vec![Version::new(2, 8, 0), Version::new(2, 9, 0)]
+        );
     }
 
     #[test]
