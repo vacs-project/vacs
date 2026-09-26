@@ -50,6 +50,33 @@ export async function mockCommand(
     );
 }
 
+/**
+ * Installs the same mock as mockCommand through the session's own execute
+ * rather than the service's direct eval channel. For the remote config, which
+ * does not register @wdio/tauri-service and therefore has no browser.tauri on
+ * its app instance.
+ */
+export async function mockCommandOn(
+    browser: WebdriverIO.Browser,
+    command: string,
+    behavior: {resolve?: unknown; reject?: unknown},
+): Promise<void> {
+    await browser.execute(
+        (cmd: string, spec: {resolve?: unknown; reject?: unknown}) => {
+            const w = window as Window & {
+                __wdio_mocks__?: Record<string, () => Promise<unknown>>;
+            };
+            w.__wdio_mocks__ = w.__wdio_mocks__ ?? {};
+            w.__wdio_mocks__[cmd] =
+                spec.reject !== undefined
+                    ? () => Promise.reject(spec.reject)
+                    : () => Promise.resolve(spec.resolve);
+        },
+        command,
+        behavior,
+    );
+}
+
 /** Removes a command mock installed by mockCommand. */
 export async function unmockCommand(instanceName: string, command: string): Promise<void> {
     await tauriApi(instanceName).execute((_tauri, cmd) => {
@@ -463,3 +490,60 @@ export async function doubleClick(
         node.dispatchEvent(new MouseEvent("dblclick", {bubbles: true, cancelable: true}));
     }, el);
 }
+
+/**
+ * Clicks an <svg> element. HTMLElement.click() does not exist on SVGElement,
+ * so click() cannot be used on the icon buttons the settings pages render
+ * (the ring sound reset).
+ */
+export async function clickSvg(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    const el = await element;
+    await browser.execute((node: Element) => {
+        node.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+    }, el);
+}
+
+/**
+ * Returns the ring sound field of the "Ring" or "Priority ring" row in
+ * Settings > Call: the field is the first div following its label in the ring
+ * sounds grid, and carries the file name or "Built-in chime" as its text.
+ */
+export function ringSoundField(
+    browser: WebdriverIO.Browser,
+    label: RingSoundLabel,
+): ChainablePromiseElement {
+    return browser.$(`${ringSoundRow(label)}/div[1]`);
+}
+
+/**
+ * Returns the X that resets a ring sound to the built-in chime: an <svg>
+ * sibling of the field, so it needs local-name() to match and clickSvg() to be
+ * clicked.
+ */
+export function ringSoundReset(
+    browser: WebdriverIO.Browser,
+    label: RingSoundLabel,
+): ChainablePromiseElement {
+    return browser.$(`${ringSoundRow(label)}/*[local-name()="svg"]`);
+}
+
+/** Waits until a ring sound field shows the given file name or "Built-in chime". */
+export async function waitForRingSound(
+    browser: WebdriverIO.Browser,
+    label: RingSoundLabel,
+    expected: string,
+): Promise<void> {
+    await browser.waitUntil(
+        async () => (await ringSoundField(browser, label).getText()) === expected,
+        {timeoutMsg: `The ${label} field did not show "${expected}"`},
+    );
+}
+
+type RingSoundLabel = "Ring" | "Priority ring";
+
+// While the ring sounds are still being fetched both rows render a paragraph
+// instead, so this matches nothing rather than the wrong row.
+const ringSoundRow = (label: RingSoundLabel) => `//p[text()="${label}"]/following-sibling::div[1]`;
