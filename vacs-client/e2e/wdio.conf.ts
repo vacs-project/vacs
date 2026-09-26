@@ -2,6 +2,12 @@ import path from "path";
 import {type ChildProcess, spawn, spawnSync, execFileSync} from "child_process";
 import {createConnection} from "net";
 import {fileURLToPath} from "url";
+import {
+    clearPersistedAppState,
+    configureInstances,
+    ensureApps,
+    reapRecordedApps,
+} from "./helpers/app-control.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const VACS_ROOT = path.resolve(__dirname, "..", "..");
@@ -14,14 +20,19 @@ const APP_BINARY = path.resolve(VACS_ROOT, "target", "debug", `vacs-client${BINA
 
 const MOCK_VATSIM_PORT = 4567;
 const VACS_SERVER_PORT = 4568;
-const TAURI_DRIVER_PORT_A = 4444;
-const TAURI_DRIVER_NATIVE_PORT_A = 4544;
-const TAURI_DRIVER_PORT_B = 4445;
-const TAURI_DRIVER_NATIVE_PORT_B = 4545;
+const VALKEY_PORT = 6379;
+// Embedded WebDriver ports (the app serves WebDriver in-process via
+// tauri-plugin-wdio-webdriver). Deliberately not the plugin's 4445 default
+// so a stale process from the old tauri-driver harness cannot masquerade
+// as an instance. The service assigns base + i per multiremote instance.
+const EMBEDDED_PORT_BASE = 4450;
+
+configureInstances([
+    {name: "clientA", port: EMBEDDED_PORT_BASE},
+    {name: "clientB", port: EMBEDDED_PORT_BASE + 1},
+]);
 
 // keep track of child processes for cleanup
-let tauriDriverA: ChildProcess | undefined;
-let tauriDriverB: ChildProcess | undefined;
 let mockVatsimServer: ChildProcess | undefined;
 let vacsServer: ChildProcess | undefined;
 let exit = false;
@@ -34,17 +45,30 @@ export const config: WebdriverIO.MultiremoteConfig = {
     // Mocha 11 loads specs with require() where Node supports require(esm); under tsx that
     // yields a CommonJS copy of the helpers, separate from the ESM copy this config set up.
     execArgv: ["--no-experimental-require-module"],
+    services: [
+        [
+            "@wdio/tauri-service",
+            {
+                driverProvider: "embedded",
+                embeddedPort: EMBEDDED_PORT_BASE,
+                appBinaryPath: APP_BINARY,
+                startTimeout: 120_000,
+                statusPollTimeout: 10_000,
+                captureBackendLogs: Boolean(process.env.CI),
+                captureFrontendLogs: Boolean(process.env.CI),
+                backendLogLevel: "info",
+                frontendLogLevel: "warn",
+            },
+        ],
+    ],
     capabilities: {
-        // See https://tauri.app/develop/tests/webdriver/example/webdriverio/#config
-        //
-        // enforceWebDriverClassic: WebdriverIO 9 requests WebDriver BiDi by
-        // default (webSocketUrl), which msedgedriver cannot serve for
-        // WebView2 apps - on Windows every session then dies with
-        // "DevToolsActivePort file doesn't exist" even though the app
-        // launches. Classic sessions are all tauri-driver needs anyway.
+        // enforceWebDriverClassic: the embedded server implements classic
+        // W3C WebDriver only; requesting BiDi (the WebdriverIO 9 default)
+        // would leave session negotiation to how the server treats an
+        // unknown capability.
         clientA: {
-            port: TAURI_DRIVER_PORT_A,
             capabilities: {
+                browserName: "tauri",
                 "wdio:enforceWebDriverClassic": true,
                 "tauri:options": {
                     application: APP_BINARY,
@@ -52,8 +76,8 @@ export const config: WebdriverIO.MultiremoteConfig = {
             },
         },
         clientB: {
-            port: TAURI_DRIVER_PORT_B,
             capabilities: {
+                browserName: "tauri",
                 "wdio:enforceWebDriverClassic": true,
                 "tauri:options": {
                     application: APP_BINARY,
@@ -75,15 +99,29 @@ export const config: WebdriverIO.MultiremoteConfig = {
     // plus live WebRTC negotiation leave a residual flake rate that would
     // otherwise fail CI randomly.
     specFileRetries: 1,
-    // Healthy sessions are created within seconds; when the native driver
-    // cannot launch the app at all (e.g. an Edge WebDriver/WebView2 mismatch
-    // on Windows), the defaults burn 20+ minutes of dead session attempts
-    // per run before the leg fails.
+    // Healthy sessions are created within seconds; when an app instance is
+    // broken (e.g. its webview failed to initialize), the defaults burn 20+
+    // minutes of dead session attempts per run before the leg fails.
     connectionRetryTimeout: 60_000,
     connectionRetryCount: 1,
     logLevel: "warn",
 
-    onPrepare() {
+    async onPrepare() {
+        // App processes from a previous crashed run would hold the embedded
+        // ports and shadow this run's instances; leaked session state would
+        // boot them already authenticated.
+        reapRecordedApps();
+        clearPersistedAppState();
+
+        // wdio only logs a failing hook and runs the specs anyway, against
+        // whatever binary or store is left over from the last run.
+        try {
+            await ensureValkey();
+        } catch (err) {
+            console.error(err);
+            process.exit(1);
+        }
+
         // Build vatsim-mock from source if VATSIM_API_ROOT is set,
         // otherwise expect it on PATH (e.g. via cargo install).
         if (process.env.VATSIM_API_ROOT) {
@@ -192,67 +230,44 @@ export const config: WebdriverIO.MultiremoteConfig = {
             },
         };
 
-        tauriDriverA = spawn(
-            findBinary("tauri-driver"),
-            [
-                "--port",
-                String(TAURI_DRIVER_PORT_A),
-                "--native-port",
-                String(TAURI_DRIVER_NATIVE_PORT_A),
-            ],
-            {stdio: [null, process.stdout, process.stderr]},
-        );
-        tauriDriverA.on("error", error => {
-            console.error("tauri-driver A error:", error);
-            process.exit(1);
-        });
-        tauriDriverA.on("exit", code => {
-            if (!exit) {
-                console.error("tauri-driver A exited with code:", code);
-            }
-        });
-
-        tauriDriverB = spawn(
-            findBinary("tauri-driver"),
-            [
-                "--port",
-                String(TAURI_DRIVER_PORT_B),
-                "--native-port",
-                String(TAURI_DRIVER_NATIVE_PORT_B),
-            ],
-            {stdio: [null, process.stdout, process.stderr]},
-        );
-        tauriDriverB.on("error", error => {
-            console.error("tauri-driver B error:", error);
-            process.exit(1);
-        });
-        tauriDriverB.on("exit", code => {
-            if (!exit) {
-                console.error("tauri-driver B exited with code:", code);
-            }
-        });
-
-        await Promise.all([
-            waitForPort(TAURI_DRIVER_PORT_A, 10_000),
-            waitForPort(TAURI_DRIVER_PORT_B, 10_000),
-        ]);
-        console.log(
-            `tauri-driver instances listening on ports ${TAURI_DRIVER_PORT_A} and ${TAURI_DRIVER_PORT_B}`,
-        );
+        // A previous worker's app instances are normally handed over alive,
+        // but on Windows a worker's exit takes its child processes with it;
+        // respawn whatever is missing before the session request goes out.
+        await ensureApps();
     },
 
     afterSession() {
+        // Servers only: the last generation of app processes stays alive
+        // where possible so the next worker's session creation finds live
+        // embedded WebDriver servers; that worker retires them at its first
+        // restartApps(). beforeSession's ensureApps() covers platforms where
+        // the processes die with the worker.
         cleanup();
+    },
+
+    onComplete() {
+        reapRecordedApps();
     },
 };
 
 function spawnVacsServer(): ChildProcess {
     const serverBin = path.resolve(VACS_ROOT, "target", "debug", `vacs-server${BINARY_EXT}`);
+    // The server reads config.toml from its cwd, and a checkout's gitignored dev
+    // config would otherwise reach the e2e server (policy, ICE provider, secrets).
     const proc = spawn(serverBin, [], {
-        cwd: VACS_ROOT,
+        cwd: __dirname,
         stdio: ["ignore", process.stdout, process.stderr],
         env: {
             ...process.env,
+            // The server's built-in default is all-trace. Cap the two
+            // high-volume, low-signal targets (per-file dataset loading and
+            // redis store round trips) at debug; an explicit RUST_LOG still
+            // wins for full-trace debugging.
+            RUST_LOG:
+                process.env.RUST_LOG ??
+                "vacs_server=trace,vacs_=trace,vacs_vatsim::coverage=debug," +
+                    "vacs_server::store=debug,tower_http=debug,tower_sessions=debug," +
+                    "axum::rejection=trace",
             "VACS-AUTH-OAUTH-AUTH_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/authorize`,
             "VACS-AUTH-OAUTH-TOKEN_URL": `http://127.0.0.1:${MOCK_VATSIM_PORT}/oauth/token`,
             "VACS-AUTH-OAUTH-CLIENT_ID": "e2e-test-client",
@@ -297,8 +312,6 @@ function spawnVacsServer(): ChildProcess {
 
 function cleanup() {
     exit = true;
-    tauriDriverA?.kill();
-    tauriDriverB?.kill();
     vacsServer?.kill();
     mockVatsimServer?.kill();
 }
@@ -320,21 +333,46 @@ function onShutdown(fn: () => void) {
 
 onShutdown(cleanup);
 
+// CI provisions its own store; locally the compose stack at the repo root is
+// the one the server's default config points at, and it does not outlive a
+// reboot. Without it every spec would wait out the server's start timeout.
+async function ensureValkey(): Promise<void> {
+    if (process.env.CI || (await isPortOpen(VALKEY_PORT))) return;
+
+    // A fixed project name keeps every checkout and worktree on the one
+    // container instead of racing each other for the port.
+    console.log("Valkey is not listening, starting the compose stack...");
+    const up = spawnSync("docker", ["compose", "-p", "vacs", "up", "-d"], {
+        cwd: VACS_ROOT,
+        stdio: "inherit",
+        shell: true,
+    });
+    if (up.status !== 0) {
+        throw new Error(
+            "Valkey is not running and `docker compose -p vacs up -d` failed; start it in the repo root",
+        );
+    }
+    await waitForPort(VALKEY_PORT, 15_000);
+}
+
+function isPortOpen(port: number): Promise<boolean> {
+    return new Promise(resolve => {
+        const socket = createConnection({host: "127.0.0.1", port}, () => {
+            socket.destroy();
+            resolve(true);
+        });
+        socket.on("error", () => {
+            socket.destroy();
+            resolve(false);
+        });
+    });
+}
+
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
-        const connected = await new Promise<boolean>(resolve => {
-            const socket = createConnection({host: "127.0.0.1", port}, () => {
-                socket.destroy();
-                resolve(true);
-            });
-            socket.on("error", () => {
-                socket.destroy();
-                resolve(false);
-            });
-        });
-        if (connected) return;
+        if (await isPortOpen(port)) return;
         await new Promise(r => setTimeout(r, 200));
     }
     throw new Error(`Port ${port} did not become available within ${timeoutMs}ms`);
@@ -352,7 +390,7 @@ function findBinary(name: string): string {
 declare global {
     namespace WebdriverIO {
         interface Capabilities {
-            "tauri:options": {
+            "tauri:options"?: {
                 application: string;
             };
         }

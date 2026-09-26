@@ -1,3 +1,4 @@
+import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnectAs, removeController, resetMockState} from "../helpers/auth.ts";
 import {
     callQueueSlot,
@@ -38,7 +39,7 @@ describe("Coverage Call Routing", () => {
         // Keep S station coverage purely client-driven: without this the
         // datafeed-only BC controller would mask the stations.
         await removeController(BC_CID);
-        await multiRemoteBrowser.reloadSession();
+        await restartApps();
 
         await loginAndConnectAs(getClient("clientA"), CID_A, "LOVV_E_CTR");
         await loginAndConnectAs(getClient("clientB"), CID_B, "LOVV_BC_CTR");
