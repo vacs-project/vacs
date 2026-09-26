@@ -326,3 +326,140 @@ export async function waitForErroredKey(
         {interval: 150, timeoutMsg: "Key did not blink red for the errored target"},
     );
 }
+
+/**
+ * Returns one of the page tabs a split-view profile shows in the bottom row
+ * ("Phone" or "Radio"). Matched on the tab button's rounded-b-lg shape so the
+ * ordinary Radio/Phone buttons, whose label is the same text, cannot match.
+ */
+export function pageTab(browser: WebdriverIO.Browser, label: string): ChainablePromiseElement {
+    return browser.$(`//button[contains(@class, "rounded-b-lg")][.//p[@title="${label}"]]`);
+}
+
+/**
+ * Returns the ordinary Radio or Phone page button of the bottom row. Its label
+ * sits in a plain paragraph, which is what separates it from the page tab of a
+ * split-view profile and from a direct access key carrying the same text.
+ */
+export function pageButton(browser: WebdriverIO.Browser, label: string): ChainablePromiseElement {
+    return browser.$(`//button[./p[not(@title) and text()="${label}"]]`);
+}
+
+/** Returns the Page button a cycle-view profile shows instead of the tabs. */
+export function pageCycleButton(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//button[contains(@class, "w-22")][./div/p[text()="Page"]]');
+}
+
+/**
+ * Returns one of the Page button's R/P/M cells. The active cell is the one
+ * carrying bg-gray-400.
+ */
+export function pageCycleCell(
+    browser: WebdriverIO.Browser,
+    letter: "R" | "P" | "M",
+): ChainablePromiseElement {
+    return pageCycleButton(browser).$(`.//p[text()="${letter}"]`);
+}
+
+/**
+ * Returns the drag handle between the radio and phone panes of the mixed page.
+ * Its existence is what distinguishes the mixed page from the single-page
+ * radio and phone layouts. Assert on existence, never on displayedness: the
+ * handle is opacity-0 until hovered, and a zero-opacity element is reported as
+ * not displayed in both directions.
+ */
+export function splitResizeHandle(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//div[contains(@class, "cursor-ew-resize")]');
+}
+
+/**
+ * Returns the phone pane of the mixed page: the only page container with an
+ * explicit width, keyed off the minimum width that clamps the drag.
+ */
+export function splitPhonePane(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//div[contains(@class, "min-w-[calc(5.5rem+0.875rem+3px)]")]');
+}
+
+/**
+ * Drags an element horizontally by dispatching pointer events on it.
+ *
+ * Two reasons this is not a WebDriver pointer action: the embedded driver
+ * synthesizes MouseEvents, which never produce the pointerdown a pointer-event
+ * handler listens for, and a synthetic pointer id has no active pointer, so
+ * the dragged element's setPointerCapture would throw NotFoundError and abort
+ * the handler. The capture is therefore stubbed on the element for the
+ * duration of the drag; delivery does not need it, because every event is
+ * dispatched on the element itself.
+ *
+ * `afterMove` runs between the move and the release, which is where a caller
+ * waits for the app to re-render: a release handler reading state from its
+ * closure would otherwise still see the pre-drag value.
+ */
+export async function dragHorizontally(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+    deltaX: number,
+    afterMove?: () => Promise<void>,
+): Promise<void> {
+    const el = await element;
+
+    const target = await browser.execute(
+        (node: HTMLElement, dx: number) => {
+            const rect = node.getBoundingClientRect();
+            const x = rect.x + rect.width / 2;
+            const y = rect.y + rect.height / 2;
+            const capture = node as HTMLElement & {setPointerCapture: (id: number) => void};
+            capture.setPointerCapture = () => {};
+            const event = (type: string, clientX: number, buttons: number) =>
+                new PointerEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId: 1,
+                    isPrimary: true,
+                    button: 0,
+                    buttons,
+                    clientX,
+                    clientY: y,
+                });
+            node.dispatchEvent(event("pointerdown", x, 1));
+            node.dispatchEvent(event("pointermove", x + dx, 1));
+            return {x: x + dx, y};
+        },
+        el,
+        deltaX,
+    );
+
+    if (afterMove !== undefined) await afterMove();
+
+    await browser.execute(
+        (node: HTMLElement, x: number, y: number) => {
+            node.dispatchEvent(
+                new PointerEvent("pointerup", {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId: 1,
+                    isPrimary: true,
+                    button: 0,
+                    buttons: 0,
+                    clientX: x,
+                    clientY: y,
+                }),
+            );
+            delete (node as Partial<HTMLElement>).setPointerCapture;
+        },
+        el,
+        target.x,
+        target.y,
+    );
+}
+
+/** Double-clicks an element, for the same reason click() dispatches in the page. */
+export async function doubleClick(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    const el = await element;
+    await browser.execute((node: HTMLElement) => {
+        node.dispatchEvent(new MouseEvent("dblclick", {bubbles: true, cancelable: true}));
+    }, el);
+}
