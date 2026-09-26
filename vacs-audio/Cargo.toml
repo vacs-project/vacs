@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+mock-audio = []
+
 [dependencies]
 anyhow = { workspace = true }
 biquad = { workspace = true }
