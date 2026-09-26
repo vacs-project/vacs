@@ -1,5 +1,16 @@
 # Changelog 
 
+## [3.0.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.4.0...vacs-server-v3.0.0) (2026-09-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* add ad-hoc conference calls with up to eight participants ([#1135](https://github.com/vacs-project/vacs/issues/1135))
+
+### Features
+
+* add ad-hoc conference calls with up to eight participants ([#1135](https://github.com/vacs-project/vacs/issues/1135)) ([d6c582c](https://github.com/vacs-project/vacs/commit/d6c582ccb34d36041a7584acd946e76b2e91382e))
+
 ## [2.4.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.5...vacs-server-v2.4.0) (2026-09-20)
 
 
