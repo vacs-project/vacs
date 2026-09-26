@@ -1,0 +1,56 @@
+{
+  "description": "LOVV CTR: with required active connections, clients missing from the datafeed are disconnected after two sync cycles, and reappearing in between clears the pending disconnect",
+  "dataset": "tests/fixtures/scenarios/datasets/full",
+  "require_active_connection": true,
+  "steps": [
+    {
+      "connect": {
+        "client_id": "10000000",
+        "position_id": "LOVV_E_CTR",
+        "frequency": "134.440"
+      }
+    },
+    {
+      "expire_grace_period": { "client_id": "10000000" }
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_E_CTR", "frequency": "134.440" }
+        ]
+      }
+    },
+    { "assert_client_count": 1 },
+    {
+      "_comment": "First sync without the controller only marks the client for disconnect."
+    },
+    { "datafeed": { "controllers": [] } },
+    { "assert_client_count": 1 },
+    {
+      "assert_online_positions": { "online": ["LOVV_E_CTR"] }
+    },
+    {
+      "_comment": "Reappearing in the datafeed clears the pending disconnect: the next missing sync only marks again."
+    },
+    {
+      "datafeed": {
+        "controllers": [
+          { "cid": 10000000, "callsign": "LOVV_E_CTR", "frequency": "134.440" }
+        ]
+      }
+    },
+    { "datafeed": { "controllers": [] } },
+    { "assert_client_count": 1 },
+    {
+      "_comment": "A second consecutive sync without the controller disconnects the client and takes its position offline."
+    },
+    { "datafeed": { "controllers": [] } },
+    { "assert_client_count": 0 },
+    {
+      "assert_online_positions": { "not_online": ["LOVV_E_CTR"] }
+    },
+    {
+      "assert_vatsim_only_positions": { "positions": [] }
+    }
+  ]
+}
