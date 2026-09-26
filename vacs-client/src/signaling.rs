@@ -67,6 +67,7 @@ mod tests {
             },
             profile,
             default_call_sources: vec![],
+            max_conf_size: None,
         }
     }
 

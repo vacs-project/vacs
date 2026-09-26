@@ -64,8 +64,10 @@ impl OpusSource {
                 };
 
                 let mut overflows = 0usize;
+                let mut decoded_frames = 0u64;
 
                 while let Some(frame) = rx.recv().await {
+                    decoded_frames += 1;
                     match decoder.decode_float(&frame, &mut decoded, false) {
                         Ok(n) => {
                             let samples = if let Some(resampler) = &mut resampler {
@@ -135,7 +137,7 @@ impl OpusSource {
                     }
                 }
 
-                tracing::debug!("Opus decoder task ended");
+                tracing::debug!(?decoded_frames, ?overflows, "Opus decoder task ended");
             }
             .instrument(tracing::Span::current()),
         );

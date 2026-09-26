@@ -4,7 +4,7 @@ use thiserror::Error;
 use vacs_audio::error::AudioError;
 use vacs_audio::sources::AudioSource;
 use vacs_audio::sources::wav::{WavClip, WavSource};
-use vacs_audio::sources::waveform::{Waveform, WaveformSource, WaveformTone};
+use vacs_audio::sources::waveform::{Waveform, WaveformSegment, WaveformSource, WaveformTone};
 
 /// Longest custom ring sound accepted. The clip is held in memory fully decoded and plays once
 /// per incoming call, so anything longer than this is a mistake rather than a ringtone.
@@ -58,7 +58,6 @@ pub(crate) fn load_ring_clip(path: &Path) -> Result<WavClip, RingSoundError> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SourceType {
-    Opus,
     Ring,
     PriorityRing,
     Ringback,
@@ -66,6 +65,8 @@ pub enum SourceType {
     Click,
     CallStart,
     CallEnd,
+    ParticipantJoined,
+    ParticipantLeft,
 }
 
 impl SourceType {
@@ -100,9 +101,6 @@ impl SourceType {
         volume: f32,
     ) -> WaveformSource {
         match self {
-            SourceType::Opus => {
-                unimplemented!("Cannot create waveform source for Opus SourceType")
-            }
             SourceType::Ring => WaveformSource::single(
                 WaveformTone::new(497.0, Waveform::Triangle, 0.2),
                 Duration::from_secs_f32(1.69),
@@ -191,6 +189,52 @@ impl SourceType {
                 ],
                 None,
                 Duration::from_millis(10),
+                sample_rate,
+                output_channels,
+                volume,
+            ),
+            SourceType::ParticipantJoined => WaveformSource::new(
+                vec![
+                    WaveformSegment::new(
+                        WaveformTone::new(660.0, Waveform::Sine, 0.10),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(880.0, Waveform::Sine, 0.12),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(1100.0, Waveform::Sine, 0.14),
+                        Duration::from_millis(90),
+                    ),
+                ],
+                None,
+                Duration::from_millis(8),
+                sample_rate,
+                output_channels,
+                volume,
+            ),
+            SourceType::ParticipantLeft => WaveformSource::new(
+                vec![
+                    WaveformSegment::new(
+                        WaveformTone::new(1100.0, Waveform::Sine, 0.14),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(880.0, Waveform::Sine, 0.12),
+                        Duration::from_millis(65),
+                    ),
+                    WaveformSegment::pause(Duration::from_millis(22)),
+                    WaveformSegment::new(
+                        WaveformTone::new(660.0, Waveform::Sine, 0.10),
+                        Duration::from_millis(90),
+                    ),
+                ],
+                None,
+                Duration::from_millis(8),
                 sample_rate,
                 output_channels,
                 volume,

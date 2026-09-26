@@ -27,6 +27,11 @@ pub struct SessionInfo {
     pub profile: SessionProfile,
     #[serde(default)]
     pub default_call_sources: Vec<StationId>,
+    /// Maximum number of participants the server allows per call, counting the
+    /// caller, joined participants and ringing targets. `None` when the server
+    /// does not advertise a limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_conf_size: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

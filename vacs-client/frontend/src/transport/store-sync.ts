@@ -1,6 +1,6 @@
 import {syncBlink} from "../stores/blink-store.ts";
 import {type CallListItem, useCallListStore} from "../stores/call-list-store.ts";
-import {CallDisplay, useCallStore} from "../stores/call-store.ts";
+import {CallDisplay, ConferenceState, useCallStore} from "../stores/call-store.ts";
 import {PlaybackStatus, usePlaybackStore} from "../stores/playback-store.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
@@ -11,15 +11,20 @@ import type {CallId, StationId} from "../types/generic.ts";
 import type {CallConfig, ClockMode, CplMode, RemoteStatus} from "../types/settings.ts";
 import type {RadioConfigWithLabels, TransmitConfigWithLabels} from "../types/transmit.ts";
 import {invoke, isRemote, isTauri, listen} from "./index.ts";
+import {Call} from "../types/call.ts";
 
 type StationsSync = {
     defaultSource: StationId | undefined;
     temporarySource: StationId | undefined;
 };
 
+// null: not carried by live syncs (event-driven on every instance); only the
+// re-broadcast after a sync request fills it.
 type CallSync = {
     prio: boolean;
     callDisplay: CallDisplay | undefined | null;
+    incomingCalls: Call[] | null;
+    conferenceState: ConferenceState;
 };
 
 type CallListSync = {
@@ -147,13 +152,17 @@ function applySync(payload: SyncPayload) {
             const {
                 actions: {setPrio},
             } = useCallStore.getState();
-            const {prio, callDisplay} = payload.state;
+            const {prio, callDisplay, incomingCalls, conferenceState} = payload.state;
             setPrio(prio);
 
             if (callDisplay !== null) {
                 useCallStore.setState({callDisplay});
-                syncBlink();
             }
+            if (incomingCalls !== null) {
+                useCallStore.setState({incomingCalls});
+            }
+            useCallStore.setState({conferenceState});
+            syncBlink();
             break;
         }
         case "callList": {
@@ -192,6 +201,18 @@ function applySync(payload: SyncPayload) {
         }
     }
 }
+
+const selectLiveCallSync = (s: ReturnType<typeof useCallStore.getState>): CallSync => ({
+    prio: s.prio,
+    incomingCalls: null,
+    conferenceState: s.conferenceState,
+    callDisplay:
+        s.callDisplay === undefined ||
+        s.callDisplay.type === "error" ||
+        s.callDisplay.type === "rejected"
+            ? s.callDisplay
+            : null,
+});
 
 export function setupStoreSync(): () => void {
     let teardown: (() => void) | undefined;
@@ -253,16 +274,15 @@ function startSync(): () => void {
     );
 
     unlistenFns.push(
-        subscribeFields(useCallStore, "call", s => ({
-            prio: s.prio,
-            callDisplay:
-                s.callDisplay === undefined ||
-                s.callDisplay.type === "outgoing" ||
-                s.callDisplay.type === "error" ||
-                s.callDisplay.type === "rejected"
-                    ? s.callDisplay
-                    : null,
-        })),
+        subscribeFields(
+            useCallStore,
+            "call",
+            selectLiveCallSync,
+            (next, prev) =>
+                selectLiveCallSync(next).callDisplay === null &&
+                next.prio === prev.prio &&
+                next.conferenceState === prev.conferenceState,
+        ),
     );
 
     unlistenFns.push(
@@ -333,6 +353,8 @@ function broadcastAllStoreState() {
     broadcast("call", {
         prio: call.prio,
         callDisplay: call.callDisplay,
+        incomingCalls: call.incomingCalls,
+        conferenceState: call.conferenceState,
     });
 
     const callList = useCallListStore.getState();

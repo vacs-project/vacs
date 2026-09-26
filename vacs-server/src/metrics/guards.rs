@@ -1,6 +1,7 @@
 use crate::metrics::labels::AsMetricLabel;
 use metrics::{counter, gauge, histogram};
 use std::time::Instant;
+use vacs_protocol::ws::client::CallDropReason;
 use vacs_protocol::ws::server::DisconnectReason;
 use vacs_protocol::ws::shared::CallErrorReason;
 
@@ -47,13 +48,22 @@ impl Drop for ClientConnectionGuard {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallAttemptOutcome {
     Accepted,
     Rejected,
     Error(CallErrorReason),
     Cancelled,
     Aborted,
+}
+
+impl From<CallDropReason> for CallAttemptOutcome {
+    fn from(reason: CallDropReason) -> Self {
+        match reason {
+            CallDropReason::Requested => CallAttemptOutcome::Cancelled,
+            CallDropReason::AutoHangup => CallAttemptOutcome::Error(CallErrorReason::AutoHangup),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -100,11 +110,19 @@ impl Drop for CallAttemptGuard {
 #[derive(Debug)]
 pub struct CallGuard {
     start_time: Instant,
+    max_participants: usize,
 }
 
 impl CallGuard {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn record_participants(&mut self, count: usize) {
+        if count > 2 && self.max_participants <= 2 {
+            counter!("vacs_calls_conferences_total").increment(1);
+        }
+        self.max_participants = self.max_participants.max(count);
     }
 }
 
@@ -115,6 +133,7 @@ impl Default for CallGuard {
 
         Self {
             start_time: Instant::now(),
+            max_participants: 2,
         }
     }
 }
@@ -122,6 +141,14 @@ impl Default for CallGuard {
 impl Drop for CallGuard {
     fn drop(&mut self) {
         gauge!("vacs_calls_active").decrement(1.0);
-        histogram!("vacs_calls_duration_seconds").record(self.start_time.elapsed().as_secs_f64());
+
+        let call_type = if self.max_participants > 2 {
+            "conference"
+        } else {
+            "one_to_one"
+        };
+        histogram!("vacs_calls_participants_max").record(self.max_participants as f64);
+        histogram!("vacs_calls_duration_seconds", "call_type" => call_type)
+            .record(self.start_time.elapsed().as_secs_f64());
     }
 }

@@ -23,7 +23,9 @@ pub enum KeybindsError {
     Emitter(String),
     #[error("Unrecognized keybinds code: {0}")]
     UnrecognizedCode(String),
+    // Windows keybind engine is the only one emitting FakeMarker for composite key presses (AltGr)
     #[error("Fake marker")]
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     FakeMarker,
     #[error("{0}")]
     Other(String),

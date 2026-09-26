@@ -85,10 +85,11 @@ impl ResponseMatcher {
     /// Called by the receiving task to check if a message completes any match. If so, the message is
     /// forwarded to the matcher awaiting it and not processed any further by [`try_match`].
     #[instrument(level = "debug", skip(self, msg))]
-    pub fn try_match(&self, msg: &ServerMessage) {
-        let mut inner = self.inner.try_lock();
-        if let Ok(ref mut queue) = inner
-            && let Some(pos) = queue.iter().position(|entry| (entry.predicate)(msg))
+    pub async fn try_match(&self, msg: &ServerMessage) {
+        // Awaited, not try_lock: contention with a registering waiter must not
+        // silently drop the match and strand that waiter until its timeout.
+        let mut queue = self.inner.lock().await;
+        if let Some(pos) = queue.iter().position(|entry| (entry.predicate)(msg))
             && let Some(entry) = queue.remove(pos)
         {
             let _ = entry.responder.send(msg.clone());
@@ -124,9 +125,11 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        matcher.try_match(&ServerMessage::Disconnected(server::Disconnected {
-            reason: server::DisconnectReason::Terminated,
-        }));
+        matcher
+            .try_match(&ServerMessage::Disconnected(server::Disconnected {
+                reason: server::DisconnectReason::Terminated,
+            }))
+            .await;
 
         let result = handle.await.unwrap();
         assert_matches!(result, Ok(ServerMessage::Disconnected(_)));
@@ -152,7 +155,7 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        matcher.try_match(&msg);
+        matcher.try_match(&msg).await;
 
         let result = handle.await.unwrap();
         assert_matches!(result, Ok(ServerMessage::ClientList(inner)) if inner.clients.len() == 1);
@@ -191,7 +194,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(10)).await;
         for msg in messages {
-            matcher.try_match(&msg);
+            matcher.try_match(&msg).await;
         }
 
         let result = handle.await.unwrap();
@@ -216,7 +219,7 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        matcher.try_match(&msg);
+        matcher.try_match(&msg).await;
 
         let result = handle.await.unwrap();
         assert_matches!(result, Ok(ServerMessage::Disconnected(_)));
@@ -258,9 +261,11 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        matcher.try_match(&ServerMessage::Disconnected(server::Disconnected {
-            reason: server::DisconnectReason::Terminated,
-        }));
+        matcher
+            .try_match(&ServerMessage::Disconnected(server::Disconnected {
+                reason: server::DisconnectReason::Terminated,
+            }))
+            .await;
 
         let r1 = h1.await.unwrap();
         let r2 = h2.await.unwrap();
@@ -300,9 +305,11 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        matcher.try_match(&ServerMessage::Disconnected(server::Disconnected {
-            reason: server::DisconnectReason::Terminated,
-        }));
+        matcher
+            .try_match(&ServerMessage::Disconnected(server::Disconnected {
+                reason: server::DisconnectReason::Terminated,
+            }))
+            .await;
 
         let r1 = h1.await.unwrap();
         let r2 = h2.await.unwrap();
@@ -337,9 +344,11 @@ mod tests {
 
         barrier.wait().await;
         tokio::time::sleep(Duration::from_millis(10)).await;
-        matcher.try_match(&ServerMessage::Disconnected(server::Disconnected {
-            reason: server::DisconnectReason::Terminated,
-        }));
+        matcher
+            .try_match(&ServerMessage::Disconnected(server::Disconnected {
+                reason: server::DisconnectReason::Terminated,
+            }))
+            .await;
 
         let mut matches = 0;
         for h in handles {
@@ -370,27 +379,33 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         for _ in 0..10 {
-            matcher.try_match(&ServerMessage::Disconnected(server::Disconnected {
-                reason: server::DisconnectReason::Terminated,
-            }));
+            matcher
+                .try_match(&ServerMessage::Disconnected(server::Disconnected {
+                    reason: server::DisconnectReason::Terminated,
+                }))
+                .await;
         }
 
-        matcher.try_match(&ServerMessage::ClientList(server::ClientList {
-            clients: vec![ClientInfo {
-                id: ClientId::from("client1"),
-                position_id: Some(PositionId::from("position1")),
-                display_name: "Client 1".into(),
-                frequency: "100.000".into(),
-            }],
-        }));
-        matcher.try_match(&ServerMessage::WebrtcAnswer(
-            vacs_protocol::ws::shared::WebrtcAnswer {
-                call_id: vacs_protocol::ws::shared::CallId::new(),
-                from_client_id: ClientId::from("client2"),
-                to_client_id: ClientId::from("client1"),
-                sdp: "sdp2".into(),
-            },
-        ));
+        matcher
+            .try_match(&ServerMessage::ClientList(server::ClientList {
+                clients: vec![ClientInfo {
+                    id: ClientId::from("client1"),
+                    position_id: Some(PositionId::from("position1")),
+                    display_name: "Client 1".into(),
+                    frequency: "100.000".into(),
+                }],
+            }))
+            .await;
+        matcher
+            .try_match(&ServerMessage::WebrtcAnswer(
+                vacs_protocol::ws::shared::WebrtcAnswer {
+                    call_id: vacs_protocol::ws::shared::CallId::new(),
+                    from_client_id: ClientId::from("client2"),
+                    to_client_id: ClientId::from("client1"),
+                    sdp: "sdp2".into(),
+                },
+            ))
+            .await;
 
         let r1 = w1.await.unwrap();
         let r2 = w2.await.unwrap();
@@ -402,8 +417,10 @@ mod tests {
     #[test(tokio::test)]
     async fn try_match_without_matchers() {
         let matcher = ResponseMatcher::new();
-        matcher.try_match(&ServerMessage::Disconnected(server::Disconnected {
-            reason: server::DisconnectReason::Terminated,
-        }));
+        matcher
+            .try_match(&ServerMessage::Disconnected(server::Disconnected {
+                reason: server::DisconnectReason::Terminated,
+            }))
+            .await;
     }
 }

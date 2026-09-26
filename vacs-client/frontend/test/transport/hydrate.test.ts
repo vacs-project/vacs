@@ -42,6 +42,8 @@ function baseSnapshot(overrides: Partial<SessionStateSnapshot> = {}): SessionSta
             enableCallEndSound: true,
             useDefaultCallSources: true,
             forceRelay: false,
+            enableParticipantJoinedSound: true,
+            enableParticipantLeftSound: true,
         },
         clientPageSettings: {selected: undefined, configs: {}},
         capabilities: {
@@ -52,8 +54,6 @@ function baseSnapshot(overrides: Partial<SessionStateSnapshot> = {}): SessionSta
             playback: true,
             platform: "Windows",
         },
-        incomingCalls: [],
-        outgoingCall: null,
         ...overrides,
     };
 }

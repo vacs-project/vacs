@@ -13,6 +13,7 @@ export type ClientSessionInfo = {
     profile: SessionProfile;
     defaultCallSources: StationId[];
     splitProfileWidth: number | undefined;
+    maxConfSize?: number;
 };
 
 export function splitDisplayName(name: string): [string, string] {

@@ -4,10 +4,7 @@ pub mod calls;
 pub use auth::*;
 pub use calls::*;
 
-use crate::ws::shared::{
-    CallAccept, CallEnd, CallError, CallInvite, Error, WebrtcAnswer, WebrtcIceCandidate,
-    WebrtcOffer,
-};
+use crate::ws::shared::{CallEnd, CallError, Error, WebrtcAnswer, WebrtcIceCandidate, WebrtcOffer};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -20,6 +17,7 @@ pub enum ClientMessage {
     CallEnd(CallEnd),
     CallReject(CallReject),
     CallError(CallError),
+    CallDropTarget(CallDropTarget),
     WebrtcOffer(WebrtcOffer),
     WebrtcAnswer(WebrtcAnswer),
     WebrtcIceCandidate(WebrtcIceCandidate),
@@ -51,6 +49,7 @@ impl ClientMessage {
             ClientMessage::CallEnd(_) => "CallEnd",
             ClientMessage::CallReject(_) => "CallReject",
             ClientMessage::CallError(_) => "CallError",
+            ClientMessage::CallDropTarget(_) => "CallDropTarget",
             ClientMessage::WebrtcOffer(_) => "WebrtcOffer",
             ClientMessage::WebrtcAnswer(_) => "WebrtcAnswer",
             ClientMessage::WebrtcIceCandidate(_) => "WebrtcIceCandidate",
