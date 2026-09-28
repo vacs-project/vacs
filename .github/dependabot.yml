@@ -5,8 +5,7 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
       time: "06:00" # UTC
     cooldown:
       default-days: 7
@@ -51,6 +50,9 @@ updates:
         patterns:
           - "tailwindcss"
           - "@tailwindcss/*"
+      tauri-wdio:
+        patterns:
+          - "@wdio/tauri-*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
