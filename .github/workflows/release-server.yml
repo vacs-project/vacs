@@ -86,29 +86,8 @@ jobs:
             --certificate-oidc-issuer https://accounts.google.com \
             --certificate-identity keyless@distroless.iam.gserviceaccount.com
 
-      # Scan before pushing, so a CRITICAL/HIGH finding never reaches GHCR; the pushed
-      # build below reuses this build's layers from the buildx cache.
-      - name: Build image for scan
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: vacs-server/Dockerfile
-          load: true
-          push: false
-          tags: vacs-server:scan
-          cache-from: type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:latest
-
-      - name: Trivy scan (pre-push gate)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: vacs-server:scan
-          format: "table"
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: "os,library"
-          severity: "CRITICAL,HIGH"
-
-      - name: Build and push
+      # Built once into an OCI layout: the scan gates the push of that same image.
+      - name: Build image
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -116,11 +95,32 @@ jobs:
           file: vacs-server/Dockerfile
           sbom: true
           provenance: mode=max
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=oci,dest=${{ runner.temp }}/vacs-server,tar=false
           cache-from: type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:latest
           cache-to: type=registry,ref=${{ env.CACHE_IMAGE_NAME }}:latest,mode=max
+
+      - name: Trivy scan (pre-push gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          input: ${{ runner.temp }}/vacs-server
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
+
+      - name: Push
+        env:
+          LAYOUT: ${{ runner.temp }}/vacs-server
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            skopeo copy --all --preserve-digests "oci:${LAYOUT}" "docker://${tag}"
+          done
+          skopeo inspect --raw "docker://${IMAGE_NAME}@${DIGEST}" > /dev/null
 
       - name: Attest build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
