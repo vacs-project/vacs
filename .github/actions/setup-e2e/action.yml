@@ -16,9 +16,6 @@ inputs:
       specifics (positions, frequencies, coverage chains); bump deliberately
       when specs are updated for newer dataset states.
     default: "39b4712a10b3c84566d3d4b50caf972ed1381769"
-  vatsim-api-rev:
-    description: "vatsim-api revision to build vatsim-mock from. Keep in sync with Cargo.lock."
-    default: "299fb617d343c1c83f9f4fea040f0b66afe5ae7e"
 
 runs:
   using: composite
@@ -107,6 +104,13 @@ runs:
         # iteration on a leg rebuilds the workspace from scratch.
         cache-on-failure: true
 
+    - name: Compute vatsim-mock cache key
+      id: vatsim-api-hash
+      shell: bash
+      run: |
+        hash=$(grep -A3 'name = "vatsim-api"' Cargo.lock | grep checksum | head -1 | cut -d'"' -f2)
+        echo "key=e2e-tools-${{ runner.os }}-vatsim-api-${hash}" >> "$GITHUB_OUTPUT"
+
     # Restore/save split instead of the combined action: its post step
     # skips saving when the job fails, which discards the vatsim-mock
     # build after every failed iteration.
@@ -117,16 +121,12 @@ runs:
         path: |
           ~/.cargo/bin/vatsim-mock
           ~/.cargo/bin/vatsim-mock.exe
-        key: e2e-tools-${{ runner.os }}-vatsim-api-${{ inputs.vatsim-api-rev }}
+        key: ${{ steps.vatsim-api-hash.outputs.key }}
 
     - name: Install vatsim-mock
       if: steps.tools-cache.outputs.cache-hit != 'true'
       shell: bash
-      env:
-        VATSIM_API_REV: ${{ inputs.vatsim-api-rev }}
-      run: |
-        # Switch to crates.io version of vatsim-api once the crate is published - install from git until then
-        cargo install --git https://github.com/MorpheusXAUT/vatsim-api --rev "$VATSIM_API_REV" --features mock-bin --bin vatsim-mock --locked
+      run: cargo install --locked --features mock-bin --bin vatsim-mock vatsim-api
 
     # Saving immediately after the install (instead of in a post step)
     # keeps the binary cached no matter what the later test steps do.
@@ -137,7 +137,7 @@ runs:
         path: |
           ~/.cargo/bin/vatsim-mock
           ~/.cargo/bin/vatsim-mock.exe
-        key: e2e-tools-${{ runner.os }}-vatsim-api-${{ inputs.vatsim-api-rev }}
+        key: ${{ steps.vatsim-api-hash.outputs.key }}
 
     - name: Compute browser cache key
       id: browser-week

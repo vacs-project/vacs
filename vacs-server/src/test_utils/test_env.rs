@@ -362,7 +362,8 @@ impl TestEnvBuilder {
             .users(self.users)
             .controllers(self.controllers)
             .spawn()
-            .await;
+            .await
+            .expect("Failed to bind mock VATSIM server");
 
         let mock_base = mock_vatsim.base_url().to_owned();
 
