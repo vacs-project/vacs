@@ -9,6 +9,8 @@
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
       "extra-label": "crate: vacs-client",
+      "draft": true,
+      "force-tag-creation": true,
       "extra-files": [
         {
           "type": "json",

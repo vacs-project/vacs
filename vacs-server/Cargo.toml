@@ -67,6 +67,7 @@ vacs-vatsim = { workspace = true, features = [
 pretty_assertions = { workspace = true, features = ["unstable"] }
 test-log = { workspace = true }
 vacs-vatsim = { workspace = true, features = ["test-utils"] }
+wiremock = { workspace = true }
 
 
 [build-dependencies]

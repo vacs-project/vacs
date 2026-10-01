@@ -19,7 +19,7 @@ use super::CertificateIdExt;
 use super::TestClient;
 
 use crate::auth::layer::setup_test_auth_layer;
-use crate::config::{AppConfig, AuthConfig, OAuthConfig, VatsimConfig};
+use crate::config::{AdminConfig, AppConfig, AuthConfig, OAuthConfig, VatsimConfig};
 use crate::ice::provider::stun::StunOnlyProvider;
 use crate::ratelimit::RateLimiters;
 use crate::release::UpdateChecker;
@@ -63,6 +63,7 @@ pub struct TestEnvBuilder {
     rate_limiters: RateLimiters,
     max_conf_size: Option<u32>,
     compatible_protocol_range: Option<String>,
+    admin: Option<AdminConfig>,
 }
 
 impl TestEnv {
@@ -77,6 +78,7 @@ impl TestEnv {
             rate_limiters: RateLimiters::default(),
             max_conf_size: None,
             compatible_protocol_range: None,
+            admin: None,
         }
     }
 
@@ -354,6 +356,15 @@ impl TestEnvBuilder {
         self
     }
 
+    /// Overrides the server's [`AdminConfig`]. Use this to configure admin
+    /// endpoints (dataset reload, release catalog reload) for tests that
+    /// need custom OIDC settings.
+    #[must_use]
+    pub fn admin(mut self, admin: AdminConfig) -> Self {
+        self.admin = Some(admin);
+        self
+    }
+
     /// Builds the [`TestEnv`], starting both the mock VATSIM server and
     /// the vacs-server.
     pub async fn build(self) -> TestEnv {
@@ -397,6 +408,9 @@ impl TestEnvBuilder {
         };
         if let Some(max_conf_size) = self.max_conf_size {
             config.call.max_conf_size = max_conf_size;
+        }
+        if let Some(admin) = self.admin {
+            config.admin = admin;
         }
 
         let updates = match self.compatible_protocol_range {

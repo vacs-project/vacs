@@ -435,6 +435,28 @@ jobs:
           pattern: bundles-*
           merge-multiple: true
 
+      # A build leg only proves that some bundle exists, and a published release cannot be repaired.
+      - name: Verify every bundle is present
+        working-directory: dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          for pattern in \
+            '*.rpm' '*.rpm.sig' \
+            '*_amd64.deb' '*_amd64.deb.sig' \
+            '*_amd64.AppImage' '*_amd64.AppImage.sig' \
+            '*_x64-setup.exe' '*_x64-setup.exe.sig' \
+            '*_aarch64.dmg' '*_aarch64.app.tar.gz' '*_aarch64.app.tar.gz.sig' \
+            '*_x64.dmg' '*_x86_64.app.tar.gz' '*_x86_64.app.tar.gz.sig'; do
+            count=$(find . -type f -name "$pattern" | wc -l)
+            if [[ "$count" -ne 1 ]]; then
+              echo "Expected exactly one $pattern, found $count" >&2
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: Generate checksums
         working-directory: dist
         env:
@@ -483,29 +505,111 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           permission-contents: write
 
-      # Release-body content is contributor-controlled; it must only ever flow through
-      # `with:` parameters, never through a shell.
+      # Without the draft the release would publish with no changelog; with two releases on the
+      # tag, gh picks whichever GitHub returns first.
+      - name: Verify the draft release exists
+        if: needs.prep.outputs.draft == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          TAG: ${{ needs.prep.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t drafts < <(gh api --paginate "/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == $ENV.TAG) | .draft')
+          if [[ "${#drafts[@]}" -ne 1 || "${drafts[0]}" != "true" ]]; then
+            echo "Expected exactly one draft release for ${TAG}, found: ${drafts[*]:-none}" >&2
+            exit 1
+          fi
+
+      # Upload into the draft, then publish: immutable releases refuse uploads after publishing.
+      # The changelog body only ever moves between files and gh, never through shell interpolation.
       - name: Create/update GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prep.outputs.tag }}
+          RELEASE_NAME: ${{ needs.prep.outputs.release_name }}
+          DRAFT: ${{ needs.prep.outputs.draft }}
+          PRERELEASE: ${{ needs.prep.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/release-notes.md"
+          if gh release view "$TAG" --json body --jq .body > "$notes" 2>/dev/null; then
+            exists=true
+          else
+            exists=false
+            : > "$notes"
+          fi
+          if [[ "$DRAFT" == "false" && "$exists" != "true" ]]; then
+            echo "Release ${TAG} was not found although the draft check passed" >&2
+            exit 1
+          fi
+
+          if ! grep -q '^## Looking for downloads' "$notes"; then
+            cat >> "$notes" <<'FOOTER'
+
+          ---
+
+          ## Looking for downloads or missing an installer?
+
+          GitHub collapses the assets section on long release notes. Click the **"Assets"** heading below to expand it, then click **"Show all assets"** at the bottom of the list to see all available downloads. Alternatively, use the download button on [our website](https://vacs.network) for easier access.
+
+          For detailed installation instructions, visit [our documentation](https://docs.vacs.network/getting-started/installation).
+          FOOTER
+          fi
+
+          args=(--title "$RELEASE_NAME" --notes-file "$notes")
+          [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
+          if [[ "$exists" == "true" ]]; then
+            gh release edit "$TAG" "${args[@]}"
+          else
+            gh release create "$TAG" --draft "${args[@]}"
+          fi
+
+          mapfile -d '' files < <(find dist -type f -print0 | sort -z)
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+          if [[ "$DRAFT" == "false" ]]; then
+            latest=--latest
+            [[ "$PRERELEASE" == "true" ]] && latest=--latest=false
+            gh release edit "$TAG" --draft=false "$latest"
+          fi
+
+  # The servers cache the GitHub release list for hours. Prereleases reload too, since the
+  # prerelease channels serve them.
+  reload-releases:
+    needs: [prep, release]
+    if: needs.prep.outputs.draft == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, production]
+    # Dev being unreachable must not fail a production release.
+    continue-on-error: ${{ matrix.environment == 'dev' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ matrix.environment }}
+      url: ${{ vars.VACS_SERVER_URL }}
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Checkout actions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          token: ${{ steps.generate-token.outputs.token }}
-          tag_name: ${{ needs.prep.outputs.tag }}
-          name: ${{ needs.prep.outputs.release_name }}
-          draft: ${{ needs.prep.outputs.draft }}
-          prerelease: ${{ needs.prep.outputs.prerelease }}
-          make_latest: ${{ needs.prep.outputs.draft == 'false' && needs.prep.outputs.prerelease == 'false' }}
-          append_body: true
-          body: |
+          sparse-checkout: .github/actions
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
 
-            ---
-
-            ## Looking for downloads or missing an installer?
-
-            GitHub collapses the assets section on long release notes. Click the **"Assets"** heading below to expand it, then click **"Show all assets"** at the bottom of the list to see all available downloads. Alternatively, use the download button on [our website](https://vacs.network) for easier access.
-
-            For detailed installation instructions, visit [our documentation](https://docs.vacs.network/getting-started/installation).
-          files: |
-            dist/**
+      - name: Reload release catalog
+        uses: $/.github/actions/reload-releases
+        with:
+          oidc-audience: ${{ vars.VACS_OIDC_AUDIENCE }}
+          server-url: ${{ vars.VACS_SERVER_URL }}
+          version: ${{ needs.prep.outputs.version }}
+          channel: ${{ needs.prep.outputs.rc == 'true' && 'rc' || (needs.prep.outputs.prerelease == 'true' && 'beta' || 'stable') }}
 
   update-brew-tap:
     needs: [prep, release]

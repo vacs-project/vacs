@@ -2,6 +2,7 @@ pub mod auth;
 pub mod build;
 pub mod config;
 pub mod dataset;
+pub mod health;
 pub mod http;
 pub mod ice;
 pub mod metrics;

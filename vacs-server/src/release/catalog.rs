@@ -20,6 +20,9 @@ pub trait Catalog: Send + Sync + 'static {
         meta: &ReleaseMeta,
         asset: &ReleaseAsset,
     ) -> Result<String, AppError>;
+
+    /// Repopulate the catalog from its backing source, ignoring any cache TTL.
+    async fn refresh(&self) -> Result<(), AppError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

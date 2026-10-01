@@ -4,7 +4,9 @@ use axum::routing::post;
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new().route("/dataset/reload", post(post::reload_dataset))
+    Router::new()
+        .route("/dataset/reload", post(post::reload_dataset))
+        .route("/releases/reload", post(post::reload_releases))
 }
 
 mod post {
@@ -58,9 +60,10 @@ mod post {
     ///    endpoint is called infrequently so caching is unnecessary)
     /// 2. Issuer matches GitHub's OIDC issuer
     /// 3. Audience matches the configured expected audience
-    /// 4. Subject matches the configured allowed subject (repo + environment)
+    /// 4. Subject matches `allowed_sub`, supplied per endpoint so neither can call the other
     async fn verify_github_oidc(
         config: &crate::config::AdminConfig,
+        allowed_sub: &str,
         headers: &HeaderMap,
     ) -> Result<(), AppError> {
         // Extract bearer token
@@ -136,9 +139,9 @@ mod post {
         let claims = token_data.claims;
 
         // Verify subject matches allowed pattern
-        if claims.sub != config.oidc_allowed_sub {
+        if claims.sub != allowed_sub {
             tracing::warn!(
-                expected = %config.oidc_allowed_sub,
+                expected = %allowed_sub,
                 actual = %claims.sub,
                 "JWT subject does not match allowed subject"
             );
@@ -160,7 +163,8 @@ mod post {
         headers: HeaderMap,
         Json(body): Json<ReloadRequest>,
     ) -> StatusCodeResult {
-        verify_github_oidc(&state.config.admin, &headers).await?;
+        let allowed_sub = state.config.admin.oidc_allowed_sub.clone();
+        verify_github_oidc(&state.config.admin, &allowed_sub, &headers).await?;
 
         let git_ref = &body.git_ref;
         let commit_sha = body.sha.as_deref().unwrap_or(git_ref);
@@ -190,6 +194,39 @@ mod post {
             to = %commit_sha,
             "Dataset reload completed successfully"
         );
+
+        Ok(StatusCode::OK)
+    }
+
+    /// Repopulate the release catalog so the updater offers a new release before the cache TTL
+    /// expires.
+    #[instrument(level = "info", skip(state, headers))]
+    pub async fn reload_releases(
+        State(state): State<Arc<AppState>>,
+        headers: HeaderMap,
+    ) -> StatusCodeResult {
+        let allowed_sub = state
+            .config
+            .admin
+            .oidc_allowed_sub_releases
+            .clone()
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Release catalog reload requested but no allowed subject is configured"
+                );
+                AppError::NotFound
+            })?;
+
+        verify_github_oidc(&state.config.admin, &allowed_sub, &headers).await?;
+
+        tracing::info!("Release catalog reload triggered");
+
+        state.updates.refresh_catalog().await.map_err(|err| {
+            tracing::error!(?err, "Failed to refresh release catalog");
+            AppError::InternalServerError(anyhow::anyhow!("Failed to refresh release catalog"))
+        })?;
+
+        tracing::info!("Release catalog reload completed successfully");
 
         Ok(StatusCode::OK)
     }

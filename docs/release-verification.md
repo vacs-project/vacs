@@ -107,7 +107,9 @@ Server releases are built, signed and published by the [release-server](../.gith
 
 ### Verifying server releases
 
-1. Download and install [cosign](https://github.com/sigstore/cosign)
+1. Download and install [cosign](https://github.com/sigstore/cosign) v3 or later. Images from
+   2.4.0 on carry their signature in the Sigstore bundle format, which cosign v2 does not find
+   ("no signatures found").
 2. Verify the Docker image using cosign
 
 ```bash
@@ -122,6 +124,10 @@ cosign verify \
 #  - Existence of the claims in the transparency log was verified offline
 #  - The code-signing certificate was verified using trusted certificate authority certificates
 ```
+
+Release candidates and other images built by a manual run of the workflow are signed with the
+branch the run was started from instead of the release tag. Use that ref in the identity, for
+example `...release-server.yml@refs/heads/main`.
 
 > [!NOTE]  
 > Releases before 2.0.0 were published under the `MorpheusXAUT/vacs` repository.

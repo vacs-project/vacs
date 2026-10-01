@@ -92,6 +92,11 @@ impl Catalog for FileCatalog {
         // right away without having to load it from the catalog.
         Ok(asset.signature.clone().unwrap_or_default())
     }
+
+    #[instrument(level = "debug", skip(self), err)]
+    async fn refresh(&self) -> Result<(), AppError> {
+        self.reload()
+    }
 }
 
 #[derive(Deserialize)]
@@ -158,4 +163,69 @@ fn validate_and_sort(v: &mut [ReleaseMeta]) -> anyhow::Result<()> {
 
 pub(super) fn default_catalog_path() -> PathBuf {
     PathBuf::from_str("releases.toml").expect("valid path")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use test_log::test;
+
+    fn manifest(version: &str) -> String {
+        format!(
+            r#"
+            [[stable]]
+            version = "{version}"
+            [[stable.assets]]
+            target = "windows"
+            arch = "x86_64"
+            bundle_type = "msi"
+            url = "https://example.invalid/vacs_{version}_x64.msi"
+            signature = "sig"
+            "#
+        )
+    }
+
+    #[test(tokio::test)]
+    async fn refresh_picks_up_manifest_changes() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("releases.toml");
+        fs::write(&path, manifest("1.0.0")).expect("write manifest");
+
+        let catalog = FileCatalog::new(&path).expect("catalog");
+        let before = catalog
+            .list(ReleaseChannel::Stable)
+            .await
+            .expect("list before");
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].version, Version::parse("1.0.0").unwrap());
+
+        fs::write(&path, manifest("2.0.0")).expect("rewrite manifest");
+        catalog.refresh().await.expect("refresh");
+
+        let after = catalog
+            .list(ReleaseChannel::Stable)
+            .await
+            .expect("list after");
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].version, Version::parse("2.0.0").unwrap());
+    }
+
+    #[test(tokio::test)]
+    async fn refresh_leaves_catalog_intact_when_manifest_is_missing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("releases.toml");
+        fs::write(&path, manifest("1.0.0")).expect("write manifest");
+
+        let catalog = FileCatalog::new(&path).expect("catalog");
+        fs::remove_file(&path).expect("remove manifest");
+
+        catalog.refresh().await.expect("refresh must not fail");
+
+        let after = catalog
+            .list(ReleaseChannel::Stable)
+            .await
+            .expect("list after");
+        assert_eq!(after.len(), 1, "the previously loaded release is retained");
+    }
 }

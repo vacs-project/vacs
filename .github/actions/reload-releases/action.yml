@@ -1,0 +1,129 @@
+name: Reload release catalog
+description: Refresh the release catalog on a vacs server and confirm it serves the new version
+
+inputs:
+  oidc-audience:
+    description: OIDC audience for the token request
+    required: true
+  server-url:
+    description: Base URL of the vacs server
+    required: true
+  version:
+    description: Version the server is expected to offer once reloaded
+    required: true
+  channel:
+    description: Release channel to verify against (stable, beta or rc)
+    required: false
+    default: stable
+  bundles:
+    description: |
+      Platforms to verify, one `target/arch/bundle_type` per line. Every entry must be
+      offered the new version, so this doubles as a check that the release actually
+      shipped an installer for each platform. Keep it in step with what the build
+      produces: Windows is nsis rather than msi.
+    required: false
+    default: |
+      windows/x86_64/nsis
+      linux/x86_64/deb
+      linux/x86_64/rpm
+      linux/x86_64/appimage
+      darwin/x86_64/app
+      darwin/aarch64/app
+  attempts:
+    description: How many times to reload and re-check before giving up
+    required: false
+    default: "5"
+  retry-delay:
+    description: Seconds to wait between attempts
+    required: false
+    default: "15"
+
+runs:
+  using: composite
+  steps:
+    - name: Get OIDC token
+      id: oidc
+      shell: bash
+      env:
+        AUDIENCE: ${{ inputs.oidc-audience }}
+      run: |
+        if [[ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" || -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]]; then
+          echo "::error::OIDC token request environment variables are not set. Ensure the job has 'id-token: write' permission."
+          exit 1
+        fi
+
+        RESPONSE=$(curl -sSf --proto =https \
+          -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          --get --data-urlencode "audience=$AUDIENCE" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL")
+
+        TOKEN=$(echo "$RESPONSE" | jq -r '.value')
+
+        if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+          echo "::error::OIDC token request returned an empty or null token"
+          exit 1
+        fi
+
+        echo "::add-mask::$TOKEN"
+        echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+    # One loop, not two steps: right after publishing GitHub can still list the release without
+    # assets, which the catalog drops, so a failed check has to trigger another reload.
+    - name: Reload and verify release catalog
+      shell: bash
+      env:
+        TOKEN: ${{ steps.oidc.outputs.token }}
+        SERVER_URL: ${{ inputs.server-url }}
+        VERSION: ${{ inputs.version }}
+        CHANNEL: ${{ inputs.channel }}
+        BUNDLES: ${{ inputs.bundles }}
+        ATTEMPTS: ${{ inputs.attempts }}
+        RETRY_DELAY: ${{ inputs.retry-delay }}
+      run: |
+        # A client on 0.0.1 is offered the newest release on the channel.
+        served_version() {
+          curl -sS --proto =https -G "$SERVER_URL/version/update" \
+            --data-urlencode "version=0.0.1" \
+            --data-urlencode "target=$1" \
+            --data-urlencode "arch=$2" \
+            --data-urlencode "bundle_type=$3" \
+            --data-urlencode "channel=$CHANNEL" \
+            | jq -rs '.[0].version // empty'
+        }
+
+        stale=""
+
+        for attempt in $(seq 1 "$ATTEMPTS"); do
+          if ! response=$(curl -sS --proto =https --fail-with-body \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "$SERVER_URL/admin/releases/reload"); then
+            echo "::warning::Reload request failed on attempt $attempt: $response"
+          else
+            stale=""
+            while IFS=/ read -r target arch bundle_type; do
+              [[ -z "$target" ]] && continue
+
+              served=$(served_version "$target" "$arch" "$bundle_type")
+              if [[ "$served" != "$VERSION" ]]; then
+                stale+="  $target/$arch/$bundle_type offers ${served:-nothing}"$'\n'
+              fi
+            done <<< "$BUNDLES"
+
+            if [[ -z "$stale" ]]; then
+              echo "Server offers $VERSION on the $CHANNEL channel for every platform"
+              exit 0
+            fi
+
+            echo "::warning::Not all platforms serve $VERSION yet (attempt $attempt):"
+            printf '%s' "$stale"
+          fi
+
+          if [[ "$attempt" -lt "$ATTEMPTS" ]]; then
+            sleep "$RETRY_DELAY"
+          fi
+        done
+
+        echo "::error::$SERVER_URL does not serve $VERSION on every platform after $ATTEMPTS attempts"
+        printf '%s' "$stale"
+        exit 1

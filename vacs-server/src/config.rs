@@ -30,7 +30,9 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn parse() -> anyhow::Result<Self> {
+    /// Reads the layered configuration without validating the secrets, for tooling that only
+    /// needs the addresses.
+    pub fn load() -> anyhow::Result<Self> {
         let config = Config::builder()
             .add_source(Config::try_from(&AppConfig::default())?)
             .add_source(File::with_name(config_file_path("config.toml")?.as_str()).required(false))
@@ -44,6 +46,12 @@ impl AppConfig {
             .context("Failed to build config")?
             .try_deserialize::<Self>()
             .context("Failed to deserialize config")?;
+
+        Ok(config)
+    }
+
+    pub fn parse() -> anyhow::Result<Self> {
+        let config = Self::load()?;
 
         if config.auth.oauth.client_id.is_empty() {
             anyhow::bail!("OAuth client ID is empty");
@@ -248,11 +256,16 @@ impl Default for UpdatesConfig {
 pub struct AdminConfig {
     /// Expected audience for GitHub OIDC tokens.
     pub oidc_audience: String,
-    /// Allowed subject claim for GitHub OIDC tokens.
+    /// Allowed subject claim for GitHub OIDC tokens on the dataset reload endpoint.
     /// With GitHub Environments, the format is:
     /// `repo:<owner>/<repo>:environment:<environment_name>`
     /// e.g. `repo:vacs-project/vacs-data:environment:production`
     pub oidc_allowed_sub: String,
+    /// Allowed subject claim for the release catalog reload endpoint,
+    /// e.g. `repo:vacs-project@259820785/vacs@993241353:environment:production`. Unset disables
+    /// the endpoint; there is deliberately no fallback to [`Self::oidc_allowed_sub`].
+    #[serde(default)]
+    pub oidc_allowed_sub_releases: Option<String>,
     /// Configuration for the dataset repository. If omitted, the server
     /// will only load the dataset from the local `coverage_dir` on disk
     /// and the admin reload endpoint will be unavailable.
@@ -265,6 +278,7 @@ impl Default for AdminConfig {
         Self {
             oidc_audience: "https://vacs.network".to_string(),
             oidc_allowed_sub: String::new(),
+            oidc_allowed_sub_releases: None,
             dataset: None,
         }
     }

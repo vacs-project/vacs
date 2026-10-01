@@ -86,6 +86,12 @@ impl UpdateChecker {
         Ok(Some(release))
     }
 
+    /// Repopulate the release catalog, ignoring its cache TTL.
+    #[instrument(level = "info", skip(self), err)]
+    pub async fn refresh_catalog(&self) -> Result<(), AppError> {
+        self.catalog.refresh().await
+    }
+
     #[instrument(level = "debug", skip(self))]
     pub fn is_compatible_protocol(&self, protocol_version: Version) -> bool {
         tracing::debug!("Checking client protocol version for compatibility");
