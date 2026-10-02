@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.0.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.8.0...vacs-client-v3.0.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* add ad-hoc conference calls with up to eight participants ([#1135](https://github.com/vacs-project/vacs/issues/1135))
+
+### Features
+
+* add ad-hoc conference calls with up to eight participants ([#1135](https://github.com/vacs-project/vacs/issues/1135)) ([d6c582c](https://github.com/vacs-project/vacs/commit/d6c582ccb34d36041a7584acd946e76b2e91382e))
+
+
+### Bug Fixes
+
+* **vacs-client:** apply volume changes to participant join/left sounds ([#1235](https://github.com/vacs-project/vacs/issues/1235)) ([e97c1d4](https://github.com/vacs-project/vacs/commit/e97c1d411d349e5725a77c7552c74530a77bbfef))
+* **vacs-client:** re-render the radio page when a station is added, removed or updated ([#1238](https://github.com/vacs-project/vacs/issues/1238)) ([b7d013d](https://github.com/vacs-project/vacs/commit/b7d013de6878ec8402aa02260b76f9b955edc9ae))
+* **vacs-client:** release a remote input level meter user only if one was added ([#1236](https://github.com/vacs-project/vacs/issues/1236)) ([cf59684](https://github.com/vacs-project/vacs/commit/cf59684ca029eaf7d62769362b9a951a9eba0925))
+
 ## [2.8.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.7.0...vacs-client-v2.8.0) (2026-09-21)
 
 
