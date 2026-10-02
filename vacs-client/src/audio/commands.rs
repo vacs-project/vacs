@@ -285,6 +285,8 @@ pub async fn audio_set_volume(
             audio_manager.set_output_volume(SourceType::RingbackOneshot, volume);
             audio_manager.set_output_volume(SourceType::CallStart, volume);
             audio_manager.set_output_volume(SourceType::CallEnd, volume);
+            audio_manager.set_output_volume(SourceType::ParticipantJoined, volume);
+            audio_manager.set_output_volume(SourceType::ParticipantLeft, volume);
             state.config.audio.output_device_volume = volume;
         }
         VolumeType::Click => {
