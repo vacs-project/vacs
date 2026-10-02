@@ -49,14 +49,8 @@ function frequencyObjectLabel(callsign: string): string {
     return `//button[.//p[text()="${callsign}"]]`;
 }
 
-/**
- * Sends a station update as TrackAudio would after a state change. The radio
- * page applies it to its station map in place, which does not re-render the
- * page, so the radio state is sent again afterwards to make the update show.
- */
 async function updateStation(station: RadioStationFixture): Promise<void> {
     await emitEvent("clientA", "radio:station-updated", station);
-    await emitEvent("clientA", "radio:state", {state: "Connected"});
 }
 
 async function connect(browser: WebdriverIO.Browser): Promise<void> {
@@ -120,6 +114,7 @@ describe("Documentation screenshots: radio", function () {
         await emitEvent("clientA", "radio:state", {state: "TxActive"});
         await capture("radio_freqobj_tx_active");
 
+        await emitEvent("clientA", "radio:state", {state: "Connected"});
         await updateStation({...SINGLE, rx: true, tx: true, headset: false});
         await capture("radio_freqobj_speaker");
 
