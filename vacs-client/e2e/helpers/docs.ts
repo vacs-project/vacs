@@ -363,11 +363,13 @@ export async function waitUntilEnabled(
 }
 
 /**
- * Waits until the call status indicator is green, which is the point at
- * which every peer of the current call carries media. Capturing before it
- * would show a call still negotiating.
+ * Waits until a call is on the call display and the call status indicator is
+ * green, which is the point at which every peer of the call carries media.
+ * Capturing before it would show a call still negotiating. The indicator is
+ * also green without any call, so the call display has to be there first.
  */
 export async function waitForConnectedCall(browser: WebdriverIO.Browser): Promise<void> {
+    await browser.$(CALL_DISPLAY).waitForDisplayed({timeoutMsg: "No call on the call display"});
     const indicator = browser.$(STATUS_INDICATOR);
     await browser.waitUntil(
         async () => ((await indicator.getAttribute("class")) ?? "").includes("bg-green"),
