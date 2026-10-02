@@ -30,8 +30,15 @@ export class SignalingTestClient {
         this.ws = ws;
     }
 
-    /** Performs the full OAuth login and WebSocket handshake for the CID. */
-    static async connect(cid: string): Promise<SignalingTestClient> {
+    /**
+     * Performs the full OAuth login and WebSocket handshake for the CID. A
+     * `positionId` logs in on that position, which makes the client cover its
+     * stations; it only sticks for CIDs without a datafeed controller.
+     */
+    static async connect(
+        cid: string,
+        options: {positionId?: string} = {},
+    ): Promise<SignalingTestClient> {
         const cookies = new Map<string, string>();
         const storeCookies = (res: Response) => {
             for (const cookie of res.headers.getSetCookie()) {
@@ -108,7 +115,7 @@ export class SignalingTestClient {
             token,
             protocolVersion: PROTOCOL_VERSION,
             customProfile: false,
-            positionId: null,
+            positionId: options.positionId ?? null,
         });
         await client.waitForMessage(msg => msg.type === "sessionInfo");
         return client;
@@ -120,12 +127,24 @@ export class SignalingTestClient {
 
     /** Sends a call invite to the given client and returns the call id. */
     invite(targetCid: string, options: {prio?: boolean} = {}): string {
+        return this.inviteTarget({client: targetCid}, options);
+    }
+
+    /**
+     * Sends a call invite to any call target (a client, position or station)
+     * and returns the call id. `source` fills in the station and position the
+     * call claims to come from, which is what the callee's keys highlight.
+     */
+    inviteTarget(
+        target: {client?: string; position?: string; station?: string},
+        options: {prio?: boolean; source?: {positionId?: string; stationId?: string}} = {},
+    ): string {
         const callId = crypto.randomUUID();
         this.send({
             type: "callInvite",
             callId,
-            source: {clientId: this.cid},
-            targets: [{client: targetCid}],
+            source: {clientId: this.cid, ...options.source},
+            targets: [target],
             prio: options.prio ?? false,
         });
         return callId;

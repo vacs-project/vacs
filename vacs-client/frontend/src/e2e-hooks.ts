@@ -24,10 +24,11 @@ export type E2eHooks = {
     /** The active call's id, or null when no call is on the display. */
     activeCallId: () => CallId | null;
     /**
-     * Overrides the version shown in the header. The update check that
-     * normally fills it runs on mount, before a spec can mock its command.
+     * Overrides the version shown in the header, and the available update
+     * when `newVersion` is given. The update check that normally fills both
+     * runs on mount, before a spec can mock its command.
      */
-    setVersion: (version: string) => void;
+    setVersion: (version: string, newVersion?: string) => void;
 };
 
 export function installE2eHooks(): void {
@@ -36,6 +37,7 @@ export function installE2eHooks(): void {
         refetchCapabilities: fetchCapabilities,
         refetchSettings: fetchSettings,
         activeCallId: () => useCallStore.getState().callDisplay?.call.callId ?? null,
-        setVersion: version => useUpdateStore.getState().actions.setVersions(version),
+        setVersion: (version, newVersion) =>
+            useUpdateStore.getState().actions.setVersions(version, newVersion),
     };
 }
