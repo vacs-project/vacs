@@ -3,19 +3,33 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import type {ChainablePromiseElement} from "webdriverio";
 import {restartApps} from "../helpers/app-control.ts";
-import {loginAndConnectAs, removeController, resetMockState} from "../helpers/auth.ts";
+import {
+    loginAndConnect,
+    loginAndConnectAs,
+    removeController,
+    resetMockState,
+} from "../helpers/auth.ts";
 import {
     callQueueSlot,
     click,
     conferenceKey,
+    frequencyObjects,
     getClient,
     mockCommand,
+    pageButton,
+    pageCycleButton,
+    pageCycleCell,
+    pageTab,
+    ringSoundField,
     selectOption,
+    splitResizeHandle,
     tauriApi,
     waitForCallColor,
     waitForErroredKey,
+    waitForRingSound,
 } from "../helpers/browser.ts";
 import {annotate, clearAnnotations} from "../helpers/annotate.ts";
+import {writeRingSound} from "../helpers/ring-sound.ts";
 import {captureElement, captureWindow, freezeClock} from "../helpers/screenshot.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -50,6 +64,13 @@ const POSITION_C = "LOWG_APP";
 // The datafeed's own BC controller would mask the S stations that make the
 // call in the degraded-call capture routable.
 const DATAFEED_BC_CID = "10000003";
+// The split and cycle view images take their profile from a file rather than
+// from the server, so their client stays positionless: a resolved position
+// would have the server push its own profile over the loaded one.
+const CID_PROFILE = "10000004";
+
+const SPLIT_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-docs-split.json");
+const CYCLE_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-cycle.json");
 
 // The direct access group holding the S sectors and the Graz keys, and the
 // keys inside it. S1 through S7 are covered by LOVV_BC_CTR and LOWG APP by
@@ -120,16 +141,82 @@ const WAYLAND_CAPABILITIES = {
     platform: "LinuxWayland",
 };
 
+// A Wayland desktop whose portal has no GlobalShortcuts interface (GNOME
+// before 47, older Plasma): the keybind pages show a notice and fall back to
+// joystick-only capture.
+const WAYLAND_NO_PORTAL_CAPABILITIES = {...WAYLAND_CAPABILITIES, keybindListener: false};
+
 // Keys the desktop environment would report for the portal shortcuts. Distinct
 // per action so the Wayland images do not show identical fields.
 const EXTERNAL_BINDINGS = {
     AcceptCall: "Ctrl+Alt+A",
     EndCall: "Ctrl+Alt+E",
     ToggleRadioPrio: "Ctrl+Alt+R",
+    SayAgain: "Ctrl+Alt+S",
     PushToTalk: "Ctrl+Alt+T",
     PushToMute: "Ctrl+Alt+M",
     RadioPushToTalk: "Ctrl+Alt+P",
 };
+
+// A TrackAudio integration without a TrackAudio instance behind it. Mocked
+// rather than set through the settings page: the real integration starts a
+// connection whose retries would overwrite the radio state mid-capture.
+const TRACK_AUDIO_CONFIG = {
+    integration: "TrackAudio",
+    audioForVatsim: null,
+    trackAudio: {endpoint: "127.0.0.1:49080"},
+};
+
+// Stations behind the radio page images. The mock audio backend carries no
+// radio traffic, so a frequency object is rendered from this metadata alone.
+const RADIO_STATIONS = [
+    radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
+    radioStation("LOWW_APP", 134_675_000, {rx: true, tx: false}),
+    radioStation("LOWW_TWR", 119_400_000, {rx: false, tx: false}),
+];
+
+function radioStation(callsign: string, frequency: number, state: {rx: boolean; tx: boolean}) {
+    return {
+        callsign,
+        frequency,
+        rx: state.rx,
+        tx: state.tx,
+        xc: false,
+        xca: false,
+        headset: true,
+        output_muted: false,
+        is_available: true,
+    };
+}
+
+// Recordings behind the Playback page images. The times sit shortly before
+// the frozen clock; callsigns and frequency follow the manual's existing
+// playback image.
+const CLOCK_SECS = Date.parse(CLOCK) / 1000;
+const CLIPS = [
+    {secsAgo: 46, durationMs: 3500, callsigns: ["AUA2PJ"]},
+    {secsAgo: 56, durationMs: 2200, callsigns: ["AUA2PJ"]},
+    {secsAgo: 88, durationMs: 7200, callsigns: ["AUA25"]},
+    {secsAgo: 92, durationMs: 2900, callsigns: ["EWG1GM"]},
+    {secsAgo: 104, durationMs: 3900, callsigns: ["EWG1GM"]},
+    {secsAgo: 112, durationMs: 5900, callsigns: ["AUA99"]},
+    {secsAgo: 139, durationMs: 5600, callsigns: ["SWR8SW"]},
+].map((clip, index) => {
+    const endedSecs = CLOCK_SECS - clip.secsAgo;
+    const startedSecs = endedSecs - clip.durationMs / 1000;
+    return {
+        id: index + 1,
+        path: `/playback/${index + 1}.wav`,
+        callsigns: clip.callsigns,
+        frequency: 122_125_000,
+        startedAt: {
+            secs_since_epoch: Math.floor(startedSecs),
+            nanos_since_epoch: Math.round((startedSecs % 1) * 1e9),
+        },
+        endedAt: {secs_since_epoch: endedSecs, nanos_since_epoch: 0},
+        durationMs: clip.durationMs,
+    };
+});
 
 describe("Documentation screenshots", () => {
     beforeEach(async () => {
@@ -145,9 +232,9 @@ describe("Documentation screenshots", () => {
         await openSettings(clientA);
         await clientA.$(SETTINGS_BUTTON).waitForDisplayed();
 
-        // Both images show the same two steps: the settings button, then the
+        // Every image shows the same two steps: the settings button, then the
         // button for the page in question.
-        for (const page of ["Transmit", "Hotkeys"] as const) {
+        for (const page of ["Transmit", "Hotkeys", "Call"] as const) {
             await annotate(clientA, [
                 {target: SETTINGS_BUTTON, badge: 1, place: "top-left"},
                 {target: settingsPageButtonSelector(page), badge: 2, place: "top-right"},
@@ -171,19 +258,11 @@ describe("Documentation screenshots", () => {
         // callouts mark the two controls that do it.
         // Badges only: the field and its clear button sit next to each other,
         // so boxes would collide, and the row is unambiguous without them.
+        // On the last row, because a badge below any other one lands on the
+        // row underneath it and would read as marking that one.
         await annotate(clientA, [
-            {
-                target: keyFieldSelector("Toggle RADIO PRIO"),
-                badge: 1,
-                place: "bottom-left",
-                box: false,
-            },
-            {
-                target: removeButtonSelector("Toggle RADIO PRIO"),
-                badge: 2,
-                place: "below",
-                box: false,
-            },
+            {target: keyFieldSelector("SAY AGAIN"), badge: 1, place: "bottom-left", box: false},
+            {target: removeButtonSelector("SAY AGAIN"), badge: 2, place: "below", box: false},
         ]);
         await captureElement(clientA, dialog, "settings/HotkeysConfigPage.png");
         await clearAnnotations(clientA);
@@ -361,6 +440,119 @@ describe("Documentation screenshots", () => {
             transmit,
             "settings/Transmit-DifferentPTT-TrackAudio-wayland.png",
         );
+    });
+
+    it("captures the Hotkeys Config on Wayland without a shortcuts portal", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await mockCommand("clientA", "app_platform_capabilities", {
+            resolve: WAYLAND_NO_PORTAL_CAPABILITIES,
+        });
+        await refetchCapabilities("clientA");
+
+        await openSettings(clientA);
+        await openSettingsPage(clientA, "Hotkeys");
+        const hotkeys = subPage(clientA, "Hotkeys Config");
+        await hotkeys.waitForDisplayed();
+        await clientA
+            .$('//p[contains(., "Keyboard shortcuts are unavailable")]')
+            .waitForDisplayed();
+
+        await captureElement(clientA, hotkeys, "settings/HotkeysConfigPage-wayland-no-portal.png");
+    });
+
+    it("captures the SAY AGAIN function key", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await applyRadioPlaybackMocks("clientA");
+
+        const sayAgain = clientA.$(SAY_AGAIN_BUTTON);
+        await clientA.waitUntil(async () => await sayAgain.isEnabled(), {
+            timeoutMsg: "SAY AGAIN did not become available",
+        });
+
+        await captureElement(
+            clientA,
+            clientA.$(`${SAY_AGAIN_BUTTON}/..`),
+            "playback/say-again-button.png",
+        );
+    });
+
+    it("captures the Playback page", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await applyRadioPlaybackMocks("clientA");
+
+        await click(clientA, clientA.$('//button[.//p[contains(., "PLAY")]]'));
+        await subPage(clientA, "Playback").waitForDisplayed();
+        await clientA
+            .$(`//*[contains(text(), "${CLIPS[CLIPS.length - 1].callsigns[0]}")]`)
+            .waitForDisplayed();
+
+        await captureWindow(clientA, "playback/playback_overview.png");
+    });
+
+    it("captures the Radio page without a TrackAudio connection", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await applyTrackAudioMocks("clientA", "Disconnected");
+
+        // Clicked until the page opens: the button only navigates once the
+        // mocked radio config has reached the store, and nothing else in the
+        // window reflects that it has.
+        const placeholder = clientA.$('//p[text()="No TrackAudio radio connection."]');
+        await clientA.waitUntil(
+            async () => {
+                await click(clientA, pageButton(clientA, "Radio"));
+                return await placeholder.isDisplayed();
+            },
+            {timeoutMsg: "The Radio page did not open on the disconnected placeholder"},
+        );
+        await clientA.$('//p[text()="Retry"]').waitForDisplayed();
+
+        await captureWindow(clientA, "radio/radio_no_connection.png");
+    });
+
+    it("captures the mixed page of a split view profile", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnect(clientA, CID_PROFILE);
+        await applyFixtures(clientA, "clientA");
+        await applyTrackAudioMocks("clientA", "Connected", RADIO_STATIONS);
+        await loadTestProfile(clientA, SPLIT_PROFILE);
+
+        await pageTab(clientA, "Radio").waitForDisplayed();
+        await splitResizeHandle(clientA).waitForExist();
+        await clientA.waitUntil(
+            async () => (await frequencyObjects(clientA).getElements()).length === 3,
+            {timeoutMsg: "The radio pane did not show the three mocked stations"},
+        );
+
+        await showSplitDivider(clientA);
+        await captureWindow(clientA, "interface/split_view_mixed.png");
+    });
+
+    it("captures the Page button of a cycle view profile", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnect(clientA, CID_PROFILE);
+        await applyFixtures(clientA, "clientA");
+        await applyTrackAudioMocks("clientA", "Disconnected");
+        await loadTestProfile(clientA, CYCLE_PROFILE);
+
+        const cycleButton = pageCycleButton(clientA);
+        await cycleButton.waitForDisplayed();
+        await clientA.waitUntil(
+            async () =>
+                ((await pageCycleCell(clientA, "M").getAttribute("class")) ?? "").includes(
+                    "bg-gray-400",
+                ),
+            {timeoutMsg: "The Page button did not highlight the mixed page"},
+        );
+
+        await captureElement(clientA, cycleButton, "interface/page_cycle_button.png", {padding: 8});
     });
 
     it("captures the radio button in its error state", async () => {
@@ -572,6 +764,34 @@ describe("Documentation screenshots", () => {
         await captureElement(clientA, dialog, "settings/CallConfigPage.png", {padding: 18});
         await clearAnnotations(clientA);
     });
+
+    it("captures the Call Config with a custom ring sound", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+
+        // The file dialog is the only part that cannot run headless; the file
+        // it returns is real, so the backend loads and accepts it.
+        await mockCommand("clientA", "audio_pick_ring_sound", {resolve: writeRingSound(RING_FILE)});
+
+        await openSettings(clientA);
+        await openSettingsPage(clientA, "Call");
+        const dialog = subPage(clientA, "Call Config");
+        await dialog.waitForDisplayed();
+
+        await click(clientA, ringSoundField(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", RING_FILE);
+        await waitForRingSound(clientA, "Priority ring", "Built-in chime");
+
+        // The section sits below the fold of the dialog's scroll area.
+        await clientA.execute(
+            pane => {
+                pane.scrollTop = pane.scrollHeight;
+            },
+            await dialog.$("./div[contains(@class, 'overflow-auto')]"),
+        );
+        await captureElement(clientA, dialog, "settings/CallConfigRingSounds.png");
+    });
 });
 
 /** Waits until a direct access key is clickable, i.e. its station is online. */
@@ -652,6 +872,69 @@ async function applyFixtures(browser: WebdriverIO.Browser, instanceName: string)
     await browser.waitUntil(async () => (await clock.getText()).includes("10:10"), {
         timeoutMsg: "Clock did not settle on the frozen time",
     });
+}
+
+const SAY_AGAIN_BUTTON = '//button[.//p[contains(., "SAY")]]';
+
+const RING_FILE = "ring.wav";
+
+/**
+ * Selects the TrackAudio integration and pins the radio to a state, without a
+ * TrackAudio instance and without touching the real configuration.
+ */
+async function applyTrackAudioMocks(
+    instanceName: string,
+    state: "Connected" | "Disconnected",
+    stations: unknown[] = [],
+): Promise<void> {
+    await mockCommand(instanceName, "radio_get_config", {resolve: TRACK_AUDIO_CONFIG});
+    await mockCommand(instanceName, "radio_get_stations", {resolve: stations});
+    // Opening the radio page and the Retry link both attempt a reconnect,
+    // which the backend has no integration to serve.
+    await mockCommand(instanceName, "radio_reconnect", {resolve: null});
+    await refetchSettings(instanceName);
+    await emitEvent(instanceName, "radio:state", {state});
+}
+
+/**
+ * Puts the radio playback UI into its working state without a TrackAudio
+ * instance: a configured integration, recording enabled, a connected radio,
+ * and recordings to list. The mock audio backend records nothing, so the
+ * clips are metadata only.
+ */
+async function applyRadioPlaybackMocks(instanceName: string): Promise<void> {
+    await mockCommand(instanceName, "playback_get_enabled", {resolve: true});
+    await mockCommand(instanceName, "playback_list", {resolve: CLIPS});
+    await applyTrackAudioMocks(instanceName, "Connected");
+}
+
+/**
+ * Loads a profile from a file, the only way to get a split or cycle view: the
+ * dataset the harness serves publishes neither.
+ */
+async function loadTestProfile(browser: WebdriverIO.Browser, file: string): Promise<void> {
+    const result = await browser.execute(async (profilePath: string) => {
+        try {
+            await window.__TAURI_INTERNALS__.invoke("app_load_test_profile", {path: profilePath});
+            return {ok: true as const};
+        } catch (e) {
+            return {ok: false as const, error: String(e)};
+        }
+    }, file);
+
+    if (!result.ok) throw new Error(`app_load_test_profile failed for ${file}: ${result.error}`);
+}
+
+/**
+ * Shows the mixed page's drag handle, which is opacity-0 until the pointer
+ * rests on it. The capture cannot hover: the driver synthesizes events rather
+ * than moving a pointer, so the hovered opacity is set directly.
+ */
+async function showSplitDivider(browser: WebdriverIO.Browser): Promise<void> {
+    const handle = await splitResizeHandle(browser);
+    await browser.execute((el: HTMLElement) => {
+        el.style.opacity = "0.3";
+    }, handle);
 }
 
 /** The two key capture fields of the Transmit Config, each next to its select. */
@@ -802,6 +1085,16 @@ async function refetchCapabilities(instanceName: string): Promise<void> {
         const w = window as Window & {__vacs_e2e__?: Hooks};
         if (w.__vacs_e2e__ === undefined) throw new Error("E2E hooks are not installed");
         void w.__vacs_e2e__.refetchCapabilities();
+    });
+}
+
+/** Re-runs the settings fetch, so mocked settings commands take effect. */
+async function refetchSettings(instanceName: string): Promise<void> {
+    await tauriApi(instanceName).execute(() => {
+        type Hooks = {refetchSettings: () => Promise<void>};
+        const w = window as Window & {__vacs_e2e__?: Hooks};
+        if (w.__vacs_e2e__ === undefined) throw new Error("E2E hooks are not installed");
+        void w.__vacs_e2e__.refetchSettings();
     });
 }
 

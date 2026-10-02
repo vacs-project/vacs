@@ -18,9 +18,12 @@ export const RING_SOUND_NAME = "e2e-ring.wav";
  * Writes a ring sound the client accepts (1 s of a mono 16-bit tone) and
  * returns its path. Its 44.1 kHz rate also makes the client resample it to the
  * 48 kHz the mock audio devices run at.
+ *
+ * The name is overridable because the settings field shows it, and the
+ * documentation captures want a plausible one rather than a fixture's.
  */
-export function writeRingSound(): string {
-    return write(RING_SOUND_NAME, toneWav());
+export function writeRingSound(name: string = RING_SOUND_NAME): string {
+    return write(name, toneWav());
 }
 
 /**

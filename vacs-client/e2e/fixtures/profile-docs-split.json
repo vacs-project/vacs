@@ -1,0 +1,71 @@
+{
+  "id": "E2E_DOCS_SPLIT",
+  "type": "Tabbed",
+  "view": "split",
+  "tabs": [
+    {
+      "label": ["EC"],
+      "page": {
+        "rows": 6,
+        "keys": [
+          {"label": ["PRA", "LW", "EC"]},
+          {"label": ["PRA", "LS", "EC"]},
+          {"label": ["PRA", "TB", "EC"]},
+          {"label": ["PRA", "KV", "EC"]},
+          {"label": ["APP", "VD1"]},
+          {"label": ["TWR 1"]},
+          {"label": ["BRA", "LW", "EC"]},
+          {"label": ["BRA", "APP", "EC"]},
+          {"label": []},
+          {"label": []},
+          {"label": ["APP", "VD2"]},
+          {"label": ["TWR 2"]},
+          {"label": ["BUD", "128.10", "EC"]},
+          {"label": ["BUD", "133.20", "EC"]},
+          {"label": ["MCC", "TAU", "EC"]},
+          {"label": []},
+          {"label": ["APP", "TFI", "EC"]},
+          {"label": ["GNE"]},
+          {"label": ["ACC", "N1", "EC"]},
+          {"label": []},
+          {"label": ["LOWL", "APP", "EC"]},
+          {"label": ["APP", "VN-EC", "118775"]},
+          {"label": ["APP", "VB-EC", "134675"]},
+          {"label": ["GNW"]}
+        ]
+      }
+    },
+    {
+      "label": ["PLC"],
+      "page": {
+        "rows": 6,
+        "keys": [
+          {"label": ["PRA", "LW", "PLC"]},
+          {"label": ["PRA", "LS", "PLC"]},
+          {"label": ["PRA", "TB", "PLC"]},
+          {"label": ["PRA", "KV", "PLC"]},
+          {"label": ["APP", "SAP"]},
+          {"label": ["ACC", "N PLC", "Cont."]},
+          {"label": ["BRA", "LW", "PLC"]},
+          {"label": ["BRA", "APP", "PLC"]},
+          {"label": ["BRA", "FDT1"]},
+          {"label": ["ACC", "FDU", "NOT"]},
+          {"label": ["FDU 1", "TCH"]},
+          {"label": ["ACC", "S PLC", "Cont."]},
+          {"label": ["BUD", "128.10", "PLC"]},
+          {"label": ["BUD", "133.20", "PLC"]},
+          {"label": ["MCC", "TAU", "PLC"]},
+          {"label": ["LOXZ", "APP"]},
+          {"label": ["APP", "TFI", "PLC"]},
+          {"label": ["ACC", "Rs. PLC", "Cont."]},
+          {"label": ["ACC", "N1", "PLC"]},
+          {"label": []},
+          {"label": ["LOWL", "APP", "PLC"]},
+          {"label": ["APP", "VN-PLC", "118775"]},
+          {"label": ["APP", "VB-PLC", "134675"]},
+          {"label": ["TCO"]}
+        ]
+      }
+    }
+  ]
+}
