@@ -168,6 +168,7 @@ pub struct ClientConfig {
     pub position: Option<PhysicalPosition<i32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<PhysicalSize<u32>>,
+    #[serde(default = "default_release_channel")]
     pub release_channel: ReleaseChannel,
     pub signaling_auto_reconnect: bool,
     pub transmit_config: TransmitConfig,
@@ -211,6 +212,16 @@ fn default_zoom_level() -> f64 {
     1.0f64
 }
 
+#[cfg(feature = "rc")]
+fn default_release_channel() -> ReleaseChannel {
+    ReleaseChannel::Rc
+}
+
+#[cfg(not(feature = "rc"))]
+fn default_release_channel() -> ReleaseChannel {
+    ReleaseChannel::default()
+}
+
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
@@ -218,7 +229,7 @@ impl Default for ClientConfig {
             fullscreen: false,
             position: None,
             size: None,
-            release_channel: ReleaseChannel::default(),
+            release_channel: default_release_channel(),
             signaling_auto_reconnect: true,
             transmit_config: TransmitConfig::default(),
             radio: RadioConfig::default(),
