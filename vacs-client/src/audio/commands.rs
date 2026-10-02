@@ -3,7 +3,7 @@ use crate::app::state::signaling::AppStateSignalingExt;
 use crate::audio::manager::AudioManagerHandle;
 use crate::audio::source_type::{RingSoundError, SourceType, load_ring_clip};
 use crate::audio::{
-    AudioConfig, AudioDevices, AudioHosts, AudioVolumes, ClientAudioDeviceType,
+    AudioConfig, AudioDevices, AudioHosts, AudioVolumes, ClientAudioDeviceType, InputLevelMeter,
     PersistedAudioConfig, PlaybackDeviceType, RingSoundType, RingSounds, VolumeType,
 };
 use crate::config::{AUDIO_SETTINGS_FILE_NAME, Persistable};
@@ -400,7 +400,7 @@ pub async fn audio_start_input_level_meter(
     app_state: State<'_, AppState>,
     audio_manager: State<'_, AudioManagerHandle>,
     app: AppHandle,
-) -> Result<(), Error> {
+) -> Result<InputLevelMeter, Error> {
     log::trace!("Starting input level meter");
 
     let state = app_state.lock().await;
@@ -411,10 +411,11 @@ pub async fn audio_start_input_level_meter(
         // A running meter already broadcasts its levels to every frontend, so another
         // settings page simply joins it. And as this command is called when the user
         // opens the settings page, being in a call must not show an error either.
-        if audio_manager.is_input_level_meter_attached() {
+        let user_added = audio_manager.is_input_level_meter_attached();
+        if user_added {
             audio_manager.add_level_meter_user();
         }
-        return Ok(());
+        return Ok(InputLevelMeter { user_added });
     }
 
     audio_manager.attach_input_level_meter(
@@ -427,7 +428,7 @@ pub async fn audio_start_input_level_meter(
     )?;
     audio_manager.add_level_meter_user();
 
-    Ok(())
+    Ok(InputLevelMeter { user_added: true })
 }
 
 #[tauri::command]

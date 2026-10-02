@@ -98,6 +98,14 @@ pub struct AudioDevices {
     all: Vec<String>,
 }
 
+/// Whether starting the input level meter registered the caller as one of its users, which
+/// it must then release again. Not the case while a call holds the microphone.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputLevelMeter {
+    pub user_added: bool,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum VolumeType {
