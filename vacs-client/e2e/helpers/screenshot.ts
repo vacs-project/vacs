@@ -1,4 +1,4 @@
-import {mkdirSync, writeFileSync} from "node:fs";
+import {copyFileSync, mkdirSync, writeFileSync} from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {PNG} from "pngjs";
@@ -26,7 +26,7 @@ export async function captureWindow(
     name: string,
     options: {settle?: number} = {},
 ): Promise<string> {
-    return write(await frame(browser, options.settle), name);
+    return writeImage(await frame(browser, options.settle), name);
 }
 
 /**
@@ -46,29 +46,86 @@ export async function captureElement(
     const el = await element;
     const rect = await browser.execute((e: HTMLElement) => {
         const r = e.getBoundingClientRect();
-        return {x: r.x, y: r.y, width: r.width, height: r.height, viewport: window.innerWidth};
+        return {x: r.x, y: r.y, width: r.width, height: r.height};
     }, el);
+    const padding = options.padding ?? 0;
+    return captureRect(browser, name, {
+        x: rect.x - padding,
+        y: rect.y - padding,
+        width: rect.width + 2 * padding,
+        height: rect.height + 2 * padding,
+    });
+}
 
-    const png = await frame(browser);
-    // The snapshot is in device pixels, getBoundingClientRect in CSS pixels.
-    // Deriving the factor from the frame keeps this correct under a zoom
-    // level or HiDPI scaling instead of assuming devicePixelRatio 1.
-    const scale = png.width / rect.viewport;
-    const padding = (options.padding ?? 0) * scale;
+/** A region of the webview in CSS pixels. */
+export type Rect = {x: number; y: number; width: number; height: number};
 
-    const left = clamp(Math.round(rect.x * scale - padding), 0, png.width);
-    const top = clamp(Math.round(rect.y * scale - padding), 0, png.height);
-    const right = clamp(Math.round((rect.x + rect.width) * scale + padding), left + 1, png.width);
-    const bottom = clamp(Math.round((rect.y + rect.height) * scale + padding), top + 1, png.height);
+/**
+ * Captures a region of the webview given in CSS pixels, for crops that follow
+ * no single element (a strip of the window, a group of controls).
+ */
+export async function captureRect(
+    browser: WebdriverIO.Browser,
+    name: string,
+    rect: Rect,
+): Promise<string> {
+    return writeImage(await captureFrame(browser, {rect}), name);
+}
 
-    // Row-wise copy rather than PNG.bitblt: what PNG.sync.read returns is a
-    // bare bitmap object without the prototype's blitting methods.
-    const crop = new PNG({width: right - left, height: bottom - top});
-    for (let row = 0; row < crop.height; row++) {
-        const start = ((top + row) * png.width + left) * 4;
-        png.data.copy(crop.data, row * crop.width * 4, start, start + crop.width * 4);
-    }
-    return write(crop, name);
+/**
+ * Takes one snapshot of the webview, optionally cropped to a region in CSS
+ * pixels, without writing it. The building block for animations.
+ */
+export async function captureFrame(
+    browser: WebdriverIO.Browser,
+    options: {rect?: Rect; settle?: number} = {},
+): Promise<PNG> {
+    const viewport = await browser.execute(() => window.innerWidth);
+    const png = await frame(browser, options.settle);
+    return options.rect === undefined ? png : crop(png, options.rect, png.width / viewport);
+}
+
+/**
+ * The bounding rect, in CSS pixels, of everything the given selectors match
+ * (the first match each). XPath when the selector starts with / or (.
+ */
+export async function unionRect(browser: WebdriverIO.Browser, selectors: string[]): Promise<Rect> {
+    return browser.execute((list: string[]) => {
+        const resolve = (selector: string): Element | null =>
+            selector.startsWith("/") || selector.startsWith("(")
+                ? (document.evaluate(
+                      selector,
+                      document,
+                      null,
+                      XPathResult.FIRST_ORDERED_NODE_TYPE,
+                      null,
+                  ).singleNodeValue as Element | null)
+                : document.querySelector(selector);
+        let left = Infinity;
+        let top = Infinity;
+        let right = -Infinity;
+        let bottom = -Infinity;
+        for (const selector of list) {
+            const el = resolve(selector);
+            if (el === null) throw new Error(`Crop target not found: ${selector}`);
+            const r = el.getBoundingClientRect();
+            left = Math.min(left, r.left);
+            top = Math.min(top, r.top);
+            right = Math.max(right, r.right);
+            bottom = Math.max(bottom, r.bottom);
+        }
+        return {x: left, y: top, width: right - left, height: bottom - top};
+    }, selectors);
+}
+
+/** The webview's size in CSS pixels, as a rect at the origin. */
+export async function viewportRect(browser: WebdriverIO.Browser): Promise<Rect> {
+    return browser.execute(() => ({
+        x: 0,
+        y: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+    }));
 }
 
 /**
@@ -111,11 +168,48 @@ async function frame(browser: WebdriverIO.Browser, settle?: number): Promise<PNG
     return PNG.sync.read(Buffer.from(encoded, "base64"));
 }
 
-function write(png: PNG, name: string): string {
-    const target = path.resolve(SCREENSHOT_DIR, name);
-    mkdirSync(path.dirname(target), {recursive: true});
+// Row-wise copy rather than PNG.bitblt: what PNG.sync.read returns is a bare
+// bitmap object without the prototype's blitting methods. The snapshot is in
+// device pixels and the rect in CSS pixels; deriving the factor from the frame
+// keeps this correct under a zoom level or HiDPI scaling.
+function crop(png: PNG, rect: Rect, scale: number): PNG {
+    const left = clamp(Math.round(rect.x * scale), 0, png.width - 1);
+    const top = clamp(Math.round(rect.y * scale), 0, png.height - 1);
+    const right = clamp(Math.round((rect.x + rect.width) * scale), left + 1, png.width);
+    const bottom = clamp(Math.round((rect.y + rect.height) * scale), top + 1, png.height);
+
+    const out = new PNG({width: right - left, height: bottom - top});
+    for (let row = 0; row < out.height; row++) {
+        const start = ((top + row) * png.width + left) * 4;
+        png.data.copy(out.data, row * out.width * 4, start, start + out.width * 4);
+    }
+    return out;
+}
+
+/** Writes an already captured image under SCREENSHOT_DIR. */
+export function writeImage(png: PNG, name: string): string {
+    const target = outputPath(name);
     writeFileSync(target, PNG.sync.write(png));
     console.log(`screenshot: ${target} (${png.width}x${png.height})`);
+    return target;
+}
+
+/**
+ * Writes an already captured image under further names, for the manual pages
+ * that each reference their own copy of the same picture.
+ */
+export function copyImage(target: string, ...names: string[]): void {
+    for (const name of names) {
+        const copy = outputPath(name);
+        copyFileSync(target, copy);
+        console.log(`screenshot: ${copy} (copy of ${path.basename(target)})`);
+    }
+}
+
+/** Resolves an image name under SCREENSHOT_DIR and creates its directory. */
+export function outputPath(name: string): string {
+    const target = path.resolve(SCREENSHOT_DIR, name);
+    mkdirSync(path.dirname(target), {recursive: true});
     return target;
 }
 

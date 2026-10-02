@@ -151,6 +151,19 @@ on the right element instead of leaving them where the layout used to be.
 of neighboring UI. Call `clearAnnotations()` before capturing anything else in
 the same test.
 
+The specs are split by manual section (`calls`, `geo`, `interface`,
+`keybinds`, `playback`, `radio`, `settings`, `telephone`, `conference`);
+the fixtures they share live in `helpers/docs.ts`, outside `specs-docs/` so
+wdio does not run them as a spec. Images of the tabbed layout move CID
+`10000001` onto `LOWW_APP` in the datafeed and staff its neighbors with raw
+signaling clients, so they show the same CID as the rest of the set.
+
+Animations are written as GIFs by `helpers/gif.ts` (gifenc). A blinking state
+is two frames, one per half of the 500ms blink, captured inside its phase
+(`captureBlinkGif`); a walkthrough such as the playback controls is a list of
+frames with hold times. Frames after the first store only changed pixels,
+which keeps a mostly static window small.
+
 States that need hardware, another platform or a broken network are driven
 through IPC mocks and emitted events (joystick devices, the Wayland layout,
 a degraded call, the radio error state). That is honest for a layout

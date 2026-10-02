@@ -89,14 +89,19 @@ export function instancePort(name: string): number {
  */
 function killLingeringWebviews(): void {
     if (process.platform !== "win32") return;
+    // Stop-Process returns before the process has released the folder, so
+    // the sweep also waits until none of them is listed any more.
+    const lingering =
+        `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | ` +
+        `Where-Object {$_.CommandLine -like '*${E2E_IDENTIFIER}*'}`;
     spawnSync(
         "powershell",
         [
             "-NoProfile",
             "-Command",
-            `Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | ` +
-                `Where-Object {$_.CommandLine -like '*${E2E_IDENTIFIER}*'} | ` +
-                `ForEach-Object {Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}`,
+            `${lingering} | ForEach-Object {Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue}; ` +
+                `$deadline = (Get-Date).AddSeconds(10); ` +
+                `while ((Get-Date) -lt $deadline -and @(${lingering}).Count -gt 0) {Start-Sleep -Milliseconds 100}`,
         ],
         {stdio: "ignore"},
     );

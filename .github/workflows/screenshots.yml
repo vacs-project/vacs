@@ -79,5 +79,5 @@ jobs:
             echo "Download the \`screenshots-${{ inputs.platform }}\` artifact and copy its"
             echo "contents into the docs repo's \`static/img/\`."
             echo
-            find vacs-client/e2e/screenshots -type f -name '*.png' | sort | sed 's|^vacs-client/e2e/screenshots/|- |'
+            find vacs-client/e2e/screenshots -type f \( -name '*.png' -o -name '*.gif' \) | sort | sed 's|^vacs-client/e2e/screenshots/|- |'
           } >> "$GITHUB_STEP_SUMMARY"

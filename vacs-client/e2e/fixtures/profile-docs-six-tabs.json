@@ -1,0 +1,431 @@
+{
+  "id": "E2E_DOCS_SIX_TABS",
+  "type": "Tabbed",
+  "tabs": [
+    {
+      "label": ["EC"],
+      "page": {
+        "rows": 6,
+        "keys": [
+          {
+            "label": ["PRA", "LW", "EC"],
+            "station_id": "LKAA WL"
+          },
+          {
+            "label": ["PRA", "LS", "EC"],
+            "station_id": "LKAA SL"
+          },
+          {
+            "label": ["PRA", "TB", "EC"],
+            "station_id": "LKAA TB"
+          },
+          {
+            "label": ["PRA", "KV", "EC"],
+            "station_id": "LKAA KV"
+          },
+          {
+            "label": ["APP", "VD1"],
+            "station_id": "LOWW_D_APP"
+          },
+          {
+            "label": ["TWR 1"],
+            "station_id": "LOWW_TWR"
+          },
+          {
+            "label": ["BRA", "LW", "EC"],
+            "station_id": "LZBB_WEST_0L"
+          },
+          {
+            "label": ["BRA", "APP", "EC"],
+            "station_id": "LZIB_APP"
+          },
+          {
+            "label": []
+          },
+          {
+            "label": []
+          },
+          {
+            "label": ["APP", "VD2"],
+            "station_id": "LOWW_F_APP"
+          },
+          {
+            "label": ["TWR 2"],
+            "station_id": "LOWW_E_TWR"
+          },
+          {
+            "label": ["BUD", "128.10", "EC"],
+            "station_id": "LHCC_SL"
+          },
+          {
+            "label": ["BUD", "133.20", "EC"],
+            "station_id": "LHCC_WL"
+          },
+          {
+            "label": ["MCC", "TAU", "EC"],
+            "station_id": "LOVV_M_CTR"
+          },
+          {
+            "label": []
+          },
+          {
+            "label": ["APP", "TFI", "EC"],
+            "station_id": "LOWW_I_APP"
+          },
+          {
+            "label": ["GNE"],
+            "station_id": "LOWW_GND"
+          },
+          {
+            "label": ["ACC", "N1", "EC"],
+            "station_id": "LOVV_N1"
+          },
+          {
+            "label": []
+          },
+          {
+            "label": ["LOWL", "APP", "EC"],
+            "station_id": "LOWL_APP"
+          },
+          {
+            "label": ["APP", "VN-EC", "118775"],
+            "station_id": "LOWW_N_APP"
+          },
+          {
+            "label": ["APP", "VB-EC", "134675"],
+            "station_id": "LOWW_APP"
+          },
+          {
+            "label": ["GNW"],
+            "station_id": "LOWW_W_GND"
+          },
+          {
+            "label": ["ACC", "E1", "EC"],
+            "station_id": "LOVV_E1"
+          },
+          {
+            "label": ["ACC", "S1", "EC"],
+            "station_id": "LOVV_S1"
+          },
+          {
+            "label": ["LOWG", "APP", "EC"],
+            "station_id": "LOWG_APP"
+          },
+          {
+            "label": ["APP", "VM-EC", "125175"],
+            "station_id": "LOWW_M_APP"
+          },
+          {
+            "label": ["APP", "VP-EC", "129050"],
+            "station_id": "LOWW_P_APP"
+          },
+          {
+            "label": ["DLV"],
+            "station_id": "LOWW_DEL"
+          }
+        ]
+      }
+    },
+    {
+      "label": ["PLC"],
+      "page": {
+        "rows": 6,
+        "keys": [
+          {
+            "label": ["PRA", "LW", "PLC"],
+            "station_id": "LKAA WL"
+          },
+          {
+            "label": ["PRA", "LS", "PLC"],
+            "station_id": "LKAA SL"
+          },
+          {
+            "label": ["PRA", "TB", "PLC"],
+            "station_id": "LKAA TB"
+          },
+          {
+            "label": ["PRA", "KV", "PLC"],
+            "station_id": "LKAA KV"
+          },
+          {
+            "label": ["APP", "SAP"]
+          },
+          {
+            "label": ["ACC", "N PLC", "Cont."],
+            "station_id": "LOVV_N1"
+          },
+          {
+            "label": ["BRA", "LW", "PLC"],
+            "station_id": "LZBB_WEST_0L"
+          },
+          {
+            "label": ["BRA", "APP", "PLC"],
+            "station_id": "LZIB_APP"
+          },
+          {
+            "label": ["BRA", "FDT1"]
+          },
+          {
+            "label": ["ACC", "FDU", "NOT"]
+          },
+          {
+            "label": ["FDU 1", "TCH"]
+          },
+          {
+            "label": ["ACC", "S PLC", "Cont."],
+            "station_id": "LOVV_S1"
+          },
+          {
+            "label": ["BUD", "128.10", "PLC"],
+            "station_id": "LHCC_SL"
+          },
+          {
+            "label": ["BUD", "133.20", "PLC"],
+            "station_id": "LHCC_WL"
+          },
+          {
+            "label": ["MCC", "TAU", "PLC"],
+            "station_id": "LOVV_M_CTR"
+          },
+          {
+            "label": ["LOXZ", "APP"],
+            "station_id": "LOXZ_APP"
+          },
+          {
+            "label": ["APP", "TFI", "PLC"],
+            "station_id": "LOWW_I_APP"
+          },
+          {
+            "label": ["ACC", "Rs. PLC", "Cont."]
+          },
+          {
+            "label": ["ACC", "N1", "PLC"],
+            "station_id": "LOVV_N1"
+          },
+          {
+            "label": []
+          },
+          {
+            "label": ["LOWL", "APP", "PLC"],
+            "station_id": "LOWL_APP"
+          },
+          {
+            "label": ["APP", "VN-PLC", "118775"],
+            "station_id": "LOWW_N_APP"
+          },
+          {
+            "label": ["APP", "VB-PLC", "134675"],
+            "station_id": "LOWW_APP"
+          },
+          {
+            "label": ["TCO"],
+            "station_id": "LOWW_TWR"
+          },
+          {
+            "label": ["ACC", "E1", "PLC"],
+            "station_id": "LOVV_E1"
+          },
+          {
+            "label": ["ACC", "S1", "PLC"],
+            "station_id": "LOVV_S1"
+          },
+          {
+            "label": ["LOWG", "APP", "PLC"],
+            "station_id": "LOWG_APP"
+          },
+          {
+            "label": ["APP", "VM-PLC", "125175"],
+            "station_id": "LOWW_M_APP"
+          },
+          {
+            "label": ["APP", "VP-PLC", "129050"],
+            "station_id": "LOWW_P_APP"
+          },
+          {
+            "label": ["FMP"],
+            "station_id": "LOVV_FMP"
+          }
+        ]
+      }
+    },
+    {
+      "label": ["TFI"],
+      "page": {
+        "rows": 6,
+        "keys": [
+          {
+            "label": ["LOAG"],
+            "station_id": "LOAG_TWR"
+          },
+          {
+            "label": ["LOAV"],
+            "station_id": "LOAV_TWR"
+          },
+          {
+            "label": ["PRA", "FIC", "WEST"],
+            "station_id": "LKAA FIC"
+          },
+          {
+            "label": ["APP", "SAP"]
+          },
+          {
+            "label": ["FIC", "N", "EC"],
+            "station_id": "LOVV_I_CTR"
+          },
+          {
+            "label": ["FIC", "S", "EC"],
+            "station_id": "LOVV_I_CTR"
+          },
+          {
+            "label": ["LOAU"],
+            "station_id": "LOAU_TWR"
+          },
+          {
+            "label": ["LOAN"],
+            "station_id": "LOAN_TWR"
+          },
+          {
+            "label": ["PRA", "FIC", "EAST"],
+            "station_id": "LKAA FIC"
+          },
+          {
+            "label": ["ARO"]
+          },
+          {
+            "label": ["FIC", "N", "PLC"],
+            "station_id": "LOVV_I_CTR"
+          },
+          {
+            "label": ["FIC", "S", "PLC"],
+            "station_id": "LOVV_I_CTR"
+          },
+          {
+            "label": ["LOXT"],
+            "station_id": "LOXT_TWR"
+          },
+          {
+            "label": ["LOXN", "TWR"]
+          },
+          {
+            "label": ["PRA", "FIC", "MOR"],
+            "station_id": "LKAA FIC"
+          },
+          {
+            "label": ["PRA", "TB", "PLC"],
+            "station_id": "LKAA TB"
+          },
+          {
+            "label": ["APP", "TFI", "EC"],
+            "station_id": "LOWW_I_APP"
+          },
+          {
+            "label": ["TCO"],
+            "station_id": "LOWW_TWR"
+          },
+          {
+            "label": ["MIL", "INFO", "PLC"],
+            "station_id": "LOVV_M_CTR"
+          },
+          {
+            "label": ["BRA", "FIC", "PLC"],
+            "station_id": "LZBB_I_CTR"
+          },
+          {
+            "label": ["BRA", "APP", "PLC"],
+            "station_id": "LZIB_APP"
+          },
+          {
+            "label": ["BRA", "TWR", "PLC"],
+            "station_id": "LZIB_TWR"
+          },
+          {
+            "label": ["APP", "VN-PLC", "118775"],
+            "station_id": "LOWW_N_APP"
+          },
+          {
+            "label": ["APP", "VB-PLC", "134675"],
+            "station_id": "LOWW_APP"
+          },
+          {
+            "label": ["MIL", "CTR"],
+            "station_id": "LOVV_M_CTR"
+          },
+          {
+            "label": ["LHPR"],
+            "station_id": "LHPR_I_TWR"
+          },
+          {
+            "label": ["BUD", "FIC"],
+            "station_id": "LHCC_WFIC"
+          },
+          {
+            "label": ["LOXZ", "APP"],
+            "station_id": "LOXZ_APP"
+          },
+          {
+            "label": ["APP", "VM-PLC", "125175"],
+            "station_id": "LOWW_M_APP"
+          },
+          {
+            "label": ["APP", "VP-PLC", "129050"],
+            "station_id": "LOWW_P_APP"
+          }
+        ]
+      }
+    },
+    {
+      "label": ["CWP"],
+      "page": {
+        "rows": 6,
+        "client_page": {
+          "include": [
+            "LO*",
+            "EDMM*",
+            "EDUU*",
+            "EDDM*",
+            "ADR*",
+            "EUC*",
+            "LD*",
+            "LH*",
+            "LIM*",
+            "LIP*",
+            "LJ*",
+            "LK*",
+            "LS*",
+            "LZ*"
+          ],
+          "exclude": ["LON*"],
+          "priority": [
+            "LO*_FMP",
+            "*_FMP",
+            "LO*_CTR",
+            "*_CTR",
+            "LOWW*_APP",
+            "LO*_APP",
+            "*_APP",
+            "LOWW*_TWR",
+            "LO*_TWR",
+            "*_TWR",
+            "LO*_GND",
+            "*_GND",
+            "LO*"
+          ]
+        }
+      }
+    },
+    {
+      "label": ["DA 5"],
+      "page": {
+        "rows": 6,
+        "keys": []
+      }
+    },
+    {
+      "label": ["DA 6"],
+      "page": {
+        "rows": 6,
+        "keys": []
+      }
+    }
+  ]
+}
