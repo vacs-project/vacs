@@ -168,7 +168,7 @@ axum-login = { git = "https://github.com/maxcountryman/axum-login", rev = "151c7
 tower-sessions-redis-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", rev = "be0f230fadb4ca0496d4cabc946ae7778eee37e6" }
 
 [workspace.lints.clippy]
-semicolon-if-nothing-returned = "warn"
+semicolon_if_nothing_returned = "warn"
 
 # Build the vendored SDL3 with release settings even in dev builds. The cmake
 # crate maps opt-level 0 to CMAKE_BUILD_TYPE=Debug, which on MSVC compiles SDL
