@@ -2,6 +2,7 @@ use crate::app::state::AppState;
 use crate::app::state::http::HttpState;
 use crate::app::state::signaling::ConnectionState;
 use crate::app::{ClockMode, FrontendCallConfig, FrontendClientPageSettings};
+use crate::audio::InputLevelMeter;
 use crate::audio::manager::AudioManagerHandle;
 use crate::error::Error;
 use crate::keybinds::engine::KeybindEngineHandle;
@@ -28,7 +29,7 @@ use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use futures_util::{SinkExt, StreamExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -353,10 +354,10 @@ async fn handle_ws_connection(socket: WebSocket, state: RemoteServerState, peer:
                             log::warn!("[{peer}] Remote client command {cmd:?} timed out");
                             DispatchResult::Err(ProblemDetails::timeout())
                         });
-                        if matches!(response, DispatchResult::Ok(_)) {
+                        if let DispatchResult::Ok(ref value) = response {
                             match cmd {
                                 RemoteCommand::AudioStartInputLevelMeter => {
-                                    level_meter_user = true;
+                                    level_meter_user |= level_meter_user_added(value);
                                 }
                                 RemoteCommand::AudioStopInputLevelMeter => {
                                     level_meter_user = false;
@@ -414,6 +415,10 @@ fn dispatch<T: serde::Serialize>(result: Result<T, Error>) -> DispatchResult {
         Ok(v) => DispatchResult::Ok(serde_json::to_value(v).unwrap_or(serde_json::Value::Null)),
         Err(e) => DispatchResult::Err(ProblemDetails::from(&e)),
     }
+}
+
+fn level_meter_user_added(response: &serde_json::Value) -> bool {
+    InputLevelMeter::deserialize(response).is_ok_and(|meter| meter.user_added)
 }
 
 fn desktop_only() -> DispatchResult {
@@ -941,6 +946,18 @@ mod tests {
     use crate::app::CallConfig;
     use crate::config::AppConfig;
     use crate::platform::Platform;
+
+    #[test]
+    fn a_level_meter_user_is_tracked_only_when_the_start_added_one() {
+        let response = |user_added| match dispatch(Ok(InputLevelMeter { user_added })) {
+            DispatchResult::Ok(value) => value,
+            DispatchResult::Err(_) => unreachable!(),
+        };
+
+        assert!(level_meter_user_added(&response(true)));
+        assert!(!level_meter_user_added(&response(false)));
+        assert!(!level_meter_user_added(&serde_json::Value::Null));
+    }
 
     #[test]
     fn the_session_state_snapshot_keeps_its_camel_case_shape() {
