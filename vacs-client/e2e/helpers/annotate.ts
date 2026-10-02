@@ -67,6 +67,7 @@ export async function annotate(
         (specs: Annotation[], overlayId: string, fallback: string, halo: string) => {
             const SVG_NS = "http://www.w3.org/2000/svg";
             const INSET = 4;
+            const STROKE_WIDTH = 2.5;
             const BADGE_RADIUS = 13;
 
             const resolve = (selector: string): Element | null => {
@@ -111,10 +112,11 @@ export async function annotate(
                 const color = spec.color ?? fallback;
                 const place = spec.place ?? "top-left";
 
-                const left = rect.left - INSET;
-                const top = rect.top - INSET;
-                const width = rect.width + INSET * 2;
-                const height = rect.height + INSET * 2;
+                const edge = STROKE_WIDTH / 2;
+                const left = Math.max(rect.left - INSET, edge);
+                const top = Math.max(rect.top - INSET, edge);
+                const width = Math.min(rect.right + INSET, window.innerWidth - edge) - left;
+                const height = Math.min(rect.bottom + INSET, window.innerHeight - edge) - top;
 
                 if (spec.box !== false) {
                     svg.append(
@@ -125,7 +127,7 @@ export async function annotate(
                             height: String(height),
                             fill: "none",
                             stroke: color,
-                            "stroke-width": "2.5",
+                            "stroke-width": String(STROKE_WIDTH),
                             rx: "4",
                         }),
                     );
