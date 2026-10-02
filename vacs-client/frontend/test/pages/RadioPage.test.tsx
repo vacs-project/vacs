@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/preact";
+import {act, cleanup, fireEvent, render, screen, waitFor} from "@testing-library/preact";
 
 const {invoke, listen} = vi.hoisted(() => ({
     invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
@@ -96,5 +96,52 @@ describe("RadioPage", () => {
         render(<RadioPage />);
 
         await waitFor(() => expect(screen.getByText("VIE_TWR")).toBeDefined());
+    });
+
+    describe("station events", () => {
+        const OTHER: RadioStation = {...STATION, callsign: "LOWW_APP", frequency: 134_675_000};
+
+        async function renderConnected() {
+            const handlers = new Map<string, (event: {payload: unknown}) => void>();
+            listen.mockImplementation((event, callback) => {
+                handlers.set(event, callback);
+                return Promise.resolve(() => {});
+            });
+            useSettingsStore.setState({radioConfig: TRACK_AUDIO});
+            useRadioStore.setState({radioState: {state: "Connected"}});
+            invoke.mockImplementation((cmd: string) =>
+                cmd === "radio_get_stations"
+                    ? Promise.resolve([STATION])
+                    : Promise.resolve(undefined),
+            );
+            render(<RadioPage />);
+            await waitFor(() => expect(screen.getByText("VIE_TWR")).toBeDefined());
+
+            return (event: string, payload: unknown) => act(() => handlers.get(event)?.({payload}));
+        }
+
+        it("shows an added station", async () => {
+            const emit = await renderConnected();
+
+            await emit("radio:station-added", OTHER);
+
+            await waitFor(() => expect(screen.getByText("LOWW_APP")).toBeDefined());
+        });
+
+        it("drops a removed station", async () => {
+            const emit = await renderConnected();
+
+            await emit("radio:station-removed", STATION.frequency);
+
+            await waitFor(() => expect(screen.queryByText("VIE_TWR")).toBeNull());
+        });
+
+        it("shows an updated station", async () => {
+            const emit = await renderConnected();
+
+            await emit("radio:station-updated", {...STATION, callsign: "VIE_GND"});
+
+            await waitFor(() => expect(screen.getByText("VIE_GND")).toBeDefined());
+        });
     });
 });

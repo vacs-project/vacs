@@ -61,16 +61,17 @@ function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
 
         unlistenFns.push(
             listen<RadioStation>("radio:station-added", event => {
-                setStations(prev => prev.set(event.payload.frequency, event.payload));
+                setStations(prev => new Map(prev).set(event.payload.frequency, event.payload));
             }),
             listen<number>("radio:station-removed", event => {
                 setStations(prev => {
-                    prev.delete(event.payload);
-                    return prev;
+                    const next = new Map(prev);
+                    next.delete(event.payload);
+                    return next;
                 });
             }),
             listen<RadioStation>("radio:station-updated", event => {
-                setStations(prev => prev.set(event.payload.frequency, event.payload));
+                setStations(prev => new Map(prev).set(event.payload.frequency, event.payload));
             }),
             listen<RadioStation[]>("radio:stations-synced", event =>
                 setStations(new Map(event.payload.map(station => [station.frequency, station]))),
