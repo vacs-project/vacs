@@ -98,6 +98,9 @@ describe("Documentation screenshots: conference calls", function () {
         // disconnected marker the call display would show for a dead link.
         await clientA.$('img[alt="Disconnected"]').waitForDisplayed({reverse: true});
 
+        // What's New shows the call without callouts, since it does not explain them.
+        await captureWindow(clientA, "using-vacs/conference-call-plain.png");
+
         // The prose walks the CONF key first, then the sector that was added
         // through it.
         await annotate(clientA, [
