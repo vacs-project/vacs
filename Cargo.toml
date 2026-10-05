@@ -95,15 +95,16 @@ sha1 = "0.11.0"
 syn = { version = "3.0.2", features = ["full"] }
 sysinfo = "0.39.3"
 tar = "0.4.46"
-tauri = "2.11.2"
-tauri-build = "2.6.1"
-tauri-plugin-deep-link = "2.4.9"
-tauri-plugin-log = "2.8.0"
-tauri-plugin-prevent-default = "5.0.0"
-tauri-plugin-single-instance = "2.4.2"
-tauri-plugin-updater = "2.10.1"
+tauri = "2.12.1"
+tauri-build = "2.7.1"
+tauri-plugin-deep-link = "2.6.1"
+tauri-plugin-log = "2.10.0"
+tauri-plugin-prevent-default = "6.0.0"
+tauri-plugin-single-instance = "2.5.2"
+tauri-plugin-updater = "2.13.1"
 # WebDriver automation plugins for E2E tests. Young packages with recent
-# breaking changes, pinned exactly; bump deliberately.
+# breaking changes, pinned exactly; bump deliberately. tauri-plugin-wdio-webdriver is
+# source-patched to an unreleased upstream commit, see [patch.crates-io].
 tauri-plugin-wdio = "=1.4.0"
 tauri-plugin-wdio-webdriver = "=1.4.0"
 tempfile = "3.27.0"
@@ -166,6 +167,10 @@ axum-login = { git = "https://github.com/maxcountryman/axum-login", rev = "151c7
 # tower-sessions 0.15 bump. Upstream main carries the 0.15 support under the same, still
 # unpublished, 0.16.0 version number. Drop once a release newer than 0.16.0 is published.
 tower-sessions-redis-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", rev = "be0f230fadb4ca0496d4cabc946ae7778eee37e6" }
+# tauri-plugin-wdio-webdriver 1.4.0 binds webview2-com 0.38 / windows 0.61 and fails to compile on
+# Windows against Tauri 2.12 (webview2-com 0.39). This rev is upstream main with
+# https://github.com/webdriverio/desktop-mobile/pull/687. Drop once 1.5.0 is published.
+tauri-plugin-wdio-webdriver = { git = "https://github.com/webdriverio/desktop-mobile", rev = "e4bdb66ec5b1d96b7fd766d70370a8e8361e0459" }
 
 [workspace.lints.clippy]
 semicolon_if_nothing_returned = "warn"

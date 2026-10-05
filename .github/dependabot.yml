@@ -27,6 +27,13 @@ updates:
       tauri-wdio:
         patterns:
           - "tauri-plugin-wdio*"
+      tauri:
+        patterns:
+          - "tauri"
+          - "tauri-build"
+          - "tauri-plugin-*"
+        exclude-patterns:
+          - "tauri-plugin-wdio*"
 
   - package-ecosystem: "npm"
     directory: "/vacs-client"
@@ -56,6 +63,9 @@ updates:
       tauri-wdio:
         patterns:
           - "@wdio/tauri-*"
+      tauri:
+        patterns:
+          - "@tauri-apps/*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
