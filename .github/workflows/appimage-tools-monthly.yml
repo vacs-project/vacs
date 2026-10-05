@@ -1,0 +1,37 @@
+name: AppImage tools • monthly
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 3 * *"
+
+permissions: {}
+
+jobs:
+  check:
+    uses: $/.github/workflows/ci-appimage-tools.yml
+    permissions:
+      contents: read
+
+  report:
+    needs: check
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="AppImage tool pins need attention"
+          body="The monthly check of \`.github/appimage-tools.md\` failed: $RUN_URL"
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label dependencies --label "crate: vacs-client"
+          fi
