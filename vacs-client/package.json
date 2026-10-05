@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1",
-    "prettier": "^3.9.8"
+    "prettier": "^3.9.9"
   },
   "overrides": {
     "@wdio/tauri-service": {
