@@ -1,5 +1,5 @@
 import {type ChildProcess, spawn, spawnSync} from "child_process";
-import {appendFileSync, existsSync, readFileSync, rmSync} from "fs";
+import {appendFileSync, existsSync, readdirSync, readFileSync, rmSync} from "fs";
 import os from "os";
 import path from "path";
 import {fileURLToPath} from "url";
@@ -224,6 +224,14 @@ export function clearPersistedClientSettings(): void {
     rmSync(path.join(APP_CONFIG_DIR, "client.toml"), {force: true});
 }
 
+// Tauri's log dir is the data dir's `logs` everywhere except macOS.
+const APP_LOG_DIR =
+    process.platform === "darwin"
+        ? path.join(os.homedir(), "Library", "Logs", E2E_IDENTIFIER)
+        : path.join(APP_DATA_DIR, "logs");
+
+const LOG_TIMESTAMP = /^\[(\d{4})-(\d{2})-(\d{2})\]\[(\d{2}):(\d{2}):(\d{2})\]/;
+
 /**
  * Removes the archived log files of the E2E bundle identifier. Every instance
  * logs into that one directory under one file name, and tauri-plugin-log's
@@ -235,12 +243,31 @@ export function clearPersistedClientSettings(): void {
  * Launcher-side, from onPrepare, before the service spawns anything.
  */
 export function clearAppLogs(): void {
-    // Tauri's log dir is the data dir's `logs` everywhere except macOS.
-    const logDir =
-        process.platform === "darwin"
-            ? path.join(os.homedir(), "Library", "Logs", E2E_IDENTIFIER)
-            : path.join(APP_DATA_DIR, "logs");
-    rmSync(logDir, {force: true, recursive: true});
+    rmSync(APP_LOG_DIR, {force: true, recursive: true});
+}
+
+/**
+ * Returns the app log lines of every instance containing `needle` that were
+ * written at or after `since`, to the second. Archives are read too, because
+ * rotation can move a fresh line out of the current file mid-test.
+ */
+export function appLogLinesSince(since: Date, needle: string): string[] {
+    if (!existsSync(APP_LOG_DIR)) return [];
+    const cutoff = Math.floor(since.getTime() / 1000) * 1000;
+    const matches: string[] = [];
+    for (const file of readdirSync(APP_LOG_DIR)) {
+        if (!file.endsWith(".log")) continue;
+        let writtenAt = Number.NEGATIVE_INFINITY;
+        for (const line of readFileSync(path.join(APP_LOG_DIR, file), "utf-8").split("\n")) {
+            const stamp = LOG_TIMESTAMP.exec(line);
+            if (stamp !== null) {
+                const [, y, mo, d, h, mi, s] = stamp.map(Number);
+                writtenAt = new Date(y, mo - 1, d, h, mi, s).getTime();
+            }
+            if (writtenAt >= cutoff && line.includes(needle)) matches.push(line);
+        }
+    }
+    return matches;
 }
 
 /** Kills every pid recorded in the pid file. Launcher-side (onPrepare/onComplete). */

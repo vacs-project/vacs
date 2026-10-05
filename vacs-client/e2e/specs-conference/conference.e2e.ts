@@ -1,14 +1,18 @@
-import {restartApps} from "../helpers/app-control.ts";
+import {appLogLinesSince, restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {
     callDisplaySlot,
     click,
     clientKey,
     conferenceKey,
+    expectCallStaysConnected,
     getClient,
     inviteTarget,
+    MEDIA_WATCHDOG_WINDOW_MS,
+    NO_INBOUND_MEDIA_LOG,
     showClientKey,
     waitForCallColor,
+    waitForConnectedCall,
     waitForErroredKey,
 } from "../helpers/browser.ts";
 import {SignalingTestClient} from "../helpers/signaling-client.ts";
@@ -144,6 +148,34 @@ describe("Conference Calls", () => {
             await client.$('img[alt="Disconnected"]').waitForDisplayed({reverse: true});
         }
         await waitForCallColor(clientC, clientKey(clientC, CID_B), {active: true});
+    });
+
+    describe("media watchdog", function () {
+        this.timeout(120_000);
+
+        it("should keep every conference link connected past the first-RTP timeout", async () => {
+            const clientA = getClient("clientA");
+            const clientB = getClient("clientB");
+            const clientC = getClient("clientC");
+            const since = new Date();
+
+            await establishConference();
+
+            for (const client of [clientA, clientB, clientC]) {
+                await waitForConnectedCall(client);
+            }
+
+            await expectCallStaysConnected({clientA, clientB, clientC}, MEDIA_WATCHDOG_WINDOW_MS);
+
+            await waitForJoined(clientA, [CID_B, CID_C]);
+            await waitForJoined(clientB, [CID_A, CID_C]);
+            await waitForJoined(clientC, [CID_A, CID_B]);
+
+            const warnings = appLogLinesSince(since, NO_INBOUND_MEDIA_LOG);
+            if (warnings.length > 0) {
+                throw new Error(`Media watchdog fired:\n${warnings.join("\n")}`);
+            }
+        });
     });
 
     it("should continue the conference when a non-leader participant hangs up", async () => {

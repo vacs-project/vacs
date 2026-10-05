@@ -1,13 +1,17 @@
-import {restartApps} from "../helpers/app-control.ts";
+import {appLogLinesSince, restartApps} from "../helpers/app-control.ts";
 import {loginAndConnect, resetMockState} from "../helpers/auth.ts";
 import {
     callQueueSlot,
     click,
     clientKey,
+    expectCallStaysConnected,
     getClient,
+    MEDIA_WATCHDOG_WINDOW_MS,
+    NO_INBOUND_MEDIA_LOG,
     showClientKey,
     startCallTo,
     waitForCallColor,
+    waitForConnectedCall,
 } from "../helpers/browser.ts";
 
 // Users without matching datafeed controllers: their sessions stay
@@ -76,6 +80,34 @@ describe("Call Flow", () => {
         await callQueueSlot(clientA, CID_B).waitForDisplayed({reverse: true});
         await callQueueSlot(clientB, CID_A).waitForDisplayed({reverse: true});
         await waitForCallColor(clientA, clientKey(clientA, CID_B), {active: false});
+    });
+
+    describe("media watchdog", function () {
+        this.timeout(90_000);
+
+        it("should keep an established call connected past the first-RTP timeout", async () => {
+            const clientA = getClient("clientA");
+            const clientB = getClient("clientB");
+            const since = new Date();
+
+            await startCallTo(clientA, CID_B);
+            const answerKey = callQueueSlot(clientB, CID_A);
+            await answerKey.waitForDisplayed();
+            await click(clientB, answerKey);
+
+            await waitForConnectedCall(clientA);
+            await waitForConnectedCall(clientB);
+
+            await expectCallStaysConnected({clientA, clientB}, MEDIA_WATCHDOG_WINDOW_MS);
+
+            await waitForCallColor(clientA, clientKey(clientA, CID_B), {active: true});
+            await waitForCallColor(clientB, callQueueSlot(clientB, CID_A), {active: true});
+
+            const warnings = appLogLinesSince(since, NO_INBOUND_MEDIA_LOG);
+            if (warnings.length > 0) {
+                throw new Error(`Media watchdog fired:\n${warnings.join("\n")}`);
+            }
+        });
     });
 
     it("should place a call by CID via the dial pad", async () => {
