@@ -9,6 +9,8 @@ import {writeGif} from "./gif.ts";
 import {SignalingTestClient} from "./signaling-client.ts";
 import {captureFrame, freezeClock, type Rect, writeImage} from "./screenshot.ts";
 
+export {STATUS_INDICATOR, waitForConnectedCall} from "./browser.ts";
+
 /**
  * Fixtures and page helpers shared by the documentation screenshot specs in
  * specs-docs/. Everything that would otherwise differ between runs is pinned
@@ -154,9 +156,6 @@ export const SETTINGS_BUTTON = '//button[.//img[@alt="Settings"]]';
 export const TELEPHONE_BUTTON = '//button[.//img[@alt="Telephone"]]';
 /** The button in the right hand column that opens the mission page. */
 export const MISSION_BUTTON = '//button[.//img[@alt="Mission"]]';
-/** The call status indicator in the window's top left corner. */
-export const STATUS_INDICATOR =
-    '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]';
 /** The clock, which also hosts the status indicator. */
 export const CLOCK_CELL = '//div[contains(@title, "Click to switch to")]';
 /** The call display: the topmost call queue slot, which shows the own call. */
@@ -360,21 +359,6 @@ export async function waitUntilEnabled(
     await browser.waitUntil(async () => await element.isEnabled(), {
         timeoutMsg: `${label} did not come online`,
     });
-}
-
-/**
- * Waits until a call is on the call display and the call status indicator is
- * green, which is the point at which every peer of the call carries media.
- * Capturing before it would show a call still negotiating. The indicator is
- * also green without any call, so the call display has to be there first.
- */
-export async function waitForConnectedCall(browser: WebdriverIO.Browser): Promise<void> {
-    await browser.$(CALL_DISPLAY).waitForDisplayed({timeoutMsg: "No call on the call display"});
-    const indicator = browser.$(STATUS_INDICATOR);
-    await browser.waitUntil(
-        async () => ((await indicator.getAttribute("class")) ?? "").includes("bg-green"),
-        {timeoutMsg: "Call did not reach the connected state"},
-    );
 }
 
 /**

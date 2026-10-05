@@ -141,6 +141,63 @@ export function callDisplaySlot(browser: WebdriverIO.Browser): ChainablePromiseE
     );
 }
 
+/** The call status indicator in the window's top left corner. */
+export const STATUS_INDICATOR =
+    '//div[contains(@title, "Click to switch to")]//div[contains(@class, "rounded-full")]';
+
+/**
+ * Waits until a call is on the call display and the call status indicator is
+ * green, which is the point at which every peer of the call carries media.
+ * The indicator is also green without any call, so the call display has to be
+ * there first.
+ */
+export async function waitForConnectedCall(browser: WebdriverIO.Browser): Promise<void> {
+    await callDisplaySlot(browser).waitForDisplayed({timeoutMsg: "No call on the call display"});
+    const indicator = browser.$(STATUS_INDICATOR);
+    await browser.waitUntil(
+        async () => ((await indicator.getAttribute("class")) ?? "").includes("bg-green"),
+        {timeoutMsg: "Call did not reach the connected state"},
+    );
+}
+
+/** Outlasts vacs-webrtc's FIRST_RTP_TIMEOUT (15s) plus the watchdog tick and the client's reaction. */
+export const MEDIA_WATCHDOG_WINDOW_MS = 20_000;
+
+/** Carried by the media watchdog's warning and by every client reaction to it. */
+export const NO_INBOUND_MEDIA_LOG = "No inbound media";
+
+/**
+ * Asserts that every given client keeps its call fully connected for the
+ * whole window. Sampled throughout, because a relay reconnect can be
+ * connected again by the time the window closes.
+ */
+export async function expectCallStaysConnected(
+    clients: Record<string, WebdriverIO.Browser>,
+    windowMs: number,
+): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < windowMs) {
+        for (const [name, browser] of Object.entries(clients)) {
+            const at = `${((Date.now() - start) / 1000).toFixed(1)}s into the window`;
+            if (!(await callDisplaySlot(browser).isExisting())) {
+                throw new Error(`${name} lost its call display ${at}`);
+            }
+            const indicator = (await browser.$(STATUS_INDICATOR).getAttribute("class")) ?? "";
+            if (!indicator.includes("bg-green")) {
+                throw new Error(
+                    `${name} left the connected state ${at} (status indicator: ${indicator})`,
+                );
+            }
+            for (const icon of ["Disconnected", "No incoming audio"]) {
+                if (await browser.$(`img[alt="${icon}"]`).isExisting()) {
+                    throw new Error(`${name} shows the "${icon}" icon ${at}`);
+                }
+            }
+        }
+        await new Promise(resolve => setTimeout(resolve, 250));
+    }
+}
+
 /**
  * Returns the CONF function key, which opens and closes conference modify
  * mode. Matched by its title attribute: a conference call display and a
