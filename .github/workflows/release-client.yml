@@ -220,31 +220,9 @@ jobs:
         shell: bash
         run: echo "EXTRA_TAURI_ARGS=${EXTRA_TAURI_ARGS} --config tauri.appimage.conf.json" >> "$GITHUB_ENV"
 
-      # tauri-bundler fetches these from rolling upstream tags with no checksum and runs them in
-      # the Build step next to the signing key; it skips the download when the file is already in
-      # its cache. A changed upstream file fails here instead of shipping under our signature.
       - name: Pin the AppImage bundler tools (Linux)
         if: matrix.platform == 'ubuntu-24.04'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cache="$HOME/.cache/tauri"
-          mkdir -p "$cache"
-          fetch() {
-            curl -fsSL --retry 3 -o "$cache/$1" "$2"
-            echo "$3  $cache/$1" | sha256sum --check --quiet
-            chmod +x "$cache/$1"
-          }
-          fetch AppRun-x86_64 \
-            https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64 \
-            f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
-          fetch linuxdeploy-07333c6-x86_64.AppImage \
-            https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy-07333c6/linuxdeploy-x86_64.AppImage \
-            36a2d7e274d12e1050d0e9ecfe11d339ed54720b2bec464c286d53f8b07f5c62
-          # continuous is rebuilt from the same source every month, changing its hash each time.
-          fetch linuxdeploy-plugin-appimage.AppImage \
-            https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-appimage-x86_64.AppImage \
-            992d502a248e14ab185448ddf6f6e7d25558cb84d4623c354c3af350c25fccb3
+        run: python3 .github/scripts/appimage_tools.py fetch "$HOME/.cache/tauri"
 
       - name: Install build dependencies (macOS, aarch64)
         if: matrix.platform == 'macos-latest' && matrix.arch == 'aarch64'
