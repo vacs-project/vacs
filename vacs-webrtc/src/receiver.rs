@@ -12,15 +12,19 @@ pub struct Receiver {
 }
 
 impl Receiver {
+    /// Registers the remote track handler on `peer_connection`, paused until [`Self::resume`].
+    ///
+    /// The remote track is announced once, on its first RTP packet, and dropped if no handler is
+    /// set at that point, so this must be called before negotiation starts.
     #[instrument(level = "trace", skip_all)]
     pub fn new(
         peer_connection: &RTCPeerConnection,
-        output_tx: mpsc::Sender<EncodedAudioFrame>,
         received_packets: Arc<AtomicU64>,
         forwarded_packets: Arc<AtomicU64>,
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(());
-        let (output_selection_tx, output_selection_rx) = watch::channel(Some(output_tx));
+        let (output_selection_tx, output_selection_rx) =
+            watch::channel::<Option<mpsc::Sender<EncodedAudioFrame>>>(None);
 
         peer_connection.on_track(Box::new(move |track, _, _| {
             let mut shutdown_rx = shutdown_rx.clone();

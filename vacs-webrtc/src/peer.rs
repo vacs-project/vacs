@@ -110,6 +110,12 @@ impl Peer {
         let received_rtcp = Arc::new(AtomicU64::new(0));
         let sent_frames = Arc::new(AtomicU64::new(0));
 
+        let receiver = crate::Receiver::new(
+            &peer_connection,
+            Arc::clone(&received_rtp),
+            Arc::clone(&forwarded_rtp),
+        );
+
         let rtcp_reader = {
             let received_rtcp = Arc::clone(&received_rtcp);
             tokio::spawn(async move {
@@ -207,7 +213,7 @@ impl Peer {
                 closed: false,
                 track,
                 sender: None,
-                receiver: None,
+                receiver: Some(receiver),
                 events_tx,
                 received_rtp,
                 forwarded_rtp,
@@ -232,18 +238,12 @@ impl Peer {
             return Err(WebrtcError::CallActive);
         }
 
-        if let Some(receiver) = self.receiver.as_ref() {
-            tracing::trace!("Resuming receiver");
-            receiver.resume(output_tx);
-        } else {
-            tracing::trace!("Starting receiver");
-            self.receiver = Some(crate::Receiver::new(
-                &self.peer_connection,
-                output_tx,
-                Arc::clone(&self.received_rtp),
-                Arc::clone(&self.forwarded_rtp),
-            ));
-        }
+        let Some(receiver) = self.receiver.as_ref() else {
+            tracing::warn!("Peer already stopped, cannot start");
+            return Err(WebrtcError::NoCallActive);
+        };
+        tracing::trace!("Resuming receiver");
+        receiver.resume(output_tx);
 
         self.sender = Some(crate::Sender::new(
             Arc::clone(&self.track),

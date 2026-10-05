@@ -4,6 +4,10 @@ use std::time::Duration;
 use vacs_protocol::http::webrtc::IceConfig;
 use vacs_webrtc::Peer;
 
+/// The descriptor count is process-wide, so tests running in parallel would
+/// count each other's sockets.
+static FD_COUNT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn open_fds() -> usize {
     std::fs::read_dir("/proc/self/fd").unwrap().count()
 }
@@ -59,7 +63,7 @@ async fn pump_candidates(
     }
 }
 
-async fn connect_and_close_pair() {
+async fn connect_and_close_pair(send_media: bool) {
     let config = || IceConfig {
         ice_servers: Vec::new(),
         expires_at: None,
@@ -94,22 +98,50 @@ async fn connect_and_close_pair() {
             .expect("peers did not connect in time");
     }
 
+    // Only the offerer starts, so the answerer's track task runs on a peer that is never
+    // started, as for a link whose start is still queued when the call ends.
+    let feeder = if send_media {
+        let (input_tx, input_rx) = tokio::sync::broadcast::channel(64);
+        let (output_tx, _output_rx) = tokio::sync::mpsc::channel(64);
+        offerer
+            .lock()
+            .await
+            .start(input_rx, output_tx)
+            .expect("start offerer");
+        let feeder = tokio::spawn(async move {
+            loop {
+                let _ = input_tx.send(vacs_audio::EncodedAudioFrame::from_static(&[
+                    0xf8, 0xff, 0xfe,
+                ]));
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        Some(feeder)
+    } else {
+        None
+    };
+
     offerer.lock().await.close().await.expect("close offerer");
     answerer.lock().await.close().await.expect("close answerer");
     pump_a.abort();
     pump_b.abort();
+    if let Some(feeder) = feeder {
+        feeder.abort();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_a_connected_peer_pair_releases_its_sockets() {
     install_crypto_provider();
+    let _fd_count = FD_COUNT_LOCK.lock().await;
 
-    connect_and_close_pair().await;
+    connect_and_close_pair(false).await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let baseline = open_fds();
 
     for _ in 0..3 {
-        connect_and_close_pair().await;
+        connect_and_close_pair(false).await;
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
     let after = open_fds();
@@ -123,6 +155,7 @@ async fn closing_a_connected_peer_pair_releases_its_sockets() {
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_a_peer_releases_its_sockets() {
     install_crypto_provider();
+    let _fd_count = FD_COUNT_LOCK.lock().await;
 
     gather_and_close().await;
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -137,5 +170,26 @@ async fn closing_a_peer_releases_its_sockets() {
     assert!(
         after <= baseline + 2,
         "file descriptors leaked across peer lifecycles: {baseline} before, {after} after"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_pair_with_media_flowing_releases_its_sockets() {
+    install_crypto_provider();
+    let _fd_count = FD_COUNT_LOCK.lock().await;
+
+    connect_and_close_pair(true).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let baseline = open_fds();
+
+    for _ in 0..3 {
+        connect_and_close_pair(true).await;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let after = open_fds();
+
+    assert!(
+        after <= baseline + 2,
+        "file descriptors leaked across peer lifecycles with media flowing: {baseline} before, {after} after"
     );
 }
