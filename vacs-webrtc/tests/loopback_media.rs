@@ -126,6 +126,23 @@ async fn start_sending(peer: &Mutex<Peer>) -> (JoinHandle<()>, mpsc::Receiver<En
     (feeder, output_rx)
 }
 
+async fn wait_for_no_inbound_media(
+    events: &mut broadcast::Receiver<PeerEvent>,
+    timeout: Duration,
+) -> bool {
+    tokio::time::timeout(timeout, async {
+        loop {
+            match events.recv().await {
+                Ok(PeerEvent::NoInboundMedia) => return,
+                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => std::future::pending().await,
+            }
+        }
+    })
+    .await
+    .is_ok()
+}
+
 /// In a conference the newest participant connects several links at once and
 /// starts each one only after the app state lock frees up, so its peers may
 /// already be sending. The late side must still receive their audio.
@@ -155,5 +172,46 @@ async fn peer_started_after_remote_media_arrives_still_receives() {
     assert!(
         matches!(prompt_received, Ok(Some(_))),
         "peer started before the remote sent received no audio"
+    );
+}
+
+/// The remote's receiver reports keep the RTCP counter moving, so only the
+/// missing RTP shows that its audio never reaches this peer.
+#[tokio::test(flavor = "multi_thread")]
+async fn watchdog_signals_when_rtcp_flows_but_rtp_never_arrives() {
+    let pair = ConnectedPair::new().await;
+    let mut offerer_events = pair.offerer.lock().await.subscribe();
+
+    let (offerer_feeder, _offerer_output_rx) = start_sending(&pair.offerer).await;
+
+    let signalled = wait_for_no_inbound_media(&mut offerer_events, Duration::from_secs(30)).await;
+
+    offerer_feeder.abort();
+    pair.close().await;
+
+    assert!(signalled, "a peer that never received RTP was not reported");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn watchdog_stays_quiet_while_both_sides_send() {
+    let pair = ConnectedPair::new().await;
+    let mut offerer_events = pair.offerer.lock().await.subscribe();
+    let mut answerer_events = pair.answerer.lock().await.subscribe();
+
+    let (offerer_feeder, _offerer_output_rx) = start_sending(&pair.offerer).await;
+    let (answerer_feeder, _answerer_output_rx) = start_sending(&pair.answerer).await;
+
+    let (offerer_signalled, answerer_signalled) = tokio::join!(
+        wait_for_no_inbound_media(&mut offerer_events, Duration::from_secs(8)),
+        wait_for_no_inbound_media(&mut answerer_events, Duration::from_secs(8)),
+    );
+
+    offerer_feeder.abort();
+    answerer_feeder.abort();
+    pair.close().await;
+
+    assert!(
+        !offerer_signalled && !answerer_signalled,
+        "the watchdog reported a healthy link"
     );
 }
