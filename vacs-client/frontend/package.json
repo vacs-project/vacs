@@ -22,9 +22,9 @@
   "dependencies": {
     "@preact/signals": "^2.11.2",
     "@tailwindcss/vite": "^4.3.3",
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-deep-link": "^2.4.10",
-    "@tauri-apps/plugin-log": "^2.9.2",
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-deep-link": "^2.6.1",
+    "@tauri-apps/plugin-log": "^2.10.0",
     "clsx": "^2.1.1",
     "preact": "^10.29.8",
     "react": "npm:@preact/compat@^18.3.1",
