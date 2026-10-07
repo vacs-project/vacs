@@ -5,7 +5,7 @@ when the link is resolved through the packaged entry (xdg-desktop-portal, app ch
 Drop this override once https://github.com/tauri-apps/tauri/issues/15928 is fixed upstream.
 --}}
 [Desktop Entry]
-Categories={{categories}}
+Categories=AudioVideo;Audio;
 {{#if comment}}
 Comment={{comment}}
 {{/if}}
