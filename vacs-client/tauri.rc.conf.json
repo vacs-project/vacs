@@ -2,5 +2,19 @@
   "$schema": "https://schema.tauri.app/config/2",
   "identifier": "app.vacs.vacs-client-rc",
   "mainBinaryName": "vacs-rc",
-  "productName": "vacs-rc"
+  "productName": "vacs-rc",
+  "bundle": {
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/vacs-client": null
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/bin/vacs-client": null
+        }
+      }
+    }
+  }
 }

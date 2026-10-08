@@ -16,7 +16,7 @@ const VACS_DATA_DIR = process.env.VACS_DATA_DIR || path.resolve(VACS_ROOT, "..",
 
 const IS_WINDOWS = process.platform === "win32";
 const BINARY_EXT = IS_WINDOWS ? ".exe" : "";
-const APP_BINARY = path.resolve(VACS_ROOT, "target", "debug", `vacs-client${BINARY_EXT}`);
+const APP_BINARY = path.resolve(VACS_ROOT, "target", "debug", `vacs${BINARY_EXT}`);
 
 const MOCK_VATSIM_PORT = 4567;
 const VACS_SERVER_PORT = 4568;
