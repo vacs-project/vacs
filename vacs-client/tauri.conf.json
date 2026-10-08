@@ -68,7 +68,10 @@
           "shared-mime-info",
           "xdg-utils"
         ],
-        "recommends": ["pipewire-pulse", "pipewire-alsa", "libasound2-plugins"]
+        "recommends": ["pipewire-pulse", "pipewire-alsa", "libasound2-plugins"],
+        "files": {
+          "/usr/bin/vacs-client": "bundle/linux/vacs-client"
+        }
       },
       "rpm": {
         "desktopTemplate": "bundle/linux/vacs.desktop",
@@ -81,7 +84,10 @@
           "shared-mime-info",
           "xdg-utils"
         ],
-        "recommends": ["pipewire-pulseaudio", "pipewire-alsa", "alsa-plugins-pulseaudio"]
+        "recommends": ["pipewire-pulseaudio", "pipewire-alsa", "alsa-plugins-pulseaudio"],
+        "files": {
+          "/usr/bin/vacs-client": "bundle/linux/vacs-client"
+        }
       }
     },
     "macOS": {
