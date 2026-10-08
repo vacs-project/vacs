@@ -20,7 +20,7 @@
     "build:e2e": "tsc && vite build --mode e2e"
   },
   "dependencies": {
-    "@preact/signals": "^2.11.2",
+    "@preact/signals": "^2.11.3",
     "@tauri-apps/api": "^2.12.1",
     "@tauri-apps/plugin-deep-link": "^2.6.1",
     "@tauri-apps/plugin-log": "^2.10.0",
