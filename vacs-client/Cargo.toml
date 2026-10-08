@@ -43,7 +43,7 @@ cookie_store = { workspace = true }
 futures-util = { workspace = true }
 hound = { workspace = true }
 keyboard-types = { workspace = true }
-keyring = { workspace = true }
+keyring-core = { workspace = true }
 log = { workspace = true }
 notify-debouncer-full = { workspace = true }
 open = { workspace = true }
@@ -79,14 +79,17 @@ windows = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true, features = ["platform-windows"] }
 sysinfo = { workspace = true }
 wasapi = { workspace = true }
+windows-native-keyring-store = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { workspace = true }
 objc2-core-graphics = { workspace = true }
 objc2-core-foundation = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { workspace = true }
+dbus-secret-service-keyring-store = { workspace = true }
 futures-util = { workspace = true }
 pipewire = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true }
