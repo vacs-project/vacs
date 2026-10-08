@@ -16,7 +16,7 @@ mod post {
     use axum::Json;
     use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode};
-    use jsonwebtoken::{DecodingKey, Validation, decode, jwk::JwkSet};
+    use octocrab::jsonwebtoken::{self, DecodingKey, Validation, decode, jwk::JwkSet};
     use serde::Deserialize;
     use std::sync::Arc;
     use std::time::Duration;

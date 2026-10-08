@@ -98,11 +98,9 @@ impl GitHubCatalog {
         let client = if let Some(credentials) = credentials {
             tracing::info!(?credentials, "Using GitHub app authentication");
 
-            client_builder = client_builder.app(
-                credentials.app_id.into(),
-                jsonwebtoken::EncodingKey::from_rsa_pem(credentials.app_private_key.as_bytes())
-                    .context("Failed to parse GitHub app private key")?,
-            );
+            client_builder = client_builder
+                .app_from_rsa_pem(credentials.app_id.into(), &credentials.app_private_key)
+                .context("Failed to parse GitHub app private key")?;
 
             client_builder
                 .build()
