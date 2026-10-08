@@ -2,8 +2,11 @@ pub mod cookies;
 
 use anyhow::Context;
 use base64::prelude::*;
-use keyring::Entry;
-use keyring::error::Error::NoEntry;
+use keyring_core::Entry;
+use keyring_core::Error::NoEntry;
+use std::sync::LazyLock;
+
+static DEFAULT_STORE: LazyLock<keyring_core::Result<()>> = LazyLock::new(set_default_store);
 
 pub enum SecretKey {
     CookieStoreEncryptionKey,
@@ -59,6 +62,30 @@ pub fn remove(key: SecretKey) -> anyhow::Result<()> {
     }
 }
 
+fn set_default_store() -> keyring_core::Result<()> {
+    #[cfg(target_os = "linux")]
+    let store = dbus_secret_service_keyring_store::Store::new()?;
+    #[cfg(target_os = "macos")]
+    let store = apple_native_keyring_store::keychain::Store::new()?;
+    #[cfg(target_os = "windows")]
+    let store = windows_native_keyring_store::Store::new()?;
+    keyring_core::set_default_store(store);
+    Ok(())
+}
+
 fn entry_for_key(key: SecretKey) -> anyhow::Result<Entry> {
+    if let Err(err) = &*DEFAULT_STORE {
+        anyhow::bail!("Failed to initialize credential store: {err}");
+    }
     Entry::new(env!("CARGO_PKG_NAME"), key.as_str()).context("Failed to create entry")
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn store_access_inside_tokio_runtime_does_not_panic() {
+        let _ = get(SecretKey::CookieStoreEncryptionKey);
+    }
 }

@@ -11,7 +11,7 @@
 //! Press joystick buttons / replug devices; Ctrl+C to exit.
 
 use sdl3::event::Event;
-use sdl3::sys::joystick::SDL_JoystickID;
+use sdl3::joystick::JoystickId;
 use std::collections::HashMap;
 
 fn main() {
@@ -39,7 +39,7 @@ fn run_poller() {
     );
     println!("Waiting for joystick events (buttons, hotplug)...");
 
-    let mut open: HashMap<u32, sdl3::joystick::Joystick> = HashMap::new();
+    let mut open: HashMap<JoystickId, sdl3::joystick::Joystick> = HashMap::new();
 
     loop {
         let Some(event) = pump.wait_event_timeout(std::time::Duration::from_millis(250)) else {
@@ -47,7 +47,7 @@ fn run_poller() {
         };
 
         match event {
-            Event::JoyDeviceAdded { which, .. } => match joystick.open(SDL_JoystickID(which)) {
+            Event::JoyDeviceAdded { which, .. } => match joystick.open(which) {
                 Ok(dev) => {
                     println!(
                         "ADDED   id={which} guid={} name={:?} buttons={}",

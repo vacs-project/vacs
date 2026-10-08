@@ -24,6 +24,10 @@ updates:
         patterns:
           - "pipewire*"
           - "libspa*"
+      sdl3:
+        patterns:
+          - "sdl3"
+          - "sdl3-sys"
       tauri-wdio:
         patterns:
           - "tauri-plugin-wdio*"

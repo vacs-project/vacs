@@ -21,6 +21,7 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 ashpd = { version = "0.13.11", features = ["global_shortcuts", "raw_handle", "wayland"] }
 async-trait = "0.1.89"
 axum = "0.8.9"
@@ -37,6 +38,9 @@ cookie_store = "0.22.1"
 cpal = { version = "0.18.2", features = ["pipewire"] }
 csv = "1.4.0"
 dashmap = "6.2.1"
+# The zbus store panics inside a tokio runtime: ashpd enables zbus/tokio, which makes zbus's
+# blocking API start its own runtime. The libdbus store has no runtime.
+dbus-secret-service-keyring-store = { version = "1.0.1", features = ["crypto-rust"] }
 flate2 = "1.1.9"
 futures-util = "0.3.32"
 governor = "0.10.4"
@@ -46,7 +50,7 @@ http = "1.4.1"
 http-body-util = "0.1.3"
 jsonwebtoken = "10.4.0"
 keyboard-types = { version = "0.8.3", features = ["serde"] }
-keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-openssl"] }
+keyring-core = "1.0.0"
 log = "0.4.30"
 lru = "0.18.0"
 metrics = "0.24.6"
@@ -71,10 +75,10 @@ rfd = { version = "0.17.2", features = ["common-controls-v6"] }
 ringbuf = "0.5.0"
 rubato = "5.0.0"
 rustls = { version = "0.23.40", features = ["aws-lc-rs"] }
-sdl3 = { version = "0.18.4", features = ["build-from-source-static"] }
+sdl3 = { version = "0.20.0", features = ["build-from-source-static"] }
 # Slim the vendored SDL3 static build down to the joystick subsystem (we use SDL solely
 # for global joystick button capture); notably no-sdl-video avoids X11/Wayland build deps.
-sdl3-sys = { version = "0.6.7", features = [
+sdl3-sys = { version = ">=0.7.2", features = [
     # Required for a video-less build on Linux; no effect on Windows/macOS.
     "sdl-unix-console-build",
     "no-sdl-video",
@@ -103,10 +107,9 @@ tauri-plugin-prevent-default = "6.0.0"
 tauri-plugin-single-instance = "2.5.2"
 tauri-plugin-updater = "2.13.1"
 # WebDriver automation plugins for E2E tests. Young packages with recent
-# breaking changes, pinned exactly; bump deliberately. tauri-plugin-wdio-webdriver is
-# source-patched to an unreleased upstream commit, see [patch.crates-io].
-tauri-plugin-wdio = "=1.4.0"
-tauri-plugin-wdio-webdriver = "=1.4.0"
+# breaking changes, pinned exactly; bump deliberately.
+tauri-plugin-wdio = "=1.5.0"
+tauri-plugin-wdio-webdriver = "=1.5.0"
 tempfile = "3.27.0"
 test-log = { version = "0.2.21", features = ["trace"] }
 thiserror = "2.0.18"
@@ -132,8 +135,9 @@ vacs-signaling = { path = "vacs-signaling" }
 vacs-vatsim = { path = "vacs-vatsim", default-features = false }
 vacs-webrtc = { path = "vacs-webrtc" }
 vergen-git2 = { version = "10.0.0", features = ["build", "cargo", "rustc"] }
-wasapi = "0.24.0"
+wasapi = "0.25.0"
 webrtc = "0.17.1"
+windows-native-keyring-store = "1.1.0"
 x11rb = { version = "0.14.0", features = ["xinput", "xtest"] }
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
@@ -167,10 +171,6 @@ axum-login = { git = "https://github.com/maxcountryman/axum-login", rev = "151c7
 # tower-sessions 0.15 bump. Upstream main carries the 0.15 support under the same, still
 # unpublished, 0.16.0 version number. Drop once a release newer than 0.16.0 is published.
 tower-sessions-redis-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", rev = "be0f230fadb4ca0496d4cabc946ae7778eee37e6" }
-# tauri-plugin-wdio-webdriver 1.4.0 binds webview2-com 0.38 / windows 0.61 and fails to compile on
-# Windows against Tauri 2.12 (webview2-com 0.39). This rev is upstream main with
-# https://github.com/webdriverio/desktop-mobile/pull/687. Drop once 1.5.0 is published.
-tauri-plugin-wdio-webdriver = { git = "https://github.com/webdriverio/desktop-mobile", rev = "e4bdb66ec5b1d96b7fd766d70370a8e8361e0459" }
 
 [workspace.lints.clippy]
 semicolon_if_nothing_returned = "warn"
