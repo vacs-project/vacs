@@ -32,7 +32,7 @@ import {fileURLToPath} from "url";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const VACS_ROOT = path.resolve(__dirname, "..", "..", "..");
 const BINARY_EXT = process.platform === "win32" ? ".exe" : "";
-const APP_BINARY = path.resolve(VACS_ROOT, "target", "debug", `vacs-client${BINARY_EXT}`);
+const APP_BINARY = path.resolve(VACS_ROOT, "target", "debug", `vacs${BINARY_EXT}`);
 const PID_FILE = path.resolve(__dirname, "..", ".app-pids");
 const E2E_IDENTIFIER = "app.vacs.vacs-client-e2e";
 
