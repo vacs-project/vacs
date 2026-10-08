@@ -9,6 +9,18 @@ pub trait WindowProvider {
     fn position(&self) -> Result<PhysicalPosition<i32>, Error>;
 }
 
+fn content_size(window: &WebviewWindow) -> Result<PhysicalSize<u32>, Error> {
+    // GTK reports the window size including client-side decorations (titlebar, shadow) where the
+    // compositor does not draw them, while set_size sizes the content area. The webview fills
+    // exactly that content area.
+    #[cfg(target_os = "linux")]
+    let size = AsRef::<tauri::Webview>::as_ref(window).size();
+    #[cfg(not(target_os = "linux"))]
+    let size = window.inner_size();
+    size.context("Failed to get window size")
+        .map_err(Into::into)
+}
+
 impl WindowProvider for Window {
     fn window(&self) -> Result<WebviewWindow, Error> {
         self.get_webview_window("main")
@@ -23,9 +35,7 @@ impl WindowProvider for Window {
     }
 
     fn size(&self) -> Result<PhysicalSize<u32>, Error> {
-        self.inner_size()
-            .context("Failed to get window size")
-            .map_err(Into::into)
+        content_size(&WindowProvider::window(self)?)
     }
 
     fn position(&self) -> Result<PhysicalPosition<i32>, Error> {
@@ -47,9 +57,7 @@ impl WindowProvider for WebviewWindow {
     }
 
     fn size(&self) -> Result<PhysicalSize<u32>, Error> {
-        self.inner_size()
-            .context("Failed to get window size")
-            .map_err(Into::into)
+        content_size(self)
     }
 
     fn position(&self) -> Result<PhysicalPosition<i32>, Error> {
@@ -74,10 +82,7 @@ impl WindowProvider for App {
     }
 
     fn size(&self) -> Result<PhysicalSize<u32>, Error> {
-        self.window()?
-            .inner_size()
-            .context("Failed to get window size")
-            .map_err(Into::into)
+        content_size(&self.window()?)
     }
 
     fn position(&self) -> Result<PhysicalPosition<i32>, Error> {
@@ -103,10 +108,7 @@ impl WindowProvider for AppHandle {
     }
 
     fn size(&self) -> Result<PhysicalSize<u32>, Error> {
-        self.window()?
-            .inner_size()
-            .context("Failed to get window size")
-            .map_err(Into::into)
+        content_size(&self.window()?)
     }
 
     fn position(&self) -> Result<PhysicalPosition<i32>, Error> {

@@ -273,6 +273,12 @@ pub async fn app_set_fullscreen(
             window
                 .set_fullscreen(false)
                 .context("Failed to disable fullscreen")?;
+
+            // GTK adds its client-side titlebar to a requested size only once the window has
+            // left fullscreen, so restoring earlier shrinks the content by the titlebar height.
+            #[cfg(target_os = "linux")]
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
             state
                 .config
                 .client
