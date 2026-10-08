@@ -28,7 +28,6 @@ governor = { workspace = true }
 hmac = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
-jsonwebtoken = { workspace = true }
 lru = { workspace = true }
 metrics = { workspace = true }
 nonzero_ext = { workspace = true }
