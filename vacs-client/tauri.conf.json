@@ -53,7 +53,8 @@
         "installerIcon": "frontend/icons/installer/icon.ico",
         "uninstallerHeaderImage": "frontend/icons/uninstaller/header.bmp",
         "uninstallerIcon": "frontend/icons/uninstaller/icon.ico",
-        "installMode": "both"
+        "installMode": "both",
+        "installerHooks": "bundle/windows/hooks.nsh"
       }
     },
     "linux": {
