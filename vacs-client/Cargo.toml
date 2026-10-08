@@ -94,6 +94,7 @@ tauri-plugin-prevent-default = { workspace = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { workspace = true }
 dbus-secret-service-keyring-store = { workspace = true }
+dirs = { workspace = true }
 futures-util = { workspace = true }
 pipewire = { workspace = true }
 tauri-plugin-prevent-default = { workspace = true }

@@ -8523,6 +8523,7 @@ dependencies = [
  "config",
  "cookie_store",
  "dbus-secret-service-keyring-store",
+ "dirs",
  "futures-util",
  "hound",
  "keyboard-types",

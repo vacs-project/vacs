@@ -41,6 +41,7 @@ dashmap = "6.2.1"
 # The zbus store panics inside a tokio runtime: ashpd enables zbus/tokio, which makes zbus's
 # blocking API start its own runtime. The libdbus store has no runtime.
 dbus-secret-service-keyring-store = { version = "1.0.1", features = ["crypto-rust"] }
+dirs = "7.0.0"
 flate2 = "1.1.9"
 futures-util = "0.3.32"
 governor = "0.10.4"

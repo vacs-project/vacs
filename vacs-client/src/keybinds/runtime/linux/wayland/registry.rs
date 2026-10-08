@@ -21,6 +21,12 @@ const REGISTRY_INTERFACE: &str = "org.freedesktop.host.portal.Registry";
 /// Basename of the desktop entry the bundler installs, named after `productName`.
 const DESKTOP_APP_ID: &str = "vacs";
 
+/// URL handler entry the stable binary wrote while it was named `vacs-client`. Portal backends keep
+/// global shortcuts per app id, so a stable AppImage that registered under it keeps doing so.
+const LEGACY_URL_HANDLER_APP_ID: &str = "vacs-client-handler";
+
+const STABLE_URL_HANDLER_APP_ID: &str = "vacs-handler";
+
 /// Opens a portal connection registered under the first app id the portal accepts.
 ///
 /// Falls back to an unregistered connection when the portal has no registry or rejects
@@ -78,15 +84,29 @@ fn is_missing_interface(error_name: &zbus::names::ErrorName<'_>) -> bool {
     )
 }
 
-/// The packaged desktop entry first, then the URL handler entry that the deep-link plugin
-/// writes to the user's applications directory on every launch. The latter is the only entry
-/// describing a bare AppImage.
+/// The packaged desktop entry first, then the URL handler entries that the deep-link plugin
+/// writes to the user's applications directory. Those are the only entries describing a bare
+/// AppImage.
 fn candidate_app_ids() -> Vec<String> {
+    candidates(url_handler_app_id(), legacy_url_handler_exists())
+}
+
+fn candidates(url_handler: Option<String>, legacy_url_handler_exists: bool) -> Vec<String> {
     let mut candidates = vec![DESKTOP_APP_ID.to_string()];
-    if let Some(handler) = url_handler_app_id() {
-        candidates.push(handler);
+    if legacy_url_handler_exists && url_handler.as_deref() == Some(STABLE_URL_HANDLER_APP_ID) {
+        candidates.push(LEGACY_URL_HANDLER_APP_ID.to_string());
     }
+    candidates.extend(url_handler);
     candidates
+}
+
+/// tauri-plugin-deep-link writes its entry below tauri's data dir, which is `dirs::data_dir`.
+fn legacy_url_handler_exists() -> bool {
+    dirs::data_dir().is_some_and(|dir| {
+        dir.join("applications")
+            .join(format!("{LEGACY_URL_HANDLER_APP_ID}.desktop"))
+            .is_file()
+    })
 }
 
 /// Mirrors the file name tauri-plugin-deep-link derives for its desktop entry.
@@ -111,9 +131,36 @@ mod tests {
     fn candidates_prefer_the_packaged_entry_over_the_url_handler() {
         let candidates = candidate_app_ids();
         assert_eq!(candidates[0], DESKTOP_APP_ID);
-        assert_eq!(candidates.len(), 2);
-        assert!(candidates[1].ends_with("-handler"));
-        assert_ne!(candidates[1], "-handler");
+        assert!(candidates.last().unwrap().ends_with("-handler"));
+        assert_ne!(candidates.last().unwrap(), "-handler");
+    }
+
+    #[test]
+    fn legacy_url_handler_precedes_the_stable_one_while_its_entry_exists() {
+        assert_eq!(
+            candidates(Some(STABLE_URL_HANDLER_APP_ID.to_string()), true),
+            [
+                DESKTOP_APP_ID,
+                LEGACY_URL_HANDLER_APP_ID,
+                STABLE_URL_HANDLER_APP_ID
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_url_handler_is_skipped_without_its_entry() {
+        assert_eq!(
+            candidates(Some(STABLE_URL_HANDLER_APP_ID.to_string()), false),
+            [DESKTOP_APP_ID, STABLE_URL_HANDLER_APP_ID]
+        );
+    }
+
+    #[test]
+    fn legacy_url_handler_is_not_offered_to_release_candidates() {
+        assert_eq!(
+            candidates(Some("vacs-rc-handler".to_string()), true),
+            [DESKTOP_APP_ID, "vacs-rc-handler"]
+        );
     }
 
     #[test]
