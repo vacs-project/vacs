@@ -53,13 +53,9 @@ impl DatasetManager {
                 "Using GitHub App authentication for dataset repository"
             );
 
-            let key =
-                jsonwebtoken::EncodingKey::from_rsa_pem(credentials.app_private_key.as_bytes())
-                    .context(
-                        "Failed to parse GitHub App private key for dataset repository access",
-                    )?;
-
-            client_builder = client_builder.app(credentials.app_id.into(), key);
+            client_builder = client_builder
+                .app_from_rsa_pem(credentials.app_id.into(), &credentials.app_private_key)
+                .context("Failed to parse GitHub App private key for dataset repository access")?;
 
             client_builder
                 .build()
