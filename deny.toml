@@ -61,7 +61,6 @@ allow-git = [
     "https://github.com/maxcountryman/axum-login",
     "https://github.com/maxcountryman/tower-sessions-stores",
     "https://github.com/aembke/redis-protocol.rs",
-    "https://github.com/webdriverio/desktop-mobile",
 ]
 
 [sources.allow-org]
