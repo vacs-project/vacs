@@ -33,7 +33,7 @@ use crate::keybinds::runtime;
 use crate::keybinds::{JoystickButton, JoystickDevice, KeyEvent, KeybindsError};
 use keyboard_types::KeyState;
 use sdl3::event::Event;
-use sdl3::sys::joystick::SDL_JoystickID;
+use sdl3::joystick::JoystickId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +62,7 @@ type SenderRegistry = Arc<parking_lot::Mutex<Vec<UnboundedSender<KeyEvent>>>>;
 
 /// Currently connected devices, keyed by SDL instance id and maintained by the
 /// poller thread. Shared so the device list can be queried for the settings UI.
-type DeviceRegistry = Arc<parking_lot::Mutex<HashMap<u32, JoystickDevice>>>;
+type DeviceRegistry = Arc<parking_lot::Mutex<HashMap<JoystickId, JoystickDevice>>>;
 
 #[derive(Debug, Default)]
 pub struct JoystickService {
@@ -235,7 +235,7 @@ fn run_poller(
     // Keyed by SDL joystick instance id. Devices already connected produce
     // synthetic JoyDeviceAdded events during SDL init; drain them before
     // signaling readiness so an immediate device-list query sees them.
-    let mut open: HashMap<u32, OpenDevice> = HashMap::new();
+    let mut open: HashMap<JoystickId, OpenDevice> = HashMap::new();
     while let Some(event) = pump.poll_event() {
         handle_event(&joystick, &devices, &mut open, &send, event);
     }
@@ -256,12 +256,12 @@ fn run_poller(
 fn handle_event(
     joystick: &sdl3::JoystickSubsystem,
     devices: &DeviceRegistry,
-    open: &mut HashMap<u32, OpenDevice>,
+    open: &mut HashMap<JoystickId, OpenDevice>,
     send: &impl Fn(KeyEvent),
     event: Event,
 ) {
     match event {
-        Event::JoyDeviceAdded { which, .. } => match joystick.open(SDL_JoystickID(which)) {
+        Event::JoyDeviceAdded { which, .. } => match joystick.open(which) {
             Ok(device) => {
                 let guid = device.guid().to_string();
                 let name = device.name();
