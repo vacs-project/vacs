@@ -5,6 +5,7 @@ import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {isTauri} from "../../transport";
 import {RingSound, RingSounds, RingSoundType} from "../../types/audio.ts";
+import Hint from "../Hint.tsx";
 import SelectionField from "../ui/SelectionField.tsx";
 
 function fileName(path: string): string {
@@ -36,7 +37,15 @@ function RingSoundSettings() {
 
     return (
         <div className="w-full flex flex-col gap-2 pt-2 border-t-2 border-zinc-200">
-            <p className="font-semibold uppercase text-center">Ring sounds</p>
+            <div className="flex flex-row gap-2 items-center justify-center">
+                <p className="font-semibold uppercase text-center">Ring sounds</p>
+                <Hint>
+                    <p>
+                        Pick a custom chime (WAV, up to 30s). Clear the selection to reset to the
+                        built-in chime.
+                    </p>
+                </Hint>
+            </div>
             <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-center">
                 <p>Ring</p>
                 {ringSounds !== undefined ? (
@@ -61,10 +70,6 @@ function RingSoundSettings() {
                     <p>Loading...</p>
                 )}
             </div>
-            <p className="text-sm text-gray-700">
-                Pick a custom chime above (WAV, up to 30 s). Clear the selection to reset to the
-                built-in chime.
-            </p>
         </div>
     );
 }
