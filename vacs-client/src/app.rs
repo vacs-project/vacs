@@ -5,6 +5,7 @@ use crate::config::BackendEndpoint;
 use crate::error::Error;
 use crate::keybinds::JoystickDevice;
 use crate::keybinds::{KeybindsConfig, TransmitConfig};
+use crate::platform::Platform;
 use crate::playback::PlaybackConfig;
 use crate::radio::RadioConfig;
 use crate::remote::RemoteConfig;
@@ -168,6 +169,10 @@ pub struct ClientConfig {
     pub position: Option<PhysicalPosition<i32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<PhysicalSize<u32>>,
+    /// Whether `size` measures the content area rather than the GTK window including its
+    /// client-side decorations. On Wayland, a size without this flag is discarded on restore.
+    #[serde(default)]
+    pub size_is_content: bool,
     #[serde(default = "default_release_channel")]
     pub release_channel: ReleaseChannel,
     pub signaling_auto_reconnect: bool,
@@ -229,6 +234,7 @@ impl Default for ClientConfig {
             fullscreen: false,
             position: None,
             size: None,
+            size_is_content: false,
             release_channel: default_release_channel(),
             signaling_auto_reconnect: true,
             transmit_config: TransmitConfig::default(),
@@ -306,6 +312,7 @@ impl ClientConfig {
 
         self.position = Some(position);
         self.size = Some(size);
+        self.size_is_content = true;
 
         log::debug!(
             "Updating window position to {:?} and size to {:?}",
@@ -313,6 +320,16 @@ impl ClientConfig {
             self.size.unwrap()
         );
         Ok(())
+    }
+
+    fn restorable_size(&self, platform: Platform) -> Option<PhysicalSize<u32>> {
+        if platform == Platform::LinuxWayland && !self.size_is_content {
+            if let Some(size) = self.size {
+                log::info!("Discarding window size {size:?} persisted including decorations");
+            }
+            return None;
+        }
+        self.size
     }
 
     pub fn restore_window_state<P>(&self, provider: &P) -> Result<(), Error>
@@ -363,7 +380,7 @@ impl ClientConfig {
             }
         }
 
-        if let Some(mut size) = self.size {
+        if let Some(mut size) = self.restorable_size(*Platform::get()) {
             if size.width == 0 || size.height == 0 {
                 log::warn!("Window size {size:?} is 0, restoring default size");
                 size = Self::default_window_size(&window)?;
@@ -372,42 +389,6 @@ impl ClientConfig {
             window
                 .set_size(size)
                 .context("Failed to set main window size")?;
-
-            #[cfg(target_os = "linux")]
-            {
-                log::debug!("Verifying correct window size after decorations apply");
-
-                // This timeout is **absolutely crucial** as the window manager does not update the
-                // window size immediately after a resize has been requested, but only after a short
-                // delay. If we were to compare the window size immediately after resizing, we would
-                // always receive the expected values, however, the window manager would still apply
-                // decorations later, changing the actual size, which is then incorrectly persisted.
-                // This will result in a short "flicker" of the window size, which we would optimally
-                // hide by simply not showing the window until we're sure its size is correct. However,
-                // since there's another bug that prevents the menu bar from being interactable if the
-                // window is initialized hidden, which is even less desirable, we'll have to live with
-                // the flicker for now.
-                // Upstream tauri/tao issues related to this:
-                // - https://github.com/tauri-apps/tao/issues/929
-                // - https://github.com/tauri-apps/tao/pull/1055
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                let actual_size = window.inner_size().context("Failed to get window size")?;
-
-                let width_diff = actual_size.width.saturating_sub(size.width);
-                let height_diff = actual_size.height.saturating_sub(size.height);
-
-                if width_diff > 0 || height_diff > 0 {
-                    log::warn!(
-                        "Window size changed after decorations apply, expected: {size:?}, got: {actual_size:?}. Resizing again"
-                    );
-                    window
-                        .set_size(PhysicalSize::new(
-                            size.width.saturating_sub(width_diff),
-                            size.height.saturating_sub(height_diff),
-                        ))
-                        .context("Failed to fix main window size")?;
-                }
-            }
         }
 
         Ok(())
@@ -529,5 +510,44 @@ pub struct PersistedClientConfig {
 impl From<ClientConfig> for PersistedClientConfig {
     fn from(client: ClientConfig) -> Self {
         Self { client }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_size(size_is_content: bool) -> ClientConfig {
+        ClientConfig {
+            size: Some(PhysicalSize::new(1090, 891)),
+            size_is_content,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn wayland_discards_a_size_persisted_including_decorations() {
+        assert_eq!(
+            config_with_size(false).restorable_size(Platform::LinuxWayland),
+            None
+        );
+    }
+
+    #[test]
+    fn wayland_restores_a_content_size() {
+        assert_eq!(
+            config_with_size(true).restorable_size(Platform::LinuxWayland),
+            Some(PhysicalSize::new(1090, 891))
+        );
+    }
+
+    #[test]
+    fn other_platforms_restore_a_size_without_the_content_flag() {
+        for platform in [Platform::LinuxX11, Platform::Windows, Platform::MacOs] {
+            assert_eq!(
+                config_with_size(false).restorable_size(platform),
+                Some(PhysicalSize::new(1090, 891))
+            );
+        }
     }
 }
