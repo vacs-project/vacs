@@ -295,7 +295,7 @@ describe("Documentation screenshots: interface", function () {
         const clientA = getClient("clientA");
         await loginAndConnect(clientA, CID_PROFILE);
         await applyFixtures(clientA, "clientA");
-        await applyTrackAudioMocks("clientA", "Connected", [
+        await applyTrackAudioMocks("clientA", "VoiceConnected", [
             radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
             radioStation("LOWW_APP", 134_675_000, {rx: true}),
             radioStation("LOWW_TWR", 119_400_000),

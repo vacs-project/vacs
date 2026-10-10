@@ -64,7 +64,7 @@ async function openStations(
     stations: RadioStationFixture[],
     options: {cplMode?: "Original" | "Fast"} = {},
 ): Promise<void> {
-    await applyTrackAudioMocks("clientA", "Connected", stations, options);
+    await applyTrackAudioMocks("clientA", "VoiceConnected", stations, options);
     // Every toggle on a frequency object invokes these; TrackAudio's answer is
     // the station update the test emits.
     await mockCommand("clientA", "radio_set_station_state", {resolve: null});
@@ -114,7 +114,7 @@ describe("Documentation screenshots: radio", function () {
         await emitEvent("clientA", "radio:state", {state: "TxActive"});
         await capture("radio_freqobj_tx_active");
 
-        await emitEvent("clientA", "radio:state", {state: "Connected"});
+        await emitEvent("clientA", "radio:state", {state: "VoiceConnected"});
         await updateStation({...SINGLE, rx: true, tx: true, headset: false});
         await capture("radio_freqobj_speaker");
 
