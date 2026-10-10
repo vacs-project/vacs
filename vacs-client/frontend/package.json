@@ -25,7 +25,7 @@
     "@tauri-apps/plugin-deep-link": "^2.6.1",
     "@tauri-apps/plugin-log": "^2.10.0",
     "clsx": "^2.1.1",
-    "preact": "^10.29.8",
+    "preact": "^11.0.0",
     "react": "npm:@preact/compat@^18.3.1",
     "react-dom": "npm:@preact/compat@^18.3.1",
     "zustand": "^5.0.15"
