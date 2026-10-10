@@ -87,9 +87,9 @@ describe("RadioPage", () => {
         expect(screen.getByText("TrackAudio radio connection failed.")).toBeDefined();
     });
 
-    it("renders the station list when connected", async () => {
+    it("renders the station list when voice connected", async () => {
         useSettingsStore.setState({radioConfig: TRACK_AUDIO});
-        useRadioStore.setState({radioState: {state: "Connected"}});
+        useRadioStore.setState({radioState: {state: "VoiceConnected"}});
         invoke.mockImplementation((cmd: string) =>
             cmd === "radio_get_stations" ? Promise.resolve([STATION]) : Promise.resolve(undefined),
         );
@@ -108,7 +108,7 @@ describe("RadioPage", () => {
                 return Promise.resolve(() => {});
             });
             useSettingsStore.setState({radioConfig: TRACK_AUDIO});
-            useRadioStore.setState({radioState: {state: "Connected"}});
+            useRadioStore.setState({radioState: {state: "VoiceConnected"}});
             invoke.mockImplementation((cmd: string) =>
                 cmd === "radio_get_stations"
                     ? Promise.resolve([STATION])
@@ -142,6 +142,81 @@ describe("RadioPage", () => {
             await emit("radio:station-updated", {...STATION, callsign: "VIE_GND"});
 
             await waitFor(() => expect(screen.getByText("VIE_GND")).toBeDefined());
+        });
+
+        async function renderWithPendingSnapshot() {
+            const handlers = new Map<string, (event: {payload: unknown}) => void>();
+            listen.mockImplementation((event, callback) => {
+                handlers.set(event, callback);
+                return Promise.resolve(() => {});
+            });
+            let resolveSnapshot: (stations: RadioStation[]) => void = () => {};
+            invoke.mockImplementation((cmd: string) =>
+                cmd === "radio_get_stations"
+                    ? new Promise(resolve => (resolveSnapshot = resolve))
+                    : Promise.resolve(undefined),
+            );
+            useSettingsStore.setState({radioConfig: TRACK_AUDIO});
+            useRadioStore.setState({radioState: {state: "VoiceConnected"}});
+            render(<RadioPage />);
+            await waitFor(() =>
+                expect(invoke.mock.calls.map(call => call[0])).toContain("radio_get_stations"),
+            );
+
+            return {
+                emit: (event: string, payload: unknown) =>
+                    act(() => handlers.get(event)?.({payload})),
+                resolveSnapshot: (stations: RadioStation[]) => act(() => resolveSnapshot(stations)),
+            };
+        }
+
+        it("fetches the snapshot only once every subscription is registered", async () => {
+            const registrations: (() => void)[] = [];
+            listen.mockImplementation(
+                () => new Promise(resolve => registrations.push(() => resolve(() => {}))),
+            );
+            useSettingsStore.setState({radioConfig: TRACK_AUDIO});
+            useRadioStore.setState({radioState: {state: "VoiceConnected"}});
+            render(<RadioPage />);
+            await waitFor(() => expect(registrations).toHaveLength(4));
+            const fetched = () =>
+                invoke.mock.calls.map(call => call[0]).includes("radio_get_stations");
+
+            await act(async () => registrations.slice(0, 3).forEach(register => register()));
+            expect(fetched()).toBe(false);
+
+            await act(async () => registrations[3]());
+            await waitFor(() => expect(fetched()).toBe(true));
+        });
+
+        it("keeps a station added while the snapshot is in flight", async () => {
+            const {emit, resolveSnapshot} = await renderWithPendingSnapshot();
+
+            await emit("radio:station-added", OTHER);
+            await resolveSnapshot([STATION]);
+
+            await waitFor(() => expect(screen.getByText("VIE_TWR")).toBeDefined());
+            expect(screen.getByText("LOWW_APP")).toBeDefined();
+        });
+
+        it("drops a station removed while the snapshot is in flight", async () => {
+            const {emit, resolveSnapshot} = await renderWithPendingSnapshot();
+
+            await emit("radio:station-removed", OTHER.frequency);
+            await resolveSnapshot([STATION, OTHER]);
+
+            await waitFor(() => expect(screen.getByText("VIE_TWR")).toBeDefined());
+            expect(screen.queryByText("LOWW_APP")).toBeNull();
+        });
+
+        it("replaces the snapshot with a sync that arrived while it was in flight", async () => {
+            const {emit, resolveSnapshot} = await renderWithPendingSnapshot();
+
+            await emit("radio:stations-synced", [OTHER]);
+            await resolveSnapshot([STATION]);
+
+            await waitFor(() => expect(screen.getByText("LOWW_APP")).toBeDefined());
+            expect(screen.queryByText("VIE_TWR")).toBeNull();
         });
     });
 });

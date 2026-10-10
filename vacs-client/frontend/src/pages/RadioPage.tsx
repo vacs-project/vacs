@@ -50,35 +50,49 @@ function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
     const [stations, setStations] = useState<Map<number, RadioStation>>(new Map());
 
     useEffect(() => {
-        const fetch = async () => {
-            const stations = await invokeSafe<RadioStation[]>("radio_get_stations");
-            if (stations === undefined) return;
-            setStations(new Map(stations.map(station => [station.frequency, station])));
+        let active = true;
+        // Events that arrive while the snapshot is in flight are replayed on top of it, otherwise
+        // the snapshot would drop stations TrackAudio announced in the meantime.
+        let pending: StationsUpdate[] | undefined = [];
+
+        const apply = (update: StationsUpdate) => {
+            pending?.push(update);
+            setStations(update);
         };
-        void fetch();
 
-        const unlistenFns: Promise<UnlistenFn>[] = [];
+        const upsert = (station: RadioStation) =>
+            apply(prev => new Map(prev).set(station.frequency, station));
 
-        unlistenFns.push(
-            listen<RadioStation>("radio:station-added", event => {
-                setStations(prev => new Map(prev).set(event.payload.frequency, event.payload));
-            }),
-            listen<number>("radio:station-removed", event => {
-                setStations(prev => {
+        const unlistenFns: Promise<UnlistenFn>[] = [
+            listen<RadioStation>("radio:station-added", event => upsert(event.payload)),
+            listen<number>("radio:station-removed", event =>
+                apply(prev => {
                     const next = new Map(prev);
                     next.delete(event.payload);
                     return next;
-                });
-            }),
-            listen<RadioStation>("radio:station-updated", event => {
-                setStations(prev => new Map(prev).set(event.payload.frequency, event.payload));
-            }),
-            listen<RadioStation[]>("radio:stations-synced", event =>
-                setStations(new Map(event.payload.map(station => [station.frequency, station]))),
+                }),
             ),
-        );
+            listen<RadioStation>("radio:station-updated", event => upsert(event.payload)),
+            listen<RadioStation[]>("radio:stations-synced", event =>
+                apply(() => toStationMap(event.payload)),
+            ),
+        ];
+
+        void Promise.all(unlistenFns).then(async () => {
+            const snapshot = await invokeSafe<RadioStation[]>("radio_get_stations");
+            if (!active) return;
+
+            const replay = pending ?? [];
+            pending = undefined;
+            if (snapshot === undefined) return;
+
+            setStations(
+                replay.reduce((stations, update) => update(stations), toStationMap(snapshot)),
+            );
+        });
 
         return () => {
+            active = false;
             unlistenFns.forEach(fn => fn.then(f => f()));
         };
     }, []);
@@ -102,6 +116,11 @@ function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
         </div>
     );
 }
+
+type StationsUpdate = (stations: Map<number, RadioStation>) => Map<number, RadioStation>;
+
+const toStationMap = (stations: RadioStation[]) =>
+    new Map(stations.map(station => [station.frequency, station]));
 
 const PRIORITY = ["*_FMP", "*_CTR", "*_APP", "*_TWR", "*_GND", "*_DEL"];
 function sortRadioStations(a: [number, RadioStation], b: [number, RadioStation]): number {
