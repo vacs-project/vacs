@@ -21,7 +21,11 @@ function RadioPage() {
         radioState?.state !== "Error";
 
     return radioIsTrackAudio ? (
-        radioConnected ? (
+        radioState?.state === "Connected" ? (
+            <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600 text-center">
+                <p>TrackAudio is not connected to VATSIM voice.</p>
+            </div>
+        ) : radioConnected ? (
             <RadioPageInner radioState={radioState} />
         ) : (
             <div className="w-full h-full p-1 flex flex-col justify-center items-center text-slate-600 text-center">

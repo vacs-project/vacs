@@ -258,7 +258,7 @@ export async function seedTabbedPosition(): Promise<void> {
  */
 export async function applyTrackAudioMocks(
     instanceName: string,
-    state: "Connected" | "Disconnected" | "RxIdle",
+    state: "VoiceConnected" | "Disconnected" | "RxIdle",
     stations: unknown[] = [],
     options: {cplMode?: "Original" | "Fast"} = {},
 ): Promise<void> {
@@ -281,7 +281,7 @@ export async function applyTrackAudioMocks(
 export async function applyRadioPlaybackMocks(instanceName: string): Promise<void> {
     await mockCommand(instanceName, "playback_get_enabled", {resolve: true});
     await mockCommand(instanceName, "playback_list", {resolve: CLIPS});
-    await applyTrackAudioMocks(instanceName, "Connected");
+    await applyTrackAudioMocks(instanceName, "VoiceConnected");
 }
 
 /**

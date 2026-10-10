@@ -87,6 +87,31 @@ describe("RadioPage", () => {
         expect(screen.getByText("TrackAudio radio connection failed.")).toBeDefined();
     });
 
+    it("says TrackAudio has no voice connection and never fetches stations", () => {
+        useSettingsStore.setState({radioConfig: TRACK_AUDIO});
+        useRadioStore.setState({radioState: {state: "Connected"}});
+        render(<RadioPage />);
+
+        expect(screen.getByText("TrackAudio is not connected to VATSIM voice.")).toBeDefined();
+        expect(screen.queryByText("Retry")).toBeNull();
+        expect(screen.queryByPlaceholderText("Callsign")).toBeNull();
+        expect(invoke.mock.calls.map(call => call[0])).not.toContain("radio_get_stations");
+    });
+
+    it("fetches the stations once TrackAudio connects to voice", async () => {
+        useSettingsStore.setState({radioConfig: TRACK_AUDIO});
+        useRadioStore.setState({radioState: {state: "Connected"}});
+        invoke.mockImplementation((cmd: string) =>
+            cmd === "radio_get_stations" ? Promise.resolve([STATION]) : Promise.resolve(undefined),
+        );
+        render(<RadioPage />);
+
+        await act(() => useRadioStore.setState({radioState: {state: "VoiceConnected"}}));
+
+        await waitFor(() => expect(screen.getByText("VIE_TWR")).toBeDefined());
+        expect(screen.queryByText("TrackAudio is not connected to VATSIM voice.")).toBeNull();
+    });
+
     it("renders the station list when voice connected", async () => {
         useSettingsStore.setState({radioConfig: TRACK_AUDIO});
         useRadioStore.setState({radioState: {state: "VoiceConnected"}});

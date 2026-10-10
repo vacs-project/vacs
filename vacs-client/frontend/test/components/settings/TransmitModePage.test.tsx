@@ -13,6 +13,7 @@ vi.mock("../../../src/transport", () => ({invoke, listen, isTauri: true, isRemot
 import TransmitModePage from "../../../src/components/settings/TransmitModePage.tsx";
 import {useCapabilitiesStore} from "../../../src/stores/capabilities-store.ts";
 import {useErrorOverlayStore} from "../../../src/stores/error-overlay-store.ts";
+import {useRadioStore} from "../../../src/stores/radio-store.ts";
 import {useSettingsStore} from "../../../src/stores/settings-store.ts";
 import {Capabilities} from "../../../src/types/capabilities.ts";
 import {RadioConfigWithLabels, TransmitConfigWithLabels} from "../../../src/types/transmit.ts";
@@ -82,6 +83,7 @@ afterEach(() => {
     cleanup();
     useCapabilitiesStore.setState(DEFAULT_CAPABILITIES);
     useSettingsStore.setState({transmitConfig: undefined, radioConfig: undefined});
+    useRadioStore.setState({radioState: undefined});
     useErrorOverlayStore.getState().close();
     vi.clearAllMocks();
 });
@@ -123,5 +125,26 @@ describe("TransmitModePage", () => {
         expect(screen.getByText(HINT)).toBeTruthy();
         expect(screen.getAllByText("Not available.")).toHaveLength(2);
         expect(callMicModeSelect()).toBeNull();
+    });
+
+    it("shows a yellow TrackAudio indicator while TrackAudio has no voice connection", () => {
+        useCapabilitiesStore.setState({...DEFAULT_CAPABILITIES, keybindListener: true});
+        useRadioStore.setState({radioState: {state: "Connected"}});
+
+        render(<TransmitModePage />);
+
+        const indicator = screen.getByTitle(
+            "Connected to TrackAudio, but TrackAudio is not connected to VATSIM voice",
+        );
+        expect(indicator.className).toContain("bg-yellow-500");
+    });
+
+    it("shows a green TrackAudio indicator once TrackAudio is voice connected", () => {
+        useCapabilitiesStore.setState({...DEFAULT_CAPABILITIES, keybindListener: true});
+        useRadioStore.setState({radioState: {state: "VoiceConnected"}});
+
+        render(<TransmitModePage />);
+
+        expect(screen.getByTitle("Connected to TrackAudio").className).toContain("bg-green-600");
     });
 });
