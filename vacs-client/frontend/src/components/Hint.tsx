@@ -87,10 +87,10 @@ function Hint({children, maxWidth = 280}: HintProps) {
                     ref={tooltipRef}
                     style={{
                         position: "fixed",
-                        top: position.top,
-                        left: position.left,
+                        top: `${position.top}px`,
+                        left: `${position.left}px`,
                         transform: "translateX(-50%)",
-                        maxWidth,
+                        maxWidth: `${maxWidth}px`,
                         zIndex: 100,
                     }}
                     className="bg-gray-300 border-2 border-t-gray-200 border-l-gray-200 border-b-gray-500 border-r-gray-500 rounded px-2 py-1.5 text-xs leading-relaxed"

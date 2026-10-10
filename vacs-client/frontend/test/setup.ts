@@ -33,3 +33,15 @@ vi.mock("@tauri-apps/plugin-log", () => ({
     debug: vi.fn<(message: string, options?: any) => Promise<void>>(),
     trace: vi.fn<(message: string, options?: any) => Promise<void>>(),
 }));
+
+// Preact 11 defers unmount cleanups to after paint, and testing-library's cleanup does not flush
+// them, so they would otherwise run during the next test, after its mocks were reset.
+vi.mock("@testing-library/preact", async importOriginal => {
+    const mod = await importOriginal<typeof import("@testing-library/preact")>();
+    return {
+        ...mod,
+        cleanup: () => {
+            void mod.act(() => mod.cleanup());
+        },
+    };
+});

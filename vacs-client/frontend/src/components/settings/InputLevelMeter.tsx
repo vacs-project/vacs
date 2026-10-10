@@ -11,7 +11,7 @@ function InputLevelMeter() {
     const isCallActive = useCallStore(state => state.callDisplay?.type === "accepted");
     const [unlistenFn, setUnlistenFn] = useState<Promise<UnlistenFn> | undefined>();
     const [level, setLevel] = useState<InputLevel | undefined>();
-    const unlistenStopFnRef = useRef<Promise<UnlistenFn> | undefined>();
+    const unlistenStopFnRef = useRef<Promise<UnlistenFn> | undefined>(undefined);
 
     const startLevelMeter = useEventCallback(async () => {
         if (isCallActive) return; // Cannot start input level meter while call is active

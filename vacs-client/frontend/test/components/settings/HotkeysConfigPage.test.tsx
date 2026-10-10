@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/preact";
+import {act, cleanup, fireEvent, render, screen, waitFor} from "@testing-library/preact";
 
 const {invoke, listen} = vi.hoisted(() => ({
     invoke: vi.fn<(cmd: string, args?: Record<string, unknown>) => Promise<unknown>>(() =>
@@ -105,6 +105,36 @@ describe("HotkeysConfigPage", () => {
         await waitFor(() => expect(screen.queryByText("Press your key")).toBeNull());
         expect(field.textContent).not.toBe("Not bound");
         expect(invokedCommands()).not.toContain("keybinds_set_binding");
+    });
+
+    it("cancels the joystick capture when the page closes mid-capture", async () => {
+        useCapabilitiesStore.setState({...DEFAULT_CAPABILITIES, joystick: true});
+        invoke.mockImplementation((cmd: string) => {
+            switch (cmd) {
+                case "keybinds_get_keybinds_config":
+                    return Promise.resolve(KEYBINDS_CONFIG);
+                case "keybinds_capture_joystick_button":
+                    return new Promise(() => {});
+                default:
+                    return Promise.resolve(undefined);
+            }
+        });
+        vi.stubGlobal("crypto", {randomUUID: () => "00000000-0000-4000-8000-000000000000"});
+
+        const {unmount} = render(<HotkeysConfigPage />);
+        await waitFor(() => expect(screen.getAllByText("Not bound").length).toBeGreaterThan(0));
+        fireEvent.click(screen.getAllByText("Not bound")[0]);
+        await waitFor(() =>
+            expect(invokedCommands()).toContain("keybinds_capture_joystick_button"),
+        );
+
+        await act(() => {
+            unmount();
+        });
+
+        expect(invoke).toHaveBeenCalledWith("keybinds_cancel_joystick_capture", {
+            captureId: "00000000-0000-4000-8000-000000000000",
+        });
     });
 
     it("binds joystick-only without fetching portal shortcuts when the portal has none", async () => {
