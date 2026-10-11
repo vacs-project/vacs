@@ -4,7 +4,6 @@ use reqwest::{Client, header};
 use serde::Deserialize;
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, UNIX_EPOCH};
-use tracing::instrument;
 use vacs_protocol::http::webrtc::{IceConfig, IceServer};
 use vacs_protocol::vatsim::ClientId;
 
@@ -67,12 +66,8 @@ impl CloudflareIceProvider {
 
 #[async_trait::async_trait]
 impl IceConfigProvider for CloudflareIceProvider {
-    #[instrument(level = "debug", err)]
     async fn get_ice_config(&self, user_id: &ClientId) -> Result<IceConfig, IceError> {
-        tracing::debug!("Providing Cloudflare ICE config");
-
         let expiry = self.calculate_expiry();
-        tracing::trace!(?expiry, "Generating TURN credentials");
         let res = self
             .client
             .post(&self.url)
@@ -85,9 +80,9 @@ impl IceConfigProvider for CloudflareIceProvider {
         let response = match res {
             Ok(response) => response,
             Err(err) => {
-                tracing::warn!(?err, "Failed to generate TURN credentials");
                 return Err(IceError::Provider(format!(
-                    "Failed to generate TURN credentials: {err}"
+                    "Failed to generate TURN credentials: {}",
+                    err.without_url()
                 )));
             }
         };
@@ -96,11 +91,6 @@ impl IceConfigProvider for CloudflareIceProvider {
         let body = response.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            tracing::warn!(
-                ?status,
-                ?body,
-                "Received error while generating TURN credentials"
-            );
             return Err(IceError::Provider(format!(
                 "Received error while generating TURN credentials: {status}"
             )));
@@ -108,15 +98,15 @@ impl IceConfigProvider for CloudflareIceProvider {
 
         match serde_json::from_str::<CloudflareIceConfig>(&body) {
             Ok(config) => {
-                tracing::trace!(?expiry, "Successfully generated TURN credentials");
+                tracing::trace!(expiry, "Generated TURN credentials");
                 Ok(config.into_ice_config(expiry))
             }
-            Err(err) => {
-                tracing::warn!(?err, ?body, "Failed to parse TURN credentials response");
-                Err(IceError::Provider(format!(
-                    "Failed to parse TURN credentials response: {err}"
-                )))
-            }
+            Err(err) => Err(IceError::Provider(format!(
+                "Failed to parse TURN credentials response: {:?} error at line {} column {}",
+                err.classify(),
+                err.line(),
+                err.column()
+            ))),
         }
     }
 }

@@ -1,5 +1,6 @@
 use crate::config;
 use crate::metrics::guards::ClientConnectionGuard;
+use crate::metrics::labels::AsMetricLabel;
 use crate::state::AppState;
 use crate::state::clients::{ClientManagerError, Result};
 use crate::ws::application_message::handle_application_message;
@@ -15,7 +16,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tracing::{Instrument, instrument};
+use tracing::Instrument;
 use vacs_protocol::profile::{ActiveProfile, ProfileId};
 use vacs_protocol::vatsim::{ClientId, PositionId};
 use vacs_protocol::ws::client::ClientMessage;
@@ -100,25 +101,24 @@ impl ClientSession {
         &self.active_profile
     }
 
-    #[tracing::instrument(level = "trace")]
     pub fn update_client_info(&mut self, controller_info: &ControllerInfo) -> bool {
         let mut changed = false;
         if self.client_info.display_name != controller_info.callsign {
-            tracing::trace!(
-                cid = ?self.client_info.id,
-                old = ?self.client_info.display_name,
-                new = ?controller_info.callsign,
-                "Controller callsign changed, updating"
+            tracing::debug!(
+                client_id = %self.client_info.id,
+                old = %self.client_info.display_name,
+                new = %controller_info.callsign,
+                "Controller callsign changed"
             );
             self.client_info.display_name = controller_info.callsign.clone();
             changed = true;
         }
         if self.client_info.frequency != controller_info.frequency {
-            tracing::trace!(
-                cid = ?self.client_info.id,
-                old = ?self.client_info.frequency,
-                new = ?controller_info.frequency,
-                "Controller frequency changed, updating"
+            tracing::debug!(
+                client_id = %self.client_info.id,
+                old = %self.client_info.frequency,
+                new = %controller_info.frequency,
+                "Controller frequency changed"
             );
             self.client_info.frequency = controller_info.frequency.clone();
             changed = true;
@@ -131,7 +131,6 @@ impl ClientSession {
         self.client_info.position_id = position_id;
     }
 
-    #[tracing::instrument(level = "trace")]
     pub fn update_active_profile(
         &mut self,
         new_profile_id: Option<ProfileId>,
@@ -146,29 +145,32 @@ impl ClientSession {
             (ActiveProfile::None, None) | (ActiveProfile::Custom, _) => SessionProfile::Unchanged,
             (_, Some(new_profile_id)) => {
                 if let Some(profile) = network.get_profile(&new_profile_id) {
-                    tracing::trace!(?profile, "Active profile changed, updating");
+                    tracing::trace!(
+                        peer_ids = %self.client_info.id,
+                        profile_id = %new_profile_id,
+                        "Active profile changed"
+                    );
                     self.active_profile = ActiveProfile::Specific(new_profile_id.clone());
                     SessionProfile::Changed(ActiveProfile::Specific(profile.into()))
                 } else {
                     tracing::warn!(
-                        ?new_profile_id,
-                        "Active profile does not exist, falling back to None"
+                        peer_ids = %self.client_info.id,
+                        profile_id = %new_profile_id,
+                        "Active profile does not exist, falling back to none"
                     );
                     self.active_profile = ActiveProfile::None;
                     SessionProfile::Changed(ActiveProfile::None)
                 }
             }
             (_, None) => {
-                tracing::trace!("Active profile cleared, updating");
+                tracing::trace!(peer_ids = %self.client_info.id, "Active profile cleared");
                 self.active_profile = ActiveProfile::None;
                 SessionProfile::Changed(ActiveProfile::None)
             }
         }
     }
 
-    #[instrument(level = "debug", skip(self))]
     pub fn disconnect(&self, disconnect_reason: Option<DisconnectReason>) {
-        tracing::trace!("Disconnecting client");
         if let Some(reason) = &disconnect_reason {
             self.client_connection_guard
                 .lock()
@@ -177,12 +179,9 @@ impl ClientSession {
         let _ = self.client_shutdown_tx.send(disconnect_reason);
     }
 
-    #[instrument(level = "trace", skip(self, message), fields(message = tracing::field::Empty), err)]
     pub async fn send_message(&self, message: impl Into<ServerMessage>) -> Result<()> {
-        let message = message.into();
-        tracing::span::Span::current().record("message", tracing::field::debug(&message));
         self.tx
-            .send(message)
+            .send(message.into())
             .await
             .map_err(|err| ClientManagerError::MessageSendError(err.to_string()))
     }
@@ -190,12 +189,11 @@ impl ClientSession {
     pub async fn send_error(&self, err: impl Into<shared::Error>) {
         let err = err.into();
         if let Err(err) = self.send_message(err).await {
-            tracing::warn!(?err, "Failed to send error message");
+            tracing::debug!(%err, "Failed to send error message");
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[instrument(level = "debug", skip_all, fields(client_id = ?self.client_info.id))]
     pub async fn handle_interaction<R: WebSocketStream + 'static, T: WebSocketSink + 'static>(
         &mut self,
         app_state: &Arc<AppState>,
@@ -204,9 +202,7 @@ impl ClientSession {
         broadcast_rx: &mut broadcast::Receiver<ServerMessage>,
         rx: &mut mpsc::Receiver<ServerMessage>,
         app_shutdown_rx: &mut watch::Receiver<()>,
-    ) {
-        tracing::debug!("Starting to handle client interaction");
-
+    ) -> SessionEnd {
         let (pong_update_tx, pong_update_rx) = watch::channel(Instant::now());
 
         let (writer_handle, ws_outbound_tx) = ClientSession::spawn_writer(
@@ -215,7 +211,7 @@ impl ClientSession {
             self.client_shutdown_tx.subscribe(),
         )
         .await;
-        let (reader_handle, mut ws_inbound_rx) = ClientSession::spawn_reader(
+        let (mut reader_handle, mut ws_inbound_rx) = ClientSession::spawn_reader(
             websocket_rx,
             app_shutdown_rx.clone(),
             self.client_shutdown_tx.subscribe(),
@@ -225,7 +221,6 @@ impl ClientSession {
         let (ping_handle, mut ping_shutdown_rx) =
             ClientSession::spawn_ping_task(&ws_outbound_tx, pong_update_rx);
 
-        tracing::trace!("Sending initial session info");
         if let Err(err) = send_message(
             &ws_outbound_tx,
             server::SessionInfo {
@@ -250,35 +245,40 @@ impl ClientSession {
         )
         .await
         {
-            tracing::warn!(?err, "Failed to send initial session info");
+            tracing::debug!(
+                err = format!("{err:#}"),
+                "Failed to send initial session info"
+            );
         }
 
-        tracing::trace!("Sending initial client list");
         let clients = app_state.list_clients(Some(&self.client_info.id)).await;
         if let Err(err) = send_message(&ws_outbound_tx, server::ClientList { clients }).await {
-            tracing::warn!(?err, "Failed to send initial client list");
+            tracing::debug!(
+                err = format!("{err:#}"),
+                "Failed to send initial client list"
+            );
         }
 
-        tracing::trace!("Sending initial stations list");
         let stations = app_state
             .list_stations(&self.active_profile, self.client_info.position_id.as_ref())
             .await;
         if let Err(err) = send_message(&ws_outbound_tx, server::StationList { stations }).await {
-            tracing::warn!(?err, "Failed to send initial stations list");
+            tracing::debug!(
+                err = format!("{err:#}"),
+                "Failed to send initial stations list"
+            );
         }
 
-        loop {
+        let end = loop {
             tokio::select! {
                 biased;
 
                 _ = app_shutdown_rx.changed() => {
-                    tracing::trace!("Shutdown signal received, disconnecting client");
-                    break;
+                    break SessionEnd::ServerShutdown;
                 }
 
-                _ = &mut ping_shutdown_rx => {
-                    tracing::debug!("Ping task reported client disconnect");
-                    break;
+                end = &mut ping_shutdown_rx => {
+                    break end.unwrap_or(SessionEnd::PingFailed);
                 }
 
                 msg = ws_inbound_rx.recv() => {
@@ -286,15 +286,11 @@ impl ClientSession {
                         Some(msg) => {
                             match handle_application_message(app_state, self, msg).await {
                                 ControlFlow::Continue(()) => continue,
-                                ControlFlow::Break(()) => {
-                                    tracing::debug!("Breaking interaction loop");
-                                    break;
-                                },
+                                ControlFlow::Break(()) => break SessionEnd::Logout,
                             }
                         }
                         None => {
-                            tracing::debug!("Application receiver closed, disconnecting client");
-                            break;
+                            break (&mut reader_handle).await.unwrap_or(SessionEnd::ReceiveError);
                         }
                     }
                 }
@@ -302,15 +298,17 @@ impl ClientSession {
                 msg = rx.recv() => {
                     match msg {
                         Some(msg) => {
-                            tracing::trace!("Received direct message");
+                            tracing::trace!(kind = msg.as_metric_label(), "Received direct message");
                             let msg = self.refresh_call_update(app_state, msg);
                             if let Err(err) = send_message(&ws_outbound_tx, msg).await {
-                                tracing::warn!(?err, "Failed to send direct message");
+                                tracing::debug!(err = format!("{err:#}"), "Failed to send direct message");
                             }
                         }
                         None => {
-                            tracing::debug!("Client receiver closed, disconnecting client");
-                            break;
+                            break match self.client_shutdown_tx.borrow().as_ref() {
+                                Some(reason) => SessionEnd::Disconnected(reason.as_metric_label()),
+                                None => SessionEnd::Removed,
+                            };
                         }
                     }
                 }
@@ -318,30 +316,32 @@ impl ClientSession {
                 msg = broadcast_rx.recv() => {
                     match msg {
                         Ok(msg) => {
-                            tracing::trace!("Received broadcast message");
                             if let ServerMessage::ClientInfo(info) = &msg
                                 && info.id == self.client_info.id {
-                                tracing::trace!("Dropping client info update broadcast for own client");
                                 continue;
                             }
 
+                            tracing::trace!(kind = msg.as_metric_label(), "Received broadcast message");
                             if let Err(err) = send_message(&ws_outbound_tx, msg).await {
-                                tracing::warn!(?err, "Failed to send broadcast message");
+                                tracing::debug!(err = format!("{err:#}"), "Failed to send broadcast message");
                             }
                         }
-                        Err(err) => {
-                            tracing::debug!(?err, "Broadcast receiver closed, disconnecting client");
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            tracing::warn!(skipped, "Broadcast receiver lagged, messages dropped");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            tracing::debug!("Broadcast channel closed");
                         }
                     }
                 }
             }
-        }
+        };
 
         writer_handle.abort();
         reader_handle.abort();
         ping_handle.abort();
 
-        tracing::debug!("Finished handling client interaction");
+        end
     }
 
     /// Fan-outs enqueue after the call lock is released, so a snapshot computed earlier
@@ -359,7 +359,6 @@ impl ClientSession {
         }
     }
 
-    #[instrument(level = "debug", skip_all)]
     async fn spawn_writer<T: WebSocketSink + 'static>(
         mut websocket_tx: T,
         mut app_shutdown_rx: watch::Receiver<()>,
@@ -369,7 +368,6 @@ impl ClientSession {
             mpsc::channel::<ws::Message>(config::CLIENT_WEBSOCKET_TASK_CHANNEL_CAPACITY);
 
         let join_handle = tokio::spawn(async move {
-            tracing::trace!("WebSocket writer task started");
             let _guard = TaskDropLogger::new("writer");
 
             loop {
@@ -377,7 +375,6 @@ impl ClientSession {
                     biased;
 
                     _ = app_shutdown_rx.changed() => {
-                        tracing::trace!("App shutdown signal received, stopping WebSocket writer task");
                         break;
                     }
 
@@ -387,19 +384,17 @@ impl ClientSession {
                         };
 
                         if let Some(reason) = reason_opt {
-                            tracing::trace!(?reason, "Sending Disconnect message before stopping WebSocket writer task");
+                            tracing::trace!(reason = reason.as_metric_label(), "Sending disconnect message");
                             match ServerMessage::serialize(&ServerMessage::from(server::Disconnected {reason})) {
                                 Ok(msg) => {
                                     if let Err(err) = websocket_tx.send(ws::Message::from(msg)).await {
-                                        tracing::warn!(?err, "Failed to send Disconnect message");
+                                        tracing::debug!(%err, "Failed to send disconnect message");
                                     }
                                 },
                                 Err(err) => {
-                                    tracing::warn!(?err, "Failed to serialize Disconnect message");
+                                    tracing::error!(%err, "Failed to serialize disconnect message");
                                 }
                             }
-                        } else {
-                            tracing::trace!("Client shutdown signal received, stopping WebSocket writer task");
                         }
                         break;
                     }
@@ -408,42 +403,34 @@ impl ClientSession {
                         match msg {
                             Some(msg) => {
                                 if let Err(err) = websocket_tx.send(msg).await {
-                                    tracing::warn!(?err, "Failed to send message to client");
+                                    tracing::debug!(%err, "Failed to send message to client");
                                     break;
                                 }
                             },
-                            None => {
-                                tracing::debug!("Outbound WebSocket channel closed, stopping WebSocket writer task");
-                                break;
-                            }
+                            None => break,
                         }
                     }
                 }
             }
 
-            tracing::trace!("Sending close message to client");
             if let Err(err) = websocket_tx.send(ws::Message::Close(None)).await {
-                tracing::warn!(?err, "Failed to send close message to client");
+                tracing::debug!(%err, "Failed to send close message to client");
             }
-
-            tracing::trace!("WebSocket writer task finished");
         }.instrument(tracing::Span::current()));
 
         (join_handle, ws_outbound_tx)
     }
 
-    #[instrument(level = "debug", skip_all)]
     async fn spawn_reader<R: WebSocketStream + 'static>(
         mut websocket_rx: R,
         mut app_shutdown_rx: watch::Receiver<()>,
         mut client_shutdown_rx: watch::Receiver<Option<DisconnectReason>>,
         pong_update_tx: watch::Sender<Instant>,
-    ) -> (JoinHandle<()>, mpsc::Receiver<ClientMessage>) {
+    ) -> (JoinHandle<SessionEnd>, mpsc::Receiver<ClientMessage>) {
         let (ws_inbound_tx, ws_inbound_rx) =
             mpsc::channel::<ClientMessage>(config::CLIENT_WEBSOCKET_TASK_CHANNEL_CAPACITY);
 
         let join_handle = tokio::spawn(async move {
-            tracing::trace!("WebSocket reader task started");
             let _guard = TaskDropLogger::new("reader");
 
             loop {
@@ -451,58 +438,44 @@ impl ClientSession {
                     biased;
 
                     _ = app_shutdown_rx.changed() => {
-                        tracing::trace!("App shutdown signal received, stopping WebSocket reader task");
-                        break;
+                        break SessionEnd::ServerShutdown;
                     }
 
                     _ = client_shutdown_rx.changed() => {
-                        tracing::trace!("Client shutdown signal received, stopping WebSocket reader task");
-                        break;
+                        break SessionEnd::Disconnected(client_shutdown_rx.borrow().as_metric_label());
                     }
 
                     msg = receive_message(&mut websocket_rx) => {
                         match msg {
                             MessageResult::ApplicationMessage(message) => {
                                 if let Err(err) = ws_inbound_tx.send(message).await {
-                                    tracing::warn!(?err, "Failed to forward message to application");
-                                    break;
+                                    tracing::debug!(%err, "Failed to forward message to application");
+                                    break SessionEnd::Removed;
                                 }
                             }
                             MessageResult::ControlMessage => {
-                                if let Err(err) = pong_update_tx.send(Instant::now()) {
-                                    tracing::warn!(?err, "Failed to propagate last pong response, continuing");
-                                    continue;
-                                }
+                                let _ = pong_update_tx.send(Instant::now());
                             },
-                            MessageResult::Disconnected => {
-                                tracing::debug!("Client disconnected");
-                                break;
-                            }
-                            MessageResult::Error(err) => {
-                                tracing::warn!(?err, "Error while receiving message from client");
-                                break;
-                            }
+                            MessageResult::Disconnected => break SessionEnd::Closed,
+                            MessageResult::Error(_) => break SessionEnd::ReceiveError,
                         }
                     }
                 }
             }
-            tracing::trace!("WebSocket reader task finished");
         }.instrument(tracing::Span::current()));
 
         (join_handle, ws_inbound_rx)
     }
 
-    #[instrument(level = "debug", skip_all)]
     fn spawn_ping_task(
         ws_outbound_tx: &mpsc::Sender<ws::Message>,
         pong_update_rx: watch::Receiver<Instant>,
-    ) -> (JoinHandle<()>, oneshot::Receiver<()>) {
+    ) -> (JoinHandle<()>, oneshot::Receiver<SessionEnd>) {
         let (ping_shutdown_tx, ping_shutdown_rx) = oneshot::channel();
 
         let ws_outbound_tx = ws_outbound_tx.clone();
         let join_handle = tokio::spawn(
             async move {
-                tracing::trace!("WebSocket ping task started");
                 let _guard = TaskDropLogger::new("ping");
 
                 let mut interval = tokio::time::interval(config::CLIENT_WEBSOCKET_PING_INTERVAL);
@@ -512,8 +485,8 @@ impl ClientSession {
                     if Instant::now().duration_since(*pong_update_rx.borrow())
                         > config::CLIENT_WEBSOCKET_PONG_TIMEOUT
                     {
-                        tracing::warn!("Pong timeout exceeded, disconnecting client");
-                        let _ = ping_shutdown_tx.send(());
+                        tracing::debug!("Pong timeout exceeded, disconnecting client");
+                        let _ = ping_shutdown_tx.send(SessionEnd::PongTimeout);
                         break;
                     }
 
@@ -521,12 +494,11 @@ impl ClientSession {
                         .send(ws::Message::Ping(bytes::Bytes::new()))
                         .await
                     {
-                        tracing::warn!(?err, "Failed to send ping to client");
-                        let _ = ping_shutdown_tx.send(());
+                        tracing::debug!(%err, "Failed to queue ping");
+                        let _ = ping_shutdown_tx.send(SessionEnd::PingFailed);
                         break;
                     }
                 }
-                tracing::trace!("WebSocket ping task finished");
             }
             .instrument(tracing::Span::current()),
         );
@@ -539,6 +511,42 @@ impl ClientSession {
         self.connected_at = Instant::now()
             .checked_sub(*grace_period)
             .expect("monotonic clock too young to rewind past the grace period");
+    }
+}
+
+/// Why a client's websocket session ended, as logged on the disconnect line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionEnd {
+    /// The client closed the websocket.
+    Closed,
+    /// Reading from the websocket failed.
+    ReceiveError,
+    /// The client stopped answering pings.
+    PongTimeout,
+    /// A ping could not be queued, because the writer has stopped.
+    PingFailed,
+    /// The client logged out or asked to be disconnected.
+    Logout,
+    /// The server disconnected the client, with the metric label of the reason.
+    Disconnected(&'static str),
+    /// The client was removed from the client manager.
+    Removed,
+    /// The server is shutting down.
+    ServerShutdown,
+}
+
+impl AsMetricLabel for SessionEnd {
+    fn as_metric_label(&self) -> &'static str {
+        match self {
+            SessionEnd::Closed => "closed",
+            SessionEnd::ReceiveError => "receive_error",
+            SessionEnd::PongTimeout => "pong_timeout",
+            SessionEnd::PingFailed => "ping_failed",
+            SessionEnd::Logout => "logout",
+            SessionEnd::Disconnected(reason) => reason,
+            SessionEnd::Removed => "removed",
+            SessionEnd::ServerShutdown => "server_shutdown",
+        }
     }
 }
 
@@ -565,7 +573,7 @@ impl TaskDropLogger {
 
 impl Drop for TaskDropLogger {
     fn drop(&mut self) {
-        tracing::trace!(task_name = ?self.name, "Task dropped");
+        tracing::trace!(task_name = self.name, "Task dropped");
     }
 }
 

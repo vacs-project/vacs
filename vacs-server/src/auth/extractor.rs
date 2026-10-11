@@ -1,5 +1,6 @@
 use crate::auth::users::User;
 use crate::http::error::AppError;
+use crate::logging::RequestSpan;
 use crate::state::AppState;
 use axum::extract::FromRequestParts;
 use axum::http::header::AUTHORIZATION;
@@ -31,9 +32,10 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
     ) -> Result<Self, Self::Rejection> {
         if let Some(token) = extract_bearer_token(parts) {
             if let Some(cid) = state.verify_api_token(&token).await.map_err(|err| {
-                tracing::warn!(?err, "Failed to verify API token");
+                tracing::warn!(err = %format_args!("{err:#}"), "Failed to verify API token");
                 AppError::Unauthorized("Invalid token".to_string())
             })? {
+                record_client_id(parts, &cid);
                 return Ok(Self {
                     user: User { cid },
                     api_token: Some(token),
@@ -49,17 +51,26 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUser {
             )
             .await
             .map_err(|err| {
-                tracing::debug!(?err, "Failed to extract auth session");
+                tracing::debug!(err = %err.1, "Failed to extract auth session");
                 AppError::Unauthorized("Not authenticated".to_string())
             })?;
 
         match auth_session.user().await {
-            Some(user) => Ok(Self {
-                user,
-                api_token: None,
-            }),
+            Some(user) => {
+                record_client_id(parts, &user.cid);
+                Ok(Self {
+                    user,
+                    api_token: None,
+                })
+            }
             None => Err(AppError::Unauthorized("Not authenticated".to_string())),
         }
+    }
+}
+
+fn record_client_id(parts: &Parts, cid: &ClientId) {
+    if let Some(span) = parts.extensions.get::<RequestSpan>() {
+        span.record_client_id(cid);
     }
 }
 

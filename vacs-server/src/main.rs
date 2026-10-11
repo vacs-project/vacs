@@ -2,8 +2,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::watch;
-use tracing_subscriber::Layer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use vacs_server::auth::layer::setup_auth_layer;
 use vacs_server::build::BuildInfo;
 use vacs_server::config::AppConfig;
@@ -31,27 +29,17 @@ async fn main() -> anyhow::Result<()> {
         return vacs_server::health::probe().await;
     }
 
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        format!(
-            "{}=trace,vacs_=trace,tower_http=debug,tower_sessions=debug,axum::rejection=trace",
-            env!("CARGO_CRATE_NAME")
-        )
-        .into()
-    });
-
-    let fmt_layer = if std::env::var("RUST_LOG_JSON").is_ok() {
-        tracing_subscriber::fmt::layer().json().boxed()
-    } else {
-        tracing_subscriber::fmt::layer().boxed()
-    };
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt_layer)
-        .init();
+    vacs_server::logging::init();
 
     let build_info = BuildInfo::gather();
-    tracing::info!(?build_info);
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        git_describe = build_info.git_describe,
+        git_sha = build_info.git_sha,
+        git_dirty = build_info.git_dirty,
+        build_timestamp = build_info.build_timestamp,
+        "Server starting"
+    );
 
     let config = AppConfig::parse()?;
 
@@ -97,14 +85,20 @@ async fn main() -> anyhow::Result<()> {
                 network
             }
             None => {
-                tracing::info!(path = ?config.vatsim.coverage_dir, "Remote dataset matches local copy, loading from disk");
+                tracing::info!(
+                    path = %config.vatsim.coverage_dir,
+                    "Loading network coverage data from disk"
+                );
                 Network::load_from_dir(&config.vatsim.coverage_dir).map_err(|err| {
                     anyhow::anyhow!("Failed to load network coverage data: {err:?}")
                 })?
             }
         },
         None => {
-            tracing::info!(path = ?config.vatsim.coverage_dir, "Loading network coverage data from disk");
+            tracing::info!(
+                path = %config.vatsim.coverage_dir,
+                "Loading network coverage data from disk"
+            );
             Network::load_from_dir(&config.vatsim.coverage_dir)
                 .map_err(|err| anyhow::anyhow!("Failed to load network coverage data: {err:?}"))?
         }
@@ -138,11 +132,11 @@ async fn main() -> anyhow::Result<()> {
         config.server.debug_endpoints,
     );
     let listener = tokio::net::TcpListener::bind(config.server.bind_addr).await?;
-    tracing::info!(bind_addr = ?listener.local_addr(), "Started main listener");
+    tracing::info!(bind_addr = %listener.local_addr()?, "Started main listener");
 
     let metrics_app = create_metrics_app(prom_handle);
     let metrics_listener = tokio::net::TcpListener::bind(config.server.metrics_bind_addr).await?;
-    tracing::info!(bind_addr = ?metrics_listener.local_addr(), "Started metrics listener");
+    tracing::info!(bind_addr = %metrics_listener.local_addr()?, "Started metrics listener");
 
     let controller_update_task = AppState::start_controller_update_task(
         app_state.clone(),
@@ -162,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::try_join!(metrics_server, server)?;
 
     if let Err(err) = controller_update_task.await {
-        tracing::warn!(?err, "Controller update task finished with error");
+        tracing::error!(%err, "Controller update task failed");
     }
 
     Ok(())
@@ -191,7 +185,7 @@ async fn shutdown_signal(shutdown_tx: watch::Sender<()>) {
         _ = terminate => {}
     }
 
-    tracing::info!("Shutdown signal received, terminating gracefully...");
+    tracing::info!("Shutdown signal received, terminating gracefully");
 
     shutdown_tx
         .send(())

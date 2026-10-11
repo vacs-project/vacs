@@ -1,10 +1,9 @@
 use reqwest::StatusCode;
-use test_log::test;
 use vacs_server::config::AdminConfig;
 use vacs_server::test_utils::TestEnv;
 
 /// Unconfigured deployments answer 404, so nobody can reload their catalog.
-#[test(tokio::test)]
+#[tokio::test]
 async fn releases_reload_without_allowed_subject() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -19,7 +18,7 @@ async fn releases_reload_without_allowed_subject() {
 }
 
 /// The dataset subject must never open the release endpoint.
-#[test(tokio::test)]
+#[tokio::test]
 async fn releases_reload_does_not_fall_back_to_the_dataset_subject() {
     let env = TestEnv::builder()
         .admin(AdminConfig {
@@ -40,7 +39,7 @@ async fn releases_reload_does_not_fall_back_to_the_dataset_subject() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn releases_reload_without_token() {
     let env = TestEnv::builder()
         .admin(AdminConfig {
@@ -62,7 +61,7 @@ async fn releases_reload_without_token() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn releases_reload_with_malformed_token() {
     let env = TestEnv::builder()
         .admin(AdminConfig {

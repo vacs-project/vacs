@@ -1,4 +1,5 @@
 use crate::metrics::MessageMetrics;
+use crate::metrics::labels::AsMetricLabel;
 use crate::ws::traits::{WebSocketSink, WebSocketStream};
 use axum::extract::ws;
 use futures_util::{SinkExt, StreamExt};
@@ -73,6 +74,14 @@ pub async fn receive_message<R: WebSocketStream>(websocket_rx: &mut R) -> Messag
                     MessageResult::ApplicationMessage(message)
                 }
                 Err(err) => {
+                    tracing::debug!(
+                        reason = "malformed_message",
+                        bytes = raw_message.len(),
+                        category = err.classify().as_metric_label(),
+                        line = err.line(),
+                        column = err.column(),
+                        "Received malformed message"
+                    );
                     MessageMetrics::malformed();
                     MessageResult::Error(
                         anyhow::anyhow!(err).context("Failed to deserialize message"),
@@ -83,21 +92,25 @@ pub async fn receive_message<R: WebSocketStream>(websocket_rx: &mut R) -> Messag
         Some(Ok(ws::Message::Ping(_))) => MessageResult::ControlMessage,
         Some(Ok(ws::Message::Pong(_))) => MessageResult::ControlMessage,
         Some(Ok(ws::Message::Close(reason))) => {
-            tracing::debug!(?reason, "Received websocket close message");
+            tracing::debug!(
+                code = reason.as_ref().map(|frame| frame.code),
+                "Received websocket close message"
+            );
             MessageResult::Disconnected
         }
         Some(Ok(other)) => {
-            tracing::trace!(?other, "Received unexpected websocket message");
+            tracing::debug!(
+                reason = "unexpected_frame",
+                bytes = other.into_data().len(),
+                "Received unexpected websocket message"
+            );
             MessageResult::Error(anyhow::anyhow!("Received unexpected websocket message"))
         }
         Some(Err(err)) => {
-            tracing::warn!(?err, "Failed to receive message");
+            tracing::debug!(%err, "Failed to receive message");
             MessageResult::Error(anyhow::anyhow!(err).context("Failed to receive message"))
         }
-        None => {
-            tracing::debug!("Client receiver closed, disconnecting");
-            MessageResult::Disconnected
-        }
+        None => MessageResult::Disconnected,
     }
 }
 

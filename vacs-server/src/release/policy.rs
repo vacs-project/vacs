@@ -6,7 +6,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use tracing::instrument;
 use vacs_protocol::VACS_PROTOCOL_VERSION;
 use vacs_protocol::http::version::ReleaseChannel;
 
@@ -19,7 +18,6 @@ pub struct Policy {
 }
 
 impl Policy {
-    #[instrument(level = "info", skip_all, err)]
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, AppError> {
         let policy = Self {
             path: path.into(),
@@ -31,12 +29,9 @@ impl Policy {
         Ok(policy)
     }
 
-    #[instrument(level = "info", skip(self), err)]
     pub fn reload(&self) -> Result<(), AppError> {
-        tracing::debug!(policy_path = ?self.path, "Reloading Policy");
-
         if !self.path.is_file() {
-            tracing::warn!(policy_path = ?self.path, "Policy not found, skipping reload");
+            tracing::warn!(path = %self.path.display(), "Policy not found, skipping reload");
             return Ok(());
         }
 
@@ -120,10 +115,14 @@ impl Policy {
         }
 
         *self.required_ranges.write() = required_ranges;
+        tracing::info!(
+            path = %self.path.display(),
+            %compatible_protocol_range,
+            "Policy reloaded"
+        );
         *self.compatible_protocol_range.write() = compatible_protocol_range;
         *self.visibility.write() = visibility;
 
-        tracing::info!("Policy reloaded");
         Ok(())
     }
 

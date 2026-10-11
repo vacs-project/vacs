@@ -1,7 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use pretty_assertions::assert_eq;
 use std::time::Duration;
-use test_log::test;
 use tokio_tungstenite::tungstenite;
 use vacs_protocol::VACS_PROTOCOL_VERSION;
 use vacs_protocol::vatsim::ClientId;
@@ -12,7 +11,7 @@ use vacs_server::test_utils::{
     connect_to_websocket,
 };
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn login() {
     let env = TestEnv::builder().default_users(2).build().await;
     let token1 = env.ws_token_for(cid(1)).await.unwrap();
@@ -63,7 +62,7 @@ async fn login() {
     .expect("Failed to log in second client");
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn duplicate_login() {
     let env = TestEnv::builder().default_users(1).build().await;
     let token = env.ws_token_for(cid(1)).await.unwrap();
@@ -103,7 +102,7 @@ async fn duplicate_login() {
     );
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn invalid_login() {
     let env = TestEnv::builder().build().await;
 
@@ -121,7 +120,7 @@ async fn invalid_login() {
     );
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn unauthorized_message_before_login() {
     let env = TestEnv::builder().build().await;
 
@@ -147,7 +146,7 @@ async fn unauthorized_message_before_login() {
     });
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn simultaneous_login_attempts() {
     let env = TestEnv::builder().default_users(1).build().await;
     let cid1 = cid(1);
@@ -179,7 +178,7 @@ async fn simultaneous_login_attempts() {
     );
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login_timeout() {
     let env = TestEnv::builder().build().await;
@@ -217,7 +216,7 @@ async fn login_timeout() {
     }
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_connected() {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients_map(2).await;
@@ -241,7 +240,7 @@ async fn client_connected() {
     );
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_disconnected() {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients_map(2).await;
@@ -268,7 +267,7 @@ async fn client_disconnected() {
     });
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn login_client_list() {
     let env = TestEnv::builder().default_users(4).build().await;
     let _clients = env.setup_clients(3).await;
@@ -311,7 +310,7 @@ async fn login_client_list() {
     .expect("Failed to log in fourth client");
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn logout() {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients_map(2).await;
@@ -347,7 +346,7 @@ async fn logout() {
 /// The compatibility range from the release policy gates the websocket login:
 /// a client speaking an older protocol is refused before its credentials are
 /// even looked at.
-#[test(tokio::test)]
+#[tokio::test]
 async fn incompatible_protocol_version_is_refused() {
     let env = TestEnv::builder()
         .default_users(1)
@@ -393,7 +392,7 @@ async fn incompatible_protocol_version_is_refused() {
     .expect("A client speaking the current protocol version must still log in");
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn session_info_advertises_the_configured_max_conference_size() {
     let env = TestEnv::builder()
         .default_users(1)
@@ -422,4 +421,68 @@ async fn session_info_advertises_the_configured_max_conference_size() {
         }
         _ => panic!("Unexpected response: {response:?}"),
     });
+}
+
+#[tokio::test]
+async fn redirect_query_string_is_not_logged() {
+    const CODE: &str = "redirect-code-marker-5f3a9c";
+    const STATE: &str = "redirect-state-marker-8e21d4";
+    vacs_server::logging::guard::forbid(CODE);
+    vacs_server::logging::guard::forbid(STATE);
+
+    let env = TestEnv::builder().build().await;
+    let client = reqwest::Client::new();
+    let ok = client
+        .get(format!(
+            "{}/auth/vatsim/redirect?code={CODE}&state={STATE}",
+            env.http_base_url()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), reqwest::StatusCode::OK);
+
+    let rejected = client
+        .get(format!(
+            "{}/auth/vatsim/redirect?error=access_denied&error_description={CODE}",
+            env.http_base_url()
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    vacs_server::logging::guard::assert_clean();
+}
+
+#[tokio::test]
+async fn oversized_protocol_version_is_not_logged_verbatim() {
+    let env = TestEnv::builder().default_users(1).build().await;
+    let token = env.ws_token_for(cid(1)).await.unwrap();
+
+    let mut ws_stream = connect_to_websocket(env.ws_url()).await;
+    ws_stream
+        .send(tungstenite::Message::from(
+            ClientMessage::serialize(&ClientMessage::Login(vacs_protocol::ws::client::Login {
+                token,
+                protocol_version: "9".repeat(100_000),
+                custom_profile: false,
+                position_id: None,
+            }))
+            .unwrap(),
+        ))
+        .await
+        .expect("Failed to send login message");
+
+    assert_raw_message_matches(ws_stream.next().await, |response| match response {
+        ServerMessage::LoginFailure(server::LoginFailure { reason }) => {
+            assert_eq!(
+                reason,
+                server::LoginFailureReason::IncompatibleProtocolVersion
+            );
+        }
+        _ => panic!("Unexpected response: {response:?}"),
+    });
+
+    vacs_server::logging::guard::assert_clean();
 }

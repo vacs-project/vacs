@@ -1,6 +1,5 @@
 use crate::ice::IceError;
 use crate::ice::provider::IceConfigProvider;
-use tracing::instrument;
 use vacs_protocol::http::webrtc::IceConfig;
 use vacs_protocol::vatsim::ClientId;
 
@@ -30,7 +29,6 @@ impl Default for StunOnlyProvider {
 
 #[async_trait::async_trait]
 impl IceConfigProvider for StunOnlyProvider {
-    #[instrument(level = "debug", skip(_user_id), fields(user_id = ?_user_id), err)]
     async fn get_ice_config(&self, _user_id: &ClientId) -> Result<IceConfig, IceError> {
         tracing::trace!("Providing STUN-only ICE config");
         Ok(IceConfig::from(self.stun_servers.clone()))

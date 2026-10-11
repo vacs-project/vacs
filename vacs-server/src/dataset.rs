@@ -7,7 +7,6 @@ use octocrab::Octocrab;
 use octocrab::params::repos::Reference;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use tracing::instrument;
 use vacs_vatsim::coverage::network::Network;
 
 /// File name used to track the currently deployed commit SHA.
@@ -49,7 +48,8 @@ impl DatasetManager {
 
         let octocrab = if let Some(credentials) = &config.credentials {
             tracing::info!(
-                ?credentials,
+                app_id = credentials.app_id,
+                installation_id = credentials.installation_id,
                 "Using GitHub App authentication for dataset repository"
             );
 
@@ -95,7 +95,6 @@ impl DatasetManager {
     }
 
     /// Resolve the `deployed/<env>` tag to its commit SHA.
-    #[instrument(level = "info", skip(self), fields(owner = %self.owner, repo = %self.repo, tag = %self.deployed_tag))]
     pub async fn resolve_deployed_sha(&self) -> Result<String> {
         let git_ref = self
             .octocrab
@@ -123,7 +122,7 @@ impl DatasetManager {
             }
         };
 
-        tracing::info!(%sha, tag = %self.deployed_tag, "Resolved deployed tag to commit SHA");
+        tracing::debug!(%sha, tag = %self.deployed_tag, "Resolved deployed tag to commit SHA");
         Ok(sha)
     }
 
@@ -155,9 +154,8 @@ impl DatasetManager {
     /// Download the dataset tarball for a given ref and extract to a temp
     /// directory. Returns the [`TempDir`](tempfile::TempDir) containing the
     /// extracted contents.
-    #[instrument(level = "info", skip(self))]
     async fn download_and_extract(&self, ref_name: &str) -> Result<tempfile::TempDir> {
-        tracing::info!("Downloading dataset tarball from GitHub");
+        tracing::debug!(%ref_name, "Downloading dataset tarball from GitHub");
 
         let response = self
             .octocrab
@@ -174,7 +172,7 @@ impl DatasetManager {
             .map_err(|err| anyhow::anyhow!("Failed to read tarball response body: {err}"))?;
         let bytes: Bytes = collected.to_bytes();
 
-        tracing::info!(size_bytes = bytes.len(), "Downloaded tarball");
+        tracing::debug!(bytes = bytes.len(), "Downloaded dataset tarball");
 
         // Create temp dir as a sibling of the coverage directory to guarantee
         // both are on the same filesystem, which is required for atomic renames.
@@ -226,7 +224,6 @@ impl DatasetManager {
     /// be the same SHA, a tag name, or a branch name).
     ///
     /// Returns the loaded [`Network`] on success so the caller can swap it in.
-    #[instrument(level = "info", skip(self))]
     pub async fn fetch_and_install(&self, ref_name: &str, commit_sha: &str) -> Result<Network> {
         let temp_dir = self.download_and_extract(ref_name).await?;
         let dataset_dir = Self::find_dataset_dir(temp_dir.path())?;
@@ -234,7 +231,7 @@ impl DatasetManager {
         // Validate by loading - this catches any schema / parse errors before
         // we touch the on-disk copy.
         let dataset_path = dataset_dir.to_string_lossy().to_string();
-        tracing::info!(%dataset_path, "Validating downloaded dataset");
+        tracing::debug!(%dataset_path, "Validating downloaded dataset");
 
         let network = tokio::task::spawn_blocking(move || Network::load_from_dir(&dataset_path))
             .await
@@ -248,10 +245,20 @@ impl DatasetManager {
             .await
             .context("Directory replacement task panicked")??;
 
+        let previous_sha = self.local_sha();
+
         // Persist the commit SHA so subsequent startups know what we have.
         self.save_sha(commit_sha)?;
 
-        tracing::info!(%ref_name, %commit_sha, "Dataset installed successfully");
+        tracing::info!(
+            %ref_name,
+            from_sha = previous_sha.as_deref().unwrap_or("none"),
+            to_sha = %commit_sha,
+            positions = network.positions_count(),
+            stations = network.stations_count(),
+            profiles = network.profiles_count(),
+            "Dataset installed"
+        );
         Ok(network)
     }
 
@@ -263,7 +270,6 @@ impl DatasetManager {
     ///
     /// Returns `Some(Network)` when a new dataset was installed, or `None` when
     /// the local copy is already up-to-date (or GitHub is unreachable).
-    #[instrument(level = "info", skip(self))]
     pub async fn sync_on_startup(&self) -> Result<Option<Network>> {
         let local_sha = self.local_sha();
 
@@ -271,7 +277,7 @@ impl DatasetManager {
             Ok(sha) => sha,
             Err(err) => {
                 tracing::warn!(
-                    ?err,
+                    err = %format_args!("{err:#}"),
                     tag = %self.deployed_tag,
                     "Failed to resolve deployed tag, using cached dataset"
                 );
@@ -279,16 +285,14 @@ impl DatasetManager {
             }
         };
 
-        tracing::info!(%deployed_sha, local = ?local_sha, "Checking dataset version");
-
         if local_sha.as_deref() == Some(deployed_sha.as_str()) {
-            tracing::info!(%deployed_sha, "Dataset is already up-to-date");
+            tracing::info!(%deployed_sha, "Dataset is already up to date");
             return Ok(None);
         }
 
         tracing::info!(
-            from = ?local_sha,
-            to = %deployed_sha,
+            from_sha = local_sha.as_deref().unwrap_or("none"),
+            to_sha = %deployed_sha,
             tag = %self.deployed_tag,
             "Dataset update available, downloading"
         );
@@ -297,7 +301,7 @@ impl DatasetManager {
             Ok(network) => Ok(Some(network)),
             Err(err) => {
                 tracing::warn!(
-                    ?err,
+                    err = %format_args!("{err:#}"),
                     "Failed to download dataset update, using cached dataset"
                 );
                 Ok(None)
@@ -328,7 +332,7 @@ fn atomic_replace_dir(src: &Path, dst: &Path) -> Result<()> {
 
         // Step 2: new → current
         if let Err(err) = std::fs::rename(src, dst) {
-            tracing::error!(?err, "Failed to move new dataset into place, rolling back");
+            tracing::warn!(%err, "Failed to move new dataset into place, rolling back");
             std::fs::rename(&backup, dst).with_context(|| {
                 format!(
                     "CRITICAL: rollback rename {} → {} also failed",
@@ -355,7 +359,7 @@ fn atomic_replace_dir(src: &Path, dst: &Path) -> Result<()> {
         && let Err(err) = std::fs::remove_dir_all(&backup)
     {
         tracing::warn!(
-            ?err,
+            %err,
             path = %backup.display(),
             "Failed to remove backup directory, will be cleaned up on next deploy"
         );

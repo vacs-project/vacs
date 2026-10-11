@@ -4,6 +4,7 @@ use vacs_protocol::http::version::ReleaseChannel;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{DisconnectReason, LoginFailureReason, ServerMessage};
 use vacs_protocol::ws::shared::{CallErrorReason, CallSource, CallTarget, ErrorReason};
+use vacs_vatsim::FacilityType;
 
 pub trait AsMetricLabel {
     fn as_metric_label(&self) -> &'static str;
@@ -184,6 +185,35 @@ impl AsMetricLabel for CallErrorReason {
             CallErrorReason::PeerConnectionFailed(_) => "peer_connection_failed",
             CallErrorReason::Other => "other",
             CallErrorReason::Unknown(_) => "unknown",
+        }
+    }
+}
+
+impl AsMetricLabel for FacilityType {
+    fn as_metric_label(&self) -> &'static str {
+        match self {
+            FacilityType::Unknown => "unknown",
+            FacilityType::TrafficFlow => "traffic_flow",
+            FacilityType::Radio => "radio",
+            FacilityType::Ramp => "ramp",
+            FacilityType::Delivery => "delivery",
+            FacilityType::Ground => "ground",
+            FacilityType::Tower => "tower",
+            FacilityType::Approach => "approach",
+            FacilityType::Departure => "departure",
+            FacilityType::Enroute => "enroute",
+            FacilityType::FlightServiceStation => "flight_service_station",
+        }
+    }
+}
+
+impl AsMetricLabel for serde_json::error::Category {
+    fn as_metric_label(&self) -> &'static str {
+        match self {
+            serde_json::error::Category::Io => "io",
+            serde_json::error::Category::Syntax => "syntax",
+            serde_json::error::Category::Data => "data",
+            serde_json::error::Category::Eof => "eof",
         }
     }
 }

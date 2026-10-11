@@ -21,7 +21,7 @@ mod get {
         auth: AuthenticatedUser,
         State(state): State<Arc<AppState>>,
     ) -> ApiResult<WebSocketToken> {
-        tracing::debug!(user = ?auth.user, "Generating websocket token");
+        tracing::debug!("Generating websocket token");
         let token = state.generate_ws_auth_token(auth.user.cid.as_str()).await?;
 
         Ok(Json(WebSocketToken { token }))
@@ -38,7 +38,7 @@ mod delete {
         auth: AuthenticatedUser,
         State(state): State<Arc<AppState>>,
     ) -> StatusCodeResult {
-        tracing::debug!(user = ?auth.user, "Terminating existing web socket connection");
+        tracing::debug!("Terminating existing websocket connection");
         state
             .unregister_client(&auth.user.cid, Some(DisconnectReason::Terminated))
             .await;

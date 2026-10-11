@@ -21,6 +21,14 @@ pub trait StoreBackend {
     async fn is_healthy(&self) -> anyhow::Result<()>;
 }
 
+/// The part of a storage key that is safe to log. Keys embed tokens after their second dot
+/// (`ws.token.<token>`), so anything without that shape is logged as empty.
+pub(crate) fn key_prefix(key: &str) -> &str {
+    key.match_indices('.')
+        .nth(1)
+        .map_or("", |(idx, _)| &key[..idx])
+}
+
 pub enum Store {
     Redis(RedisStore),
     Memory(MemoryStore),
@@ -66,5 +74,18 @@ impl StoreBackend for Store {
             Store::Redis(store) => store.is_healthy().await,
             Store::Memory(store) => store.is_healthy().await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key_prefix;
+
+    #[test]
+    fn key_prefix_drops_the_token() {
+        assert_eq!(key_prefix("ws.token.abc-def"), "ws.token");
+        assert_eq!(key_prefix("api.token.0000.1111"), "api.token");
+        assert_eq!(key_prefix("secret"), "");
+        assert_eq!(key_prefix("one.dot"), "");
     }
 }

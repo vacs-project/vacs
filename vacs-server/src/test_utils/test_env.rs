@@ -157,7 +157,7 @@ impl TestEnv {
         let cid = cid.into();
         let jar = Arc::new(reqwest::cookie::Jar::default());
         let client = reqwest::Client::builder()
-            .cookie_provider(jar)
+            .cookie_provider(jar.clone())
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
@@ -202,6 +202,11 @@ impl TestEnv {
         let state = params
             .get("state")
             .ok_or_else(|| anyhow::anyhow!("No `state` in OAuth redirect"))?;
+        for secret in [code, state] {
+            if secret.len() >= 16 {
+                crate::logging::guard::forbid(secret.clone());
+            }
+        }
 
         // Step 3: Exchange code for session
         let resp = client
@@ -214,6 +219,7 @@ impl TestEnv {
             let body = resp.text().await.unwrap_or_default();
             anyhow::bail!("OAuth callback failed with {status}: {body}");
         }
+        forbid_session_cookies(&jar, &self.http_base_url)?;
 
         Ok(client)
     }
@@ -233,6 +239,7 @@ impl TestEnv {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Missing `token` in /ws/token response"))?
             .to_string();
+        crate::logging::guard::forbid(token.clone());
 
         Ok(token)
     }
@@ -280,10 +287,35 @@ impl TestEnv {
     }
 }
 
+/// Registers every cookie the server set as a secret: the whole signed value, and the session id
+/// behind the 44-character base64 signature.
+fn forbid_session_cookies(jar: &reqwest::cookie::Jar, base_url: &str) -> anyhow::Result<()> {
+    use reqwest::cookie::CookieStore;
+
+    let Some(header) = jar.cookies(&Url::parse(base_url)?) else {
+        return Ok(());
+    };
+    for pair in header.to_str()?.split("; ") {
+        let Some((_, value)) = pair.split_once('=') else {
+            continue;
+        };
+        crate::logging::guard::forbid(value);
+        if let Some(session_id) = value.get(44..)
+            && session_id.len() >= 16
+        {
+            crate::logging::guard::forbid(session_id);
+        }
+    }
+    Ok(())
+}
+
 impl Drop for TestEnv {
     fn drop(&mut self) {
         let _ = self.shutdown_tx.send(());
         self.handle.abort();
+        if !std::thread::panicking() {
+            crate::logging::guard::assert_clean();
+        }
     }
 }
 
@@ -368,6 +400,13 @@ impl TestEnvBuilder {
     /// Builds the [`TestEnv`], starting both the mock VATSIM server and
     /// the vacs-server.
     pub async fn build(self) -> TestEnv {
+        crate::logging::guard::init();
+        for i in 1..=5 {
+            crate::logging::guard::forbid(crate::store::memory::MemoryStore::test_api_token(i));
+        }
+        crate::logging::guard::forbid("mock_access_");
+        crate::logging::guard::forbid("mock_refresh_");
+
         // Start mock VATSIM server
         let mock_vatsim = MockServer::builder()
             .users(self.users)

@@ -5,7 +5,6 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::time::UNIX_EPOCH;
-use tracing::instrument;
 use vacs_protocol::http::webrtc::{IceConfig, IceServer};
 use vacs_protocol::vatsim::ClientId;
 
@@ -45,10 +44,7 @@ impl CoturnIceProvider {
 
 #[async_trait::async_trait]
 impl IceConfigProvider for CoturnIceProvider {
-    #[instrument(level = "debug", err)]
     async fn get_ice_config(&self, user_id: &ClientId) -> Result<IceConfig, IceError> {
-        tracing::debug!("Providing coturn ICE config");
-
         let expiry = self.calculate_expiry();
         let username = format!("{expiry}:{user_id}");
 
@@ -66,7 +62,7 @@ impl IceConfigProvider for CoturnIceProvider {
             IceServer::new(self.config.turns_urls.clone()).with_auth(username, credential),
         ];
 
-        tracing::trace!(?expiry, "Successfully generated TURN credentials");
+        tracing::trace!(expiry, "Generated TURN credentials");
         Ok(IceConfig {
             ice_servers,
             expires_at: Some(expiry),

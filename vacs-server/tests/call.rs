@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::time::Duration;
-use test_log::test;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{self, ServerMessage};
@@ -9,7 +8,7 @@ use vacs_protocol::ws::shared::{CallId, CallTarget};
 use vacs_server::ratelimit::{Policy as RateLimitPolicy, RateLimiters, RateLimitersConfig};
 use vacs_server::test_utils::{TestClient, TestEnv};
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn call_offer() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(5).build().await;
     let mut clients = env.setup_clients(5).await;
@@ -133,7 +132,7 @@ async fn call_offer() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn call_offer_answer() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(5).build().await;
     let mut clients = env.setup_clients(5).await;
@@ -277,7 +276,7 @@ async fn call_offer_answer() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn invite_after_call_end() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -382,7 +381,7 @@ async fn invite_after_call_end() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn call_end_from_non_participant() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -483,7 +482,7 @@ async fn call_end_from_non_participant() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn call_end_by_callee_cancels_pending_invitations() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -593,7 +592,7 @@ async fn call_end_by_callee_cancels_pending_invitations() -> anyhow::Result<()> 
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -680,7 +679,7 @@ async fn callee_disconnect_cancels_pending_invitations() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn ringing_conference_target_disconnect_notifies_the_inviter() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -780,7 +779,7 @@ async fn ringing_conference_target_disconnect_notifies_the_inviter() -> anyhow::
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn unanswered_target_disconnect_updates_remaining_ringing_targets() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -853,7 +852,7 @@ async fn unanswered_target_disconnect_updates_remaining_ringing_targets() -> any
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -966,7 +965,7 @@ async fn call_error_with_call_failure_reason() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn target_not_found() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(5).build().await;
     let mut clients = env.setup_clients(5).await;
@@ -1051,7 +1050,7 @@ async fn target_not_found() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn webrtc_messages_to_non_participants_are_dropped() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1163,7 +1162,7 @@ async fn webrtc_messages_to_non_participants_are_dropped() -> anyhow::Result<()>
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn partial_targets_not_found_still_rings_online_target() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients(2).await;
@@ -1252,7 +1251,7 @@ async fn partial_targets_not_found_still_rings_online_target() -> anyhow::Result
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn all_targets_not_found_leaves_no_call_state() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients(2).await;
@@ -1334,7 +1333,7 @@ async fn all_targets_not_found_leaves_no_call_state() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn empty_targets_rejected() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients(2).await;
@@ -1452,7 +1451,7 @@ async fn join_call(
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn auto_hangup_drops_a_ringing_target_without_ending_the_call() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1533,7 +1532,7 @@ async fn auto_hangup_drops_a_ringing_target_without_ending_the_call() -> anyhow:
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_leader_drops_a_participant() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1613,7 +1612,7 @@ async fn conference_leader_drops_a_participant() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1717,7 +1716,7 @@ async fn dropping_the_only_ringing_target_ends_the_call() -> anyhow::Result<()> 
 /// A conference member reporting a call-scoped error leaves the call; the
 /// survivors only get the roster change, never the reason, since their clients
 /// treat call-scoped reasons as their own call failing.
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_member_call_failure_only_updates_survivors() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1772,7 +1771,7 @@ async fn conference_member_call_failure_only_updates_survivors() -> anyhow::Resu
 
 /// A busy callee accepting counts as that callee failing the target, so a
 /// target it was the only client of fails out for the caller.
-#[test(tokio::test)]
+#[tokio::test]
 async fn busy_accept_fails_the_ringing_target() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1859,7 +1858,7 @@ async fn busy_accept_fails_the_ringing_target() -> anyhow::Result<()> {
 
 /// A refused drop is answered with the reason and the authoritative call state,
 /// so a client that applied the drop locally converges back.
-#[test(tokio::test)]
+#[tokio::test]
 async fn refused_drop_carries_the_authoritative_call_state() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1929,7 +1928,7 @@ async fn setup_conference(
 
 /// Leadership never transfers, so the leader hanging up tears the whole
 /// conference down.
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_leader_ending_the_call_ends_it_for_everyone() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -1972,7 +1971,7 @@ async fn conference_leader_ending_the_call_ends_it_for_everyone() -> anyhow::Res
 
 /// A dropped signaling connection ends the conference just like an explicit
 /// hangup, and the end is attributed to the leader that went away.
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_leader_disconnect_ends_the_call_for_everyone() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -2011,7 +2010,7 @@ async fn conference_leader_disconnect_ends_the_call_for_everyone() -> anyhow::Re
 
 /// A non-leader leaving only shrinks the conference; back at two participants
 /// the call loses its leader and continues as a regular call.
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_member_ending_the_call_shrinks_it_to_a_regular_call() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -2060,7 +2059,7 @@ async fn conference_member_ending_the_call_shrinks_it_to_a_regular_call() -> any
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -2107,7 +2106,7 @@ async fn conference_member_disconnect_shrinks_the_call_to_a_regular_call() -> an
 
 /// The active call entry owns the `vacs_calls_active` gauge increment, so the entry has to go
 /// with the disconnecting participant or the gauge stays raised forever.
-#[test(tokio::test)]
+#[tokio::test]
 async fn disconnect_releases_the_active_call() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(2).build().await;
     let mut clients = env.setup_clients(2).await;
@@ -2148,7 +2147,7 @@ async fn disconnect_releases_the_active_call() -> anyhow::Result<()> {
 
 /// One dead link between two conference members removes the member that
 /// joined later, and only once both endpoints have reported it.
-#[test(tokio::test)]
+#[tokio::test]
 async fn confirmed_link_failure_evicts_the_later_joiner_of_the_pair() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -2261,7 +2260,7 @@ async fn confirmed_link_failure_evicts_the_later_joiner_of_the_pair() -> anyhow:
 /// A peer-scoped failure reason is passed on to the survivors, so their UI can
 /// name the participant that dropped out. The call-scoped counterpart is
 /// covered by `conference_member_call_failure_only_updates_survivors`.
-#[test(tokio::test)]
+#[tokio::test]
 async fn conference_member_webrtc_failure_names_the_leaver_to_the_survivors() -> anyhow::Result<()>
 {
     let env = TestEnv::builder().default_users(3).build().await;
@@ -2362,7 +2361,7 @@ async fn invite(
 
 /// Every callee of a multi-target invite learns about its co-targets, but is
 /// never listed as a target to itself.
-#[test(tokio::test)]
+#[tokio::test]
 async fn multi_target_invitation_lists_the_co_targets() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -2421,7 +2420,7 @@ async fn multi_target_invitation_lists_the_co_targets() -> anyhow::Result<()> {
 
 /// A busy co-target only fails its own target: the other target keeps ringing
 /// and can still turn the invite into a call.
-#[test(tokio::test)]
+#[tokio::test]
 async fn busy_co_target_fails_without_disturbing_the_other_target() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(4).build().await;
     let mut clients = env.setup_clients(4).await;
@@ -2545,7 +2544,7 @@ fn invite_rate_limiters(burst: u32) -> RateLimiters {
 
 /// An invite that would spend more tokens than the caller has left is refused
 /// as a whole, naming the targets it asked for.
-#[test(tokio::test)]
+#[tokio::test]
 async fn rate_limited_invite_reports_the_requested_targets() -> anyhow::Result<()> {
     let env = TestEnv::builder()
         .default_users(3)
@@ -2641,7 +2640,7 @@ async fn rate_limited_invite_reports_the_requested_targets() -> anyhow::Result<(
 
 /// The rate limit is charged per resolved target, so targets nobody is logged
 /// in for cost the caller nothing.
-#[test(tokio::test)]
+#[tokio::test]
 async fn unresolvable_targets_do_not_count_against_the_invite_rate_limit() -> anyhow::Result<()> {
     let env = TestEnv::builder()
         .default_users(2)
@@ -2715,7 +2714,7 @@ async fn unresolvable_targets_do_not_count_against_the_invite_rate_limit() -> an
 
 /// Growing a conference past the configured size is refused, and the refusal
 /// leaves the running call exactly as it was.
-#[test(tokio::test)]
+#[tokio::test]
 async fn invite_beyond_max_conference_size_leaves_the_call_unchanged() -> anyhow::Result<()> {
     let env = TestEnv::builder()
         .default_users(4)
@@ -2861,7 +2860,7 @@ fn accept(client: &TestClient, call_id: CallId) -> ClientMessage {
 /// Two targets answering in the same instant must leave every participant
 /// with the full roster: an update built before the second accept must never
 /// overtake the one built after it.
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn simultaneous_accepts_converge_on_the_full_roster() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
     let mut clients = env.setup_clients(3).await;
@@ -2926,7 +2925,7 @@ async fn simultaneous_accepts_converge_on_the_full_roster() -> anyhow::Result<()
 
 /// A drop landing while another target accepts must not let the dropped
 /// participant resurface on anyone's roster.
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_drop_racing_an_accept_leaves_no_stale_roster() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(4).build().await;
     let mut clients = env.setup_clients(4).await;
@@ -3002,7 +3001,7 @@ async fn a_drop_racing_an_accept_leaves_no_stale_roster() -> anyhow::Result<()> 
 /// An invitation issued while an earlier target accepts must not tell the
 /// new invitee about a roster the accept already changed, unless an update
 /// that repairs it follows the invitation.
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 4))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_invitation_issued_during_an_accept_carries_the_accepted_participant()
 -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(3).build().await;
@@ -3083,5 +3082,173 @@ async fn an_invitation_issued_during_an_accept_carries_the_accepted_participant(
             .expect("the ringing invitee should see its invitation cancelled");
     }
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn relayed_sdp_and_ice_candidates_never_reach_the_log() -> anyhow::Result<()> {
+    const SDP: &str = "v=0\r\no=- 4611731400430051336 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n\
+        m=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\n\
+        a=candidate:1 1 udp 2122260223 192.0.2.10 54400 typ host\r\n";
+    const CANDIDATE: &str = "candidate:1 1 udp 2122260223 192.0.2.10 54400 typ host";
+
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients(2).await;
+    let mut client2 = clients.pop().unwrap();
+    let mut client1 = clients.pop().unwrap();
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(_))
+        })
+        .await;
+
+    client1
+        .send(ClientMessage::WebrtcOffer(
+            vacs_protocol::ws::shared::WebrtcOffer {
+                call_id,
+                from_client_id: client1.id().clone(),
+                to_client_id: client2.id().clone(),
+                sdp: SDP.to_string(),
+            },
+        ))
+        .await?;
+    client2
+        .send(ClientMessage::WebrtcAnswer(
+            vacs_protocol::ws::shared::WebrtcAnswer {
+                call_id,
+                from_client_id: client2.id().clone(),
+                to_client_id: client1.id().clone(),
+                sdp: SDP.to_string(),
+            },
+        ))
+        .await?;
+    client1
+        .send(ClientMessage::WebrtcIceCandidate(
+            vacs_protocol::ws::shared::WebrtcIceCandidate {
+                call_id,
+                from_client_id: client1.id().clone(),
+                to_client_id: client2.id().clone(),
+                candidate: CANDIDATE.to_string(),
+            },
+        ))
+        .await?;
+
+    let relayed_to_client2 = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(200), |m| {
+            matches!(
+                m,
+                ServerMessage::WebrtcOffer(_) | ServerMessage::WebrtcIceCandidate(_)
+            )
+        })
+        .await;
+    let relayed_to_client1 = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(200), |m| {
+            matches!(m, ServerMessage::WebrtcAnswer(_))
+        })
+        .await;
+    assert_eq!(relayed_to_client2.len(), 2, "{relayed_to_client2:?}");
+    assert_eq!(relayed_to_client1.len(), 1, "{relayed_to_client1:?}");
+
+    vacs_server::logging::guard::assert_clean();
+    Ok(())
+}
+
+#[tokio::test]
+async fn webrtc_recipient_outside_the_call_is_not_logged() -> anyhow::Result<()> {
+    const MARKER: &str = "not-a-participant-marker-41c7";
+    vacs_server::logging::guard::forbid(MARKER);
+
+    let env = TestEnv::builder().default_users(2).build().await;
+    let mut clients = env.setup_clients(2).await;
+    let mut client2 = clients.pop().unwrap();
+    let mut client1 = clients.pop().unwrap();
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+    client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(_))
+        })
+        .await;
+
+    client1
+        .send(ClientMessage::WebrtcOffer(
+            vacs_protocol::ws::shared::WebrtcOffer {
+                call_id,
+                from_client_id: client1.id().clone(),
+                to_client_id: ClientId::from(MARKER),
+                sdp: "sdp".to_string(),
+            },
+        ))
+        .await?;
+    client1
+        .send(ClientMessage::CallError(
+            vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::PeerConnectionFailed(
+                    ClientId::from(MARKER),
+                ),
+                message: None,
+            },
+        ))
+        .await?;
+    client1.recv_until_timeout(Duration::from_millis(200)).await;
+
+    vacs_server::logging::guard::assert_clean();
     Ok(())
 }

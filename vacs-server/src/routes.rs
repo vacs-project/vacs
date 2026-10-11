@@ -7,10 +7,12 @@ mod version;
 mod webrtc;
 mod ws;
 
+use crate::logging;
 use crate::state::AppState;
 use axum::extract::FromRequestParts;
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::get;
 use axum::{Router, extract, middleware};
 use axum_client_ip::{ClientIp, ClientIpSource};
@@ -18,11 +20,11 @@ use axum_login::{AuthManagerLayer, AuthnBackend};
 use axum_prometheus::PrometheusMetricLayer;
 use axum_prometheus::metrics_exporter_prometheus::PrometheusHandle;
 use std::sync::Arc;
+use std::time::Instant;
 use tower_http::timeout::TimeoutLayer;
-use tower_http::trace::TraceLayer;
 use tower_sessions::SessionStore;
 use tower_sessions::service::SignedCookie;
-use tracing::{Span, debug_span};
+use tracing::{Instrument, info_span};
 
 pub fn create_app<B, S>(
     auth_layer: AuthManagerLayer<B, S, SignedCookie>,
@@ -47,42 +49,13 @@ where
         app = app.nest("/debug", debug::routes());
     }
     let app = app
-        .layer(middleware::from_fn(
-            async |request: extract::Request, next: Next| {
-                let (mut parts, body) = request.into_parts();
-                if let Ok(ip) = ClientIp::from_request_parts(&mut parts, &()).await {
-                    Span::current().record("client_ip", ip.0.to_string());
-                }
-                next.run(Request::from_parts(parts, body)).await
-            },
-        ))
-        .layer(
-            TraceLayer::new_for_http().make_span_with(move |req: &Request<_>| {
-                let path = req.uri().path();
-                match path {
-                    "/health" | "/favicon.ico" => Span::none(),
-                    _ => {
-                        let uri = if path == "/auth/vatsim/redirect" {
-                            path.to_owned()
-                        } else {
-                            req.uri().to_string()
-                        };
-                        debug_span!(
-                            "request",
-                            method = %req.method(),
-                            uri = uri.as_str(),
-                            version = ?req.version(),
-                            client_ip = tracing::field::Empty)
-                    }
-                }
-            }),
-        )
         .merge(root::untraced_routes())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
             crate::config::SERVER_SHUTDOWN_TIMEOUT,
         ))
         .layer(auth_layer)
+        .layer(middleware::from_fn(request_span))
         .layer(client_ip_source.into_extension());
 
     if let Some(prom_layer) = prom_layer {
@@ -91,6 +64,53 @@ where
         app
     }
 }
+
+/// Runs every request inside an INFO `request` span and writes one completion line, except for
+/// health checks and websocket upgrades, whose connection logs its own lines.
+async fn request_span(request: extract::Request, next: Next) -> Response {
+    let path = request.uri().path();
+    if UNLOGGED_PATHS.contains(&path) {
+        return next.run(request).await;
+    }
+
+    let span = info_span!(
+        "request",
+        method = %request.method(),
+        path = %path,
+        client_id = tracing::field::Empty,
+    );
+    let (mut parts, body) = request.into_parts();
+    let client_network = ClientIp::from_request_parts(&mut parts, &())
+        .await
+        .ok()
+        .map(|ClientIp(ip)| logging::client_network(ip));
+    parts.extensions.insert(logging::RequestSpan(span.clone()));
+    let request = Request::from_parts(parts, body);
+
+    let started = Instant::now();
+    let response = next.run(request).instrument(span.clone()).await;
+    let status = response.status();
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let client_ip = client_network.as_deref();
+    span.in_scope(|| match status {
+        StatusCode::SWITCHING_PROTOCOLS => {}
+        StatusCode::GATEWAY_TIMEOUT => tracing::warn!(
+            client_ip,
+            status = status.as_u16(),
+            duration_ms,
+            "Request completed"
+        ),
+        _ => tracing::info!(
+            client_ip,
+            status = status.as_u16(),
+            duration_ms,
+            "Request completed"
+        ),
+    });
+    response
+}
+
+const UNLOGGED_PATHS: &[&str] = &["/health", "/favicon.ico"];
 
 pub fn create_metrics_app(prom_handle: PrometheusHandle) -> Router {
     Router::new().route("/metrics", get(|| async move { prom_handle.render() }))

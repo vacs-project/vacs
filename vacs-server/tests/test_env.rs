@@ -3,7 +3,7 @@ use vatsim_api::types::Facility;
 
 /// Smoke test: full OAuth flow -> WS token -> WebSocket login using TestEnv
 /// with a real mock VATSIM server and real auth backend.
-#[test_log::test(tokio::test)]
+#[tokio::test]
 async fn test_env_oauth_login() {
     let env = TestEnv::builder()
         .users(vec![test_user("1234567", "Max", "Mustermann")])
@@ -39,7 +39,7 @@ async fn test_env_oauth_login() {
 }
 
 /// Test that an authenticated HTTP client can call protected endpoints.
-#[test_log::test(tokio::test)]
+#[tokio::test]
 async fn test_env_authenticated_http_client() {
     let env = TestEnv::builder()
         .users(vec![test_user("1234567", "Max", "Mustermann")])
@@ -62,7 +62,7 @@ async fn test_env_authenticated_http_client() {
 
 /// Test that the datafeed integration works end-to-end: controllers seeded
 /// at build time are visible, and runtime mutations take effect immediately.
-#[test_log::test(tokio::test)]
+#[tokio::test]
 async fn test_env_datafeed_controllers() {
     let env = TestEnv::builder()
         .controllers(vec![test_controller(

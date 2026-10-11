@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
-use tracing::instrument;
 use vacs_protocol::http::version::ReleaseChannel;
 
 pub use crate::config::GitHubCredentials;
@@ -55,11 +54,6 @@ pub struct GitHubCatalog {
 impl GitHubCatalog {
     const HTTP_CLIENT_DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
-    #[instrument(
-        level = "info",
-        skip(credentials, release_cache_ttl, signature_cache_ttl),
-        err
-    )]
     pub async fn new(
         owner: String,
         repo: String,
@@ -96,7 +90,11 @@ impl GitHubCatalog {
         }
 
         let client = if let Some(credentials) = credentials {
-            tracing::info!(?credentials, "Using GitHub app authentication");
+            tracing::info!(
+                app_id = credentials.app_id,
+                installation_id = credentials.installation_id,
+                "Using GitHub app authentication"
+            );
 
             client_builder = client_builder
                 .app_from_rsa_pem(credentials.app_id.into(), &credentials.app_private_key)
@@ -148,12 +146,9 @@ impl GitHubCatalog {
         Ok(catalog)
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     async fn fetch_releases(&self) -> Result<(), AppError> {
-        tracing::trace!("Fetching releases");
-
         let raw_releases = self.fetch_all_releases().await?;
-        tracing::trace!(total_releases = ?raw_releases.len(), "Fetched all releases");
+        let fetched_releases = raw_releases.len();
 
         let mut by_version = HashMap::new();
         let mut stable_versions = Vec::new();
@@ -178,11 +173,13 @@ impl GitHubCatalog {
         beta_versions.sort();
         rc_versions.sort();
 
-        tracing::trace!(
-            stable = stable_versions.len(),
-            beta = beta_versions.len(),
-            rc = rc_versions.len(),
-            "Partitioned releases by channel"
+        let changed = *self.stable_versions.read() != stable_versions
+            || *self.beta_versions.read() != beta_versions
+            || *self.rc_versions.read() != rc_versions;
+        let (stable, beta, rc) = (
+            stable_versions.len(),
+            beta_versions.len(),
+            rc_versions.len(),
         );
 
         {
@@ -195,18 +192,28 @@ impl GitHubCatalog {
 
         self.prefetch_latest_signatures().await;
 
-        tracing::trace!(
-            total_releases = self.releases.read().len(),
-            stable_releases = self.stable_versions.read().len(),
-            beta_releases = self.beta_versions.read().len(),
-            rc_releases = self.rc_versions.read().len(),
-            cached_signatures = self.signatures.read().len(),
-            "Successfully fetched releases"
-        );
+        let cached_signatures = self.signatures.read().len();
+        if changed {
+            tracing::info!(
+                catalog = "github",
+                fetched_releases,
+                stable,
+                beta,
+                rc,
+                cached_signatures,
+                "Release catalog reloaded"
+            );
+        } else {
+            tracing::debug!(
+                catalog = "github",
+                fetched_releases,
+                cached_signatures,
+                "Release catalog unchanged"
+            );
+        }
         Ok(())
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     async fn fetch_all_releases(&self) -> Result<Vec<OctocrabRelease>, AppError> {
         let mut all_releases = Vec::new();
         let mut page_count = 0;
@@ -251,7 +258,6 @@ impl GitHubCatalog {
         Ok(all_releases)
     }
 
-    #[instrument(level = "debug", skip(self))]
     async fn prefetch_latest_signatures(&self) {
         let versions_to_prefetch = {
             let stable = self.stable_versions.read();
@@ -302,7 +308,7 @@ impl GitHubCatalog {
                         Some((asset_url, sig))
                     }
                     Err(err) => {
-                        tracing::warn!(%asset_url, ?err, "Failed to prefetch signature");
+                        tracing::warn!(%asset_url, %err, "Failed to prefetch signature");
                         None
                     }
                 }
@@ -321,7 +327,6 @@ impl GitHubCatalog {
         );
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     async fn fetch_signature_for_asset(&self, asset_url: &str) -> Result<String, AppError> {
         let response = self
             .http_client
@@ -331,40 +336,31 @@ impl GitHubCatalog {
             .context("Failed to download signature file")?;
 
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-
         if !status.is_success() {
-            tracing::warn!(
-                ?status,
-                ?body,
-                "Received error while download signature file"
-            );
             return Err(anyhow::anyhow!("Failed to download signature file: {status}").into());
         }
 
-        Ok(body)
+        response
+            .text()
+            .await
+            .context("Failed to read signature file")
+            .map_err(Into::into)
     }
 
-    #[instrument(level = "trace", skip(self, release), fields(release_name = ?release.name, release_tag_name = ?release.tag_name))]
     fn filter_map_release(&self, release: &OctocrabRelease) -> Option<ReleaseMeta> {
+        let release_tag = release.tag_name.as_str();
         if release.draft {
-            tracing::trace!("Ignoring draft release");
+            tracing::trace!(release_tag, "Ignoring draft release");
             return None;
         }
 
         if !title_pattern().is_match(release.name.as_ref()?) {
-            tracing::trace!("Ignoring release due to name mismatch");
+            tracing::trace!(release_tag, "Ignoring release due to name mismatch");
             return None;
         }
 
-        tracing::trace!("Processing release");
-
-        let version =
-            self.parse_release_version(release.name.as_ref()?, release.tag_name.as_str())?;
-        tracing::trace!(?version, "Parsed release version");
-
+        let version = self.parse_release_version(release.name.as_ref()?, release_tag)?;
         let channel = self.derive_release_channel(&version, release.prerelease);
-        tracing::trace!(?version, ?channel, "Parsed release channel");
 
         let assets: Vec<ReleaseAsset> = release
             .assets
@@ -373,11 +369,9 @@ impl GitHubCatalog {
             .collect();
 
         if assets.is_empty() {
-            tracing::trace!(?version, ?channel, "Ignoring release due to missing assets");
+            tracing::trace!(release_tag, "Ignoring release due to missing assets");
             return None;
         }
-
-        tracing::trace!(?version, ?channel, assets = ?assets.len(), "Parsed release assets");
 
         let meta = ReleaseMeta {
             id: release.id.0,
@@ -389,14 +383,19 @@ impl GitHubCatalog {
             assets,
         };
 
-        tracing::trace!(?meta, "Parsed release");
+        tracing::trace!(
+            release_tag,
+            release_version = %meta.version,
+            channel = meta.channel.as_str(),
+            assets = meta.assets.len(),
+            required = meta.required,
+            "Parsed release"
+        );
         Some(meta)
     }
 
-    #[instrument(level = "trace", skip(self, asset), fields(asset_name = ?asset.name))]
     fn filter_map_release_asset(&self, asset: &OctocrabAsset) -> Option<ReleaseAsset> {
         if regex!(r"^SHA256SUMS|(?i)\.sig$").is_match(asset.name.as_str()) {
-            tracing::trace!("Ignoring release asset due to name mismatch");
             return None;
         }
 
@@ -465,7 +464,6 @@ impl GitHubCatalog {
 
 #[async_trait]
 impl Catalog for GitHubCatalog {
-    #[instrument(level = "debug", skip(self), err)]
     async fn list(&self, channel: ReleaseChannel) -> Result<Vec<ReleaseMeta>, AppError> {
         let should_update = self
             .releases_updated_at
@@ -495,26 +493,26 @@ impl Catalog for GitHubCatalog {
         Ok(result)
     }
 
-    #[instrument(level = "debug", skip(self, _meta), fields(release_id = %_meta.id, release_version = ?_meta.version), err)]
     async fn load_signature(
         &self,
-        _meta: &ReleaseMeta,
+        meta: &ReleaseMeta,
         asset: &ReleaseAsset,
     ) -> Result<String, AppError> {
         {
             let mut signatures = self.signatures.write();
             if let Some((cached_at, sig)) = signatures.get(&asset.url) {
                 if cached_at.elapsed() < self.signature_cache_ttl {
-                    tracing::trace!("Using cached signature for release asset");
                     return Ok(sig.clone());
-                } else {
-                    tracing::trace!("Cached signature expired");
-                    signatures.pop(&asset.url);
                 }
+                signatures.pop(&asset.url);
             }
         }
 
-        tracing::debug!("Fetching signature for release asset");
+        tracing::debug!(
+            release_version = %meta.version,
+            asset_url = %asset.url,
+            "Fetching signature for release asset"
+        );
         match self.fetch_signature_for_asset(&asset.url).await {
             Ok(sig) => {
                 self.signatures
@@ -523,13 +521,17 @@ impl Catalog for GitHubCatalog {
                 Ok(sig)
             }
             Err(err) => {
-                tracing::warn!(%asset.url, ?err, "No matching signature found for release asset");
+                tracing::warn!(
+                    release_version = %meta.version,
+                    asset_url = %asset.url,
+                    %err,
+                    "No matching signature found for release asset"
+                );
                 Err(AppError::NotFound)
             }
         }
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     async fn refresh(&self) -> Result<(), AppError> {
         self.fetch_releases().await
     }

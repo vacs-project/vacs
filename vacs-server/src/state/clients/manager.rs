@@ -1,4 +1,6 @@
+use crate::logging;
 use crate::metrics::guards::ClientConnectionGuard;
+use crate::metrics::labels::AsMetricLabel;
 use crate::metrics::{CoverageMetrics, NetworkDatasetMetrics};
 use crate::state::clients::session::ClientSession;
 use crate::state::clients::{ClientManagerError, Result};
@@ -8,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast::error::SendError;
 use tokio::sync::{RwLock, broadcast, mpsc};
-use tracing::instrument;
 use vacs_protocol::profile::{ActiveProfile, ProfileId};
 use vacs_protocol::vatsim::{ClientId, PositionId, StationChange, StationId};
 use vacs_protocol::ws::server;
@@ -62,6 +63,8 @@ struct ClientPositionSync {
     departure_handoff_clients: Vec<(ClientSession, PositionId)>,
     /// Whether any position was added or removed from the online set.
     positions_changed: bool,
+    /// Clients newly marked for disconnect.
+    marked_pending_disconnect: usize,
 }
 
 impl ClientManager {
@@ -85,7 +88,6 @@ impl ClientManager {
         }
     }
 
-    #[instrument(level = "debug", skip(self))]
     pub fn find_positions(&self, controller_info: &ControllerInfo) -> Vec<Position> {
         self.network
             .read()
@@ -123,18 +125,14 @@ impl ClientManager {
         self.clients_for_position(&position_id).await
     }
 
-    #[instrument(level = "debug", skip(self, client_connection_guard), err)]
     pub async fn add_client(
         &self,
         client_info: ClientInfo,
         active_profile: ActiveProfile<ProfileId>,
         client_connection_guard: ClientConnectionGuard,
     ) -> Result<(ClientSession, mpsc::Receiver<ServerMessage>)> {
-        tracing::trace!("Adding client");
-
         let mut clients = self.clients.write().await;
         if clients.contains_key(&client_info.id) {
-            tracing::trace!("Client already exists");
             return Err(ClientManagerError::DuplicateClient(
                 client_info.id.to_string(),
             ));
@@ -160,8 +158,8 @@ impl ClientManager {
 
             if exists_and_not_empty {
                 tracing::trace!(
-                    ?position_id,
-                    "Position already exists in online positions list, adding client to list of controllers"
+                    %position_id,
+                    "Position already online, adding client to its controllers"
                 );
                 online_positions
                     .get_mut(position_id)
@@ -169,17 +167,14 @@ impl ClientManager {
                     .insert(client_info.id.clone());
                 Vec::new()
             } else {
-                tracing::trace!(?position_id, "Adding position to online positions list");
+                tracing::trace!(%position_id, "Adding position to online positions");
                 let mut vatsim_only = self.vatsim_only_positions.write().await;
                 let was_vatsim_only = vatsim_only.remove(position_id).is_some();
 
                 if was_vatsim_only {
                     drop(vatsim_only);
 
-                    tracing::debug!(
-                        ?position_id,
-                        "Position was VATSIM-only, transitioning to vacs"
-                    );
+                    tracing::debug!(%position_id, "Position was VATSIM-only, transitioning to vacs");
 
                     online_positions
                         .insert(position_id.clone(), HashSet::from([client_info.id.clone()]));
@@ -212,45 +207,34 @@ impl ClientManager {
                     online_positions
                         .insert(position_id.clone(), HashSet::from([client_info.id.clone()]));
 
-                    tracing::trace!(
-                        ?position_id,
-                        "Updating online stations list after position addition"
-                    );
                     self.update_online_stations(&all_changes).await;
                     let pos_keys: HashSet<&PositionId> = online_positions.keys().collect();
                     Self::client_visible_changes(&all_changes, &pos_keys, &pos_keys)
                 }
             }
         } else {
-            tracing::trace!(
-                "Client has no position, skipping online positions list addition and station changes broadcast"
-            );
             Vec::new()
         };
 
         if let Err(err) = self.broadcast(server::ClientConnected {
             client: client_info,
         }) {
-            tracing::warn!(?err, "Failed to broadcast client connected message");
+            tracing::debug!(%err, "Failed to broadcast client connected message");
         }
 
         self.broadcast_station_changes(&changes).await;
         self.emit_coverage_gauges().await;
 
-        tracing::trace!("Client added");
         Ok((client, rx))
     }
 
-    #[instrument(level = "debug", skip(self))]
     pub async fn remove_client(
         &self,
         client_id: ClientId,
         disconnect_reason: Option<DisconnectReason>,
     ) {
-        tracing::trace!("Removing client");
-
         let Some(client) = self.clients.write().await.remove(&client_id) else {
-            tracing::debug!("Client not found in client list, skipping removal");
+            tracing::trace!("Client already removed");
             return;
         };
 
@@ -290,7 +274,7 @@ impl ClientManager {
                 let mut changes = Vec::new();
 
                 if online_positions.get(position_id).unwrap().len() == 1 {
-                    tracing::trace!(?position_id, "Removing position from online positions list");
+                    tracing::trace!(%position_id, "Removing position from online positions");
 
                     // Use the pre-fetched datafeed + clients snapshot to decide
                     // whether the position transitions to VATSIM-only. Between
@@ -337,7 +321,7 @@ impl ClientManager {
                         // position are no longer callable by vacs clients and
                         // need Offline events.
                         tracing::debug!(
-                            ?position_id,
+                            %position_id,
                             "Position still on VATSIM, transitioning to VATSIM-only"
                         );
                         let online_stations = self.online_stations.read().await;
@@ -360,10 +344,6 @@ impl ClientManager {
                             self.network.read().coverage_diff(&before_all, &after_all);
                         drop(vatsim_only);
 
-                        tracing::trace!(
-                            ?position_id,
-                            "Updating online stations list after position removal"
-                        );
                         self.update_online_stations(&all_changes).await;
                         // Compute client-visible changes BEFORE removing the
                         // position so that `client_visible_changes` still sees
@@ -380,10 +360,7 @@ impl ClientManager {
 
                     online_positions.remove(position_id);
                 } else {
-                    tracing::trace!(
-                        ?position_id,
-                        "Removing client from position in online positions list"
-                    );
+                    tracing::trace!(%position_id, "Removing client from shared position");
                     online_positions
                         .get_mut(position_id)
                         .unwrap()
@@ -392,22 +369,15 @@ impl ClientManager {
 
                 changes
             } else {
-                tracing::trace!(
-                    ?position_id,
-                    "Position not found in online positions list, skipping removal of client from list of controllers"
-                );
                 Vec::new()
             }
         } else {
-            tracing::trace!(
-                "Client has no position, skipping online positions list removal and station changes broadcast"
-            );
             Vec::new()
         };
         client.disconnect(disconnect_reason);
 
         if let Err(err) = self.broadcast(server::ClientDisconnected { client_id }) {
-            tracing::warn!(?err, "Failed to broadcast client disconnected message");
+            tracing::debug!(%err, "Failed to broadcast client disconnected message");
         }
 
         if self.clients.read().await.is_empty() {
@@ -421,8 +391,6 @@ impl ClientManager {
 
         self.broadcast_station_changes(&changes).await;
         self.emit_coverage_gauges().await;
-
-        tracing::debug!("Client removed");
     }
 
     pub async fn list_clients(&self, self_client_id: Option<&ClientId>) -> Vec<ClientInfo> {
@@ -580,11 +548,11 @@ impl ClientManager {
     ) -> Result<usize, SendError<ServerMessage>> {
         let message = message.into();
         if self.broadcast_tx.receiver_count() > 0 {
-            tracing::trace!(message_variant = message.variant(), "Broadcasting message");
+            tracing::trace!(kind = message.as_metric_label(), "Broadcasting message");
             self.broadcast_tx.send(message)
         } else {
             tracing::trace!(
-                message_variant = message.variant(),
+                kind = message.as_metric_label(),
                 "No receivers subscribed, skipping message broadcast"
             );
             Ok(0)
@@ -592,10 +560,7 @@ impl ClientManager {
     }
 
     pub async fn replace_network(&self, network: Network) {
-        tracing::info!(?network, "Replacing network coverage data");
         *self.network.write() = network;
-
-        tracing::debug!("Network coverage data replaced, starting housekeeping");
 
         let old_online_stations = self.online_stations.read().await.clone();
 
@@ -603,7 +568,7 @@ impl ClientManager {
         let mut clients = self.clients.write().await;
         let mut vatsim_only = self.vatsim_only_positions.write().await;
 
-        let (session_updates, new_online_stations) = {
+        let (session_updates, new_online_stations, stale_position_count) = {
             let network = self.network.read();
             let mut session_updates: Vec<(ClientSession, server::SessionInfo)> = Vec::new();
 
@@ -615,18 +580,14 @@ impl ClientManager {
                 .collect();
 
             for stale_pos_id in &stale_positions {
-                tracing::debug!(
-                    ?stale_pos_id,
-                    "Position no longer exists in new network, removing"
-                );
                 if let Some(client_ids) = online_positions.remove(stale_pos_id) {
+                    tracing::debug!(
+                        position_id = %stale_pos_id,
+                        peer_ids = logging::peer_ids(&client_ids),
+                        "Position no longer exists in new network, clearing it from its clients"
+                    );
                     for client_id in client_ids {
                         if let Some(session) = clients.get_mut(&client_id) {
-                            tracing::debug!(
-                                ?client_id,
-                                ?stale_pos_id,
-                                "Clearing stale position from client"
-                            );
                             session.set_position_id(None);
                             let session_profile = session.update_active_profile(None, &network);
                             session_updates.push((
@@ -652,7 +613,7 @@ impl ClientManager {
 
             for stale_pos_id in &stale_vatsim_only {
                 tracing::debug!(
-                    ?stale_pos_id,
+                    position_id = %stale_pos_id,
                     "VATSIM-only position no longer exists in new network, removing"
                 );
                 vatsim_only.remove(stale_pos_id);
@@ -687,7 +648,7 @@ impl ClientManager {
                                         ),
                                         None => {
                                             tracing::warn!(
-                                                ?profile_id,
+                                                %profile_id,
                                                 "Profile not found in new network"
                                             );
                                             SessionProfile::Changed(ActiveProfile::None)
@@ -698,11 +659,6 @@ impl ClientManager {
                             },
                         };
 
-                        tracing::debug!(
-                            ?client_id,
-                            ?pos_id,
-                            "Re-transmitting profile to client after network reload"
-                        );
                         session_updates.push((
                             session.clone(),
                             server::SessionInfo {
@@ -734,7 +690,11 @@ impl ClientManager {
                 }
             }
 
-            (session_updates, new_online_stations)
+            (
+                session_updates,
+                new_online_stations,
+                stale_positions.len() + stale_vatsim_only.len(),
+            )
         };
 
         let all_changes = Self::compute_station_diff(&old_online_stations, &new_online_stations);
@@ -746,11 +706,12 @@ impl ClientManager {
         drop(clients);
         drop(online_positions);
 
+        let session_update_count = session_updates.len();
         for (session, session_info) in session_updates {
             if let Err(err) = session.send_message(session_info).await {
-                tracing::warn!(
-                    ?err,
-                    client_id = ?session.id(),
+                tracing::debug!(
+                    %err,
+                    peer_ids = %session.id(),
                     "Failed to send updated session info after network reload"
                 );
             }
@@ -768,7 +729,12 @@ impl ClientManager {
             );
         }
 
-        tracing::info!("Network housekeeping completed");
+        tracing::info!(
+            stale_positions = stale_position_count,
+            profile_updates = session_update_count,
+            station_changes = station_changes.len(),
+            "Network coverage data replaced"
+        );
     }
 
     pub async fn sync_vatsim_state(
@@ -816,7 +782,6 @@ impl ClientManager {
             }
 
             if sync.positions_changed {
-                tracing::debug!("Online positions changed, calculating coverage changes");
                 let start_all = start_all_positions.iter().collect::<HashSet<_>>();
                 let end_all: HashSet<&PositionId> =
                     online_positions.keys().chain(vatsim_only.keys()).collect();
@@ -880,12 +845,32 @@ impl ClientManager {
             (sync, per_client_changes)
         };
 
+        let clients_updated = sync.client_info_updates.len();
+        let position_changes = sync.session_info_updates.len();
+        if sync.positions_changed
+            || clients_updated > 0
+            || !coverage_changes.is_empty()
+            || !sync.disconnected_clients.is_empty()
+            || sync.marked_pending_disconnect > 0
+        {
+            tracing::info!(
+                clients_updated,
+                position_changes,
+                station_changes = coverage_changes.len(),
+                marked_for_disconnect = sync.marked_pending_disconnect,
+                disconnected = sync.disconnected_clients.len(),
+                "VATSIM sync changed state"
+            );
+        } else {
+            tracing::debug!(clients = controllers.len(), "VATSIM sync changed nothing");
+        }
+
         // Phase 5: Send all collected messages (locks released)
         for (session, session_info) in sync.session_info_updates {
             if let Err(err) = session.send_message(session_info).await {
-                tracing::warn!(
-                    ?err,
-                    client_id = ?session.id(),
+                tracing::debug!(
+                    %err,
+                    client_id = %session.id(),
                     "Failed to send updated session info to client"
                 );
             }
@@ -896,9 +881,9 @@ impl ClientManager {
         for (session, profile, position_id) in sync.station_list_updates {
             let stations = self.list_stations(&profile, position_id.as_ref()).await;
             if let Err(err) = session.send_message(server::StationList { stations }).await {
-                tracing::warn!(
-                    ?err,
-                    client_id = ?session.id(),
+                tracing::debug!(
+                    %err,
+                    client_id = %session.id(),
                     "Failed to send updated station list to client"
                 );
             }
@@ -909,9 +894,9 @@ impl ClientManager {
                 .send_message(server::StationChanges { changes })
                 .await
             {
-                tracing::warn!(
-                    ?err,
-                    client_id = ?session.id(),
+                tracing::debug!(
+                    %err,
+                    client_id = %session.id(),
                     "Failed to send self-handoff station changes to client"
                 );
             }
@@ -920,7 +905,7 @@ impl ClientManager {
         if self.broadcast_tx.receiver_count() > 0 {
             for msg in sync.client_info_updates {
                 if let Err(err) = self.broadcast(msg) {
-                    tracing::warn!(?err, "Failed to broadcast client info update");
+                    tracing::debug!(%err, "Failed to broadcast client info update");
                 }
             }
         }
@@ -959,6 +944,7 @@ impl ClientManager {
             self_handoff_clients: Vec::new(),
             departure_handoff_clients: Vec::new(),
             positions_changed: false,
+            marked_pending_disconnect: 0,
         };
 
         let grace_period = self.position_grace_period;
@@ -969,12 +955,21 @@ impl ClientManager {
             UnknownFacilityType,
         }
 
+        impl AsMetricLabel for MissingConnection {
+            fn as_metric_label(&self) -> &'static str {
+                match self {
+                    MissingConnection::NotInDataFeed => "not_in_data_feed",
+                    MissingConnection::UnknownFacilityType => "unknown_facility_type",
+                }
+            }
+        }
+
         fn disconnect_or_mark_pending(
             cid: &ClientId,
             session: &mut ClientSession,
             grace_period: Duration,
             cause: MissingConnection,
-            disconnected_clients: &mut Vec<(ClientId, DisconnectReason)>,
+            result: &mut ClientPositionSync,
         ) {
             // The datafeed trails the slurper, so a client that just logged in
             // is legitimately absent from the feed for the first sync ticks.
@@ -982,34 +977,34 @@ impl ClientManager {
             // period expired, and connected_at never changes.
             if session.is_within_position_grace_period(&grace_period) {
                 tracing::debug!(
-                    ?cid,
-                    ?cause,
-                    "No usable VATSIM connection in the data feed, but client is within grace period after connecting, skipping disconnect"
+                    client_id = %cid,
+                    cause = cause.as_metric_label(),
+                    "No usable VATSIM connection, but client is within grace period, skipping disconnect"
                 );
                 return;
             }
 
             if session.take_pending_disconnect() {
-                tracing::trace!(
-                    ?cid,
-                    ?cause,
-                    "No active VATSIM connection found after grace period, disconnecting client and sending broadcast"
+                tracing::debug!(
+                    client_id = %cid,
+                    cause = cause.as_metric_label(),
+                    "Still no usable VATSIM connection, disconnecting client"
                 );
-                disconnected_clients
+                result
+                    .disconnected_clients
                     .push((cid.clone(), DisconnectReason::NoActiveVatsimConnection));
             } else {
-                tracing::trace!(
-                    ?cid,
-                    ?cause,
-                    "No usable VATSIM connection in the data feed, but active VATSIM connection is required, marking for disconnect"
+                tracing::debug!(
+                    client_id = %cid,
+                    cause = cause.as_metric_label(),
+                    "No usable VATSIM connection, marking client for disconnect"
                 );
                 session.mark_pending_disconnect();
+                result.marked_pending_disconnect += 1;
             }
         }
 
         for (cid, session) in clients.iter_mut() {
-            tracing::trace!(?cid, ?session, "Checking session for client info update");
-
             match controllers.get(cid) {
                 Some(controller) if controller.facility_type == FacilityType::Unknown => {
                     if require_active_connection {
@@ -1018,7 +1013,7 @@ impl ClientManager {
                             session,
                             grace_period,
                             MissingConnection::UnknownFacilityType,
-                            &mut result.disconnected_clients,
+                            &mut result,
                         );
                     }
                 }
@@ -1029,15 +1024,15 @@ impl ClientManager {
                             session,
                             grace_period,
                             MissingConnection::NotInDataFeed,
-                            &mut result.disconnected_clients,
+                            &mut result,
                         );
                     }
                 }
                 Some(controller) => {
                     if session.take_pending_disconnect() {
-                        tracing::trace!(
-                            ?cid,
-                            "Found active VATSIM connection for client again, removing pending disconnect"
+                        tracing::debug!(
+                            client_id = %cid,
+                            "Found VATSIM connection again, clearing pending disconnect"
                         );
                     }
 
@@ -1047,19 +1042,11 @@ impl ClientManager {
                     // datafeed may still report a stale frequency for a
                     // few update cycles.
                     if session.is_within_position_grace_period(&grace_period) {
-                        tracing::debug!(
-                            ?cid,
-                            ?controller,
-                            old_position_id = ?session.position_id(),
-                            "Client is within grace period after connecting, skipping client info update and position sync"
-                        );
                         continue;
                     }
 
                     let updated = session.update_client_info(controller);
                     if updated {
-                        tracing::trace!(?cid, ?session, "Client info updated, updating position");
-
                         let old_position_id = session.position_id().cloned();
                         let new_positions: Vec<Position> = self
                             .network
@@ -1074,11 +1061,11 @@ impl ClientManager {
                             .collect();
 
                         let new_position = if new_positions.len() > 1 {
-                            tracing::info!(
-                                ?cid,
-                                ?old_position_id,
-                                ?new_positions,
-                                "Multiple positions found for updated client info, disconnecting as ambiguous"
+                            tracing::debug!(
+                                client_id = %cid,
+                                old_position_id = old_position_id.as_ref().map(tracing::field::display),
+                                positions = new_positions.len(),
+                                "Multiple positions match the updated VATSIM connection, disconnecting as ambiguous"
                             );
                             result.disconnected_clients.push((
                                 cid.clone(),
@@ -1098,9 +1085,9 @@ impl ClientManager {
 
                         if old_position_id != new_position_id {
                             tracing::debug!(
-                                ?cid,
-                                ?new_position_id,
-                                ?old_position_id,
+                                client_id = %cid,
+                                new_position_id = new_position_id.as_ref().map(tracing::field::display),
+                                old_position_id = old_position_id.as_ref().map(tracing::field::display),
                                 "Client position changed"
                             );
 
@@ -1113,9 +1100,9 @@ impl ClientManager {
                                     .unwrap_or(false)
                                 {
                                     tracing::trace!(
-                                        ?cid,
-                                        ?old_position_id,
-                                        "Removing position from online positions list"
+                                        client_id = %cid,
+                                        position_id = %old_position_id,
+                                        "Removing position from online positions"
                                     );
                                     online_positions.remove(old_position_id);
                                     result.positions_changed = true;
@@ -1123,9 +1110,9 @@ impl ClientManager {
                                     online_positions.get_mut(old_position_id)
                                 {
                                     tracing::trace!(
-                                        ?cid,
-                                        ?old_position_id,
-                                        "Removing client from shared position in online positions list"
+                                        client_id = %cid,
+                                        position_id = %old_position_id,
+                                        "Removing client from shared position"
                                     );
                                     clients.remove(cid);
                                     // The position stays online with remaining clients.
@@ -1187,7 +1174,6 @@ impl ClientManager {
                             ));
                         }
 
-                        tracing::trace!(?cid, ?session, "Client info updated, broadcasting");
                         result
                             .client_info_updates
                             .push(ServerMessage::from(session.client_info().clone()));
@@ -1280,8 +1266,8 @@ impl ClientManager {
                     None
                 } else {
                     tracing::debug!(
-                        client_id = ?session.id(),
-                        ?new_pos_id,
+                        client_id = %session.id(),
+                        position_id = %new_pos_id,
                         count = self_handoffs.len(),
                         "Prepared self-handoff station changes"
                     );
@@ -1426,7 +1412,7 @@ impl ClientManager {
             CoverageMetrics::station_change(change.as_str());
         }
 
-        tracing::trace!(?changes, "Sending station changes to clients");
+        tracing::trace!(count = changes.len(), "Sending station changes to clients");
 
         let mut filtered_changes_cache: HashMap<ActiveProfile<ProfileId>, Vec<StationChange>> =
             HashMap::new();
@@ -1486,7 +1472,7 @@ impl ClientManager {
                 })
                 .await
             {
-                tracing::warn!(?err, ?client, "Failed to send station changes to client");
+                tracing::debug!(%err, "Failed to send station changes to client");
             }
         }
     }

@@ -114,24 +114,24 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         match self {
             AppError::BadRequest(msg) => {
-                tracing::debug!(?msg, "Bad Request");
+                tracing::debug!(detail = %msg, "Bad request");
                 ProblemDetails::new(StatusCode::BAD_REQUEST.as_u16(), "Bad Request")
                     .with_detail(&msg)
             }
             AppError::Unauthorized(msg) => {
-                tracing::debug!(?msg, "Unauthorized");
+                tracing::debug!(detail = %msg, "Unauthorized");
                 ProblemDetails::new(StatusCode::UNAUTHORIZED.as_u16(), "Unauthorized")
                     .with_detail(&msg)
             }
             AppError::NotFound => ProblemDetails::new(StatusCode::NOT_FOUND.as_u16(), "Not Found"),
             AppError::TooManyRequests(retry_after_secs) => {
-                tracing::debug!(?retry_after_secs, "Too Many Requests");
+                tracing::debug!(retry_after_secs, "Rate limit exceeded");
                 ProblemDetails::new(StatusCode::TOO_MANY_REQUESTS.as_u16(), "Too Many Requests")
                     .with_detail(&format!("Rate limit for this endpoint was exceeded. Try again in {retry_after_secs} seconds."))
                     .with_header(header::RETRY_AFTER, HeaderValue::from_str(&retry_after_secs.to_string()).expect("retry-after header value is valid"))
             }
             AppError::InternalServerError(err) => {
-                tracing::error!(?err, "Internal server error");
+                tracing::error!(err = %format_args!("{err:#}"), "Internal server error");
                 ProblemDetails::new(
                     StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
                     "Internal Server Error",

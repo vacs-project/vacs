@@ -20,7 +20,6 @@ mod post {
     use serde::Deserialize;
     use std::sync::Arc;
     use std::time::Duration;
-    use tracing::instrument;
 
     /// GitHub Actions OIDC issuer.
     const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
@@ -72,18 +71,18 @@ mod post {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.strip_prefix("Bearer "))
             .ok_or_else(|| {
-                tracing::warn!("Missing or invalid Authorization header");
+                tracing::info!(reason = "missing_bearer_token", "Admin request rejected");
                 AppError::Unauthorized("Authentication failed".to_string())
             })?;
 
         // Decode the JWT header to get the key ID
         let header = jsonwebtoken::decode_header(token).map_err(|err| {
-            tracing::warn!(?err, "Failed to decode JWT header");
+            tracing::info!(reason = "invalid_jwt_header", %err, "Admin request rejected");
             AppError::Unauthorized("Authentication failed".to_string())
         })?;
 
         let kid = header.kid.ok_or_else(|| {
-            tracing::warn!("JWT header missing key ID");
+            tracing::info!(reason = "missing_key_id", "Admin request rejected");
             AppError::Unauthorized("Authentication failed".to_string())
         })?;
 
@@ -93,8 +92,9 @@ mod post {
             .timeout(JWKS_REQUEST_TIMEOUT)
             .build()
             .map_err(|err| {
-                tracing::error!(?err, "Failed to build HTTP client for JWKS fetch");
-                AppError::InternalServerError(anyhow::anyhow!("Failed to build HTTP client"))
+                AppError::InternalServerError(
+                    anyhow::Error::new(err).context("Failed to build HTTP client for JWKS fetch"),
+                )
             })?;
 
         let jwks: JwkSet = client
@@ -102,25 +102,32 @@ mod post {
             .send()
             .await
             .map_err(|err| {
-                tracing::error!(?err, "Failed to fetch GitHub OIDC JWKS");
-                AppError::InternalServerError(anyhow::anyhow!("Failed to fetch OIDC JWKS"))
+                AppError::InternalServerError(
+                    anyhow::Error::new(err).context("Failed to fetch GitHub OIDC JWKS"),
+                )
             })?
             .json()
             .await
             .map_err(|err| {
-                tracing::error!(?err, "Failed to parse GitHub OIDC JWKS");
-                AppError::InternalServerError(anyhow::anyhow!("Failed to parse OIDC JWKS"))
+                AppError::InternalServerError(
+                    anyhow::Error::new(err).context("Failed to parse GitHub OIDC JWKS"),
+                )
             })?;
 
         // Find the matching key
         let jwk = jwks.find(&kid).ok_or_else(|| {
-            tracing::warn!(%kid, "No matching key found in GitHub OIDC JWKS");
+            tracing::info!(
+                reason = "unknown_key_id",
+                kid = crate::logging::bounded(&kid),
+                "Admin request rejected"
+            );
             AppError::Unauthorized("Authentication failed".to_string())
         })?;
 
         let decoding_key = DecodingKey::from_jwk(jwk).map_err(|err| {
-            tracing::error!(?err, "Failed to construct decoding key from JWK");
-            AppError::InternalServerError(anyhow::anyhow!("Failed to construct decoding key"))
+            AppError::InternalServerError(
+                anyhow::Error::new(err).context("Failed to construct decoding key from JWK"),
+            )
         })?;
 
         // Validate the token - always require RS256;
@@ -132,7 +139,7 @@ mod post {
 
         let token_data =
             decode::<GitHubOidcClaims>(token, &decoding_key, &validation).map_err(|err| {
-                tracing::warn!(?err, "JWT validation failed");
+                tracing::info!(reason = "jwt_validation_failed", %err, "Admin request rejected");
                 AppError::Unauthorized("Authentication failed".to_string())
             })?;
 
@@ -140,15 +147,16 @@ mod post {
 
         // Verify subject matches allowed pattern
         if claims.sub != allowed_sub {
-            tracing::warn!(
-                expected = %allowed_sub,
-                actual = %claims.sub,
-                "JWT subject does not match allowed subject"
+            tracing::info!(
+                reason = "subject_mismatch",
+                expected_sub = %allowed_sub,
+                actual_sub = %claims.sub,
+                "Admin request rejected"
             );
             return Err(AppError::Unauthorized("Authentication failed".to_string()));
         }
 
-        tracing::info!(
+        tracing::debug!(
             sub = %claims.sub,
             iss = %claims.iss,
             aud = %claims.aud,
@@ -157,7 +165,6 @@ mod post {
         Ok(())
     }
 
-    #[instrument(level = "info", skip(state, headers, body))]
     pub async fn reload_dataset(
         State(state): State<Arc<AppState>>,
         headers: HeaderMap,
@@ -170,8 +177,6 @@ mod post {
         let commit_sha = body.sha.as_deref().unwrap_or(git_ref);
         tracing::info!(%git_ref, %commit_sha, "Dataset reload triggered");
 
-        let previous_sha = state.dataset.as_ref().and_then(|d| d.local_sha());
-
         let dataset = state.dataset.as_ref().ok_or_else(|| {
             tracing::warn!("Dataset reload requested but no dataset repository is configured");
             AppError::NotFound
@@ -181,26 +186,16 @@ mod post {
             .fetch_and_install(git_ref, commit_sha)
             .await
             .map_err(|err| {
-                tracing::error!(?err, %git_ref, %commit_sha, "Failed to fetch and install dataset");
-                AppError::InternalServerError(anyhow::anyhow!(
-                    "Failed to fetch and install dataset"
-                ))
+                AppError::InternalServerError(err.context("Failed to fetch and install dataset"))
             })?;
 
         state.replace_network(network).await;
-
-        tracing::info!(
-            from = ?previous_sha,
-            to = %commit_sha,
-            "Dataset reload completed successfully"
-        );
 
         Ok(StatusCode::OK)
     }
 
     /// Repopulate the release catalog so the updater offers a new release before the cache TTL
     /// expires.
-    #[instrument(level = "info", skip(state, headers))]
     pub async fn reload_releases(
         State(state): State<Arc<AppState>>,
         headers: HeaderMap,
@@ -221,12 +216,7 @@ mod post {
 
         tracing::info!("Release catalog reload triggered");
 
-        state.updates.refresh_catalog().await.map_err(|err| {
-            tracing::error!(?err, "Failed to refresh release catalog");
-            AppError::InternalServerError(anyhow::anyhow!("Failed to refresh release catalog"))
-        })?;
-
-        tracing::info!("Release catalog reload completed successfully");
+        state.updates.refresh_catalog().await?;
 
         Ok(StatusCode::OK)
     }

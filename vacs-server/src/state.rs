@@ -6,6 +6,7 @@ use crate::config::AppConfig;
 use crate::dataset::DatasetManager;
 use crate::ice::provider::IceConfigProvider;
 use crate::metrics::guards::ClientConnectionGuard;
+use crate::metrics::labels::AsMetricLabel;
 use crate::metrics::{ErrorMetrics, VatsimSyncMetrics};
 use crate::ratelimit::RateLimiters;
 use crate::release::UpdateChecker;
@@ -18,7 +19,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time;
-use tracing::{Instrument, instrument};
+use tracing::Instrument;
 use uuid::Uuid;
 use vacs_protocol::profile::{ActiveProfile, ProfileId};
 use vacs_protocol::vatsim::{ClientId, PositionId};
@@ -87,20 +88,21 @@ impl AppState {
         (self.broadcast_tx.subscribe(), self.shutdown_rx.clone())
     }
 
-    #[instrument(level = "debug", skip(self, client_connection_guard), err)]
     pub async fn register_client(
         &self,
         client_info: ClientInfo,
         active_profile: ActiveProfile<ProfileId>,
         client_connection_guard: ClientConnectionGuard,
     ) -> anyhow::Result<(ClientSession, mpsc::Receiver<ServerMessage>)> {
-        tracing::trace!("Registering client");
-
         if self.clients.is_empty().await {
-            tracing::debug!("First client connected, triggering initial VATSIM controller sync");
-            if let Err(err) = self.update_vatsim_controllers(false).await {
-                tracing::warn!(?err, "Initial VATSIM controller sync failed");
+            async {
+                tracing::debug!("First client connected, running initial VATSIM sync");
+                if let Err(err) = self.update_vatsim_controllers(false).await {
+                    tracing::warn!(err = format!("{err:#}"), "Initial VATSIM sync failed");
+                }
             }
+            .instrument(vatsim_sync_span())
+            .await;
         }
 
         let (client, rx) = self
@@ -108,25 +110,19 @@ impl AppState {
             .add_client(client_info, active_profile, client_connection_guard)
             .await?;
 
-        tracing::trace!("Client registered");
         Ok((client, rx))
     }
 
-    #[instrument(level = "debug", skip(self))]
     pub async fn unregister_client(
         &self,
         client_id: &ClientId,
         disconnect_reason: Option<DisconnectReason>,
     ) {
-        tracing::trace!("Unregistering client");
-
         self.clients
             .remove_client(client_id.clone(), disconnect_reason)
             .await;
 
         self.calls.cleanup_client_calls(self, client_id).await;
-
-        tracing::debug!("Client unregistered");
     }
 
     pub async fn list_clients(&self, self_client_id: Option<&ClientId>) -> Vec<ClientInfo> {
@@ -147,17 +143,15 @@ impl AppState {
         self.clients.get_client(client_id).await
     }
 
-    #[tracing::instrument(level = "trace", skip(self, message))]
     pub async fn send_message(
         &self,
         client_id: &ClientId,
         message: impl Into<ServerMessage>,
     ) -> Result<(), Error> {
+        let message = message.into();
         match self.get_client(client_id).await {
             Some(client) => {
-                tracing::trace!("Sending message to client");
-                if let Err(err) = client.send_message(message).await {
-                    tracing::warn!(?err, "Failed to send message to client");
+                if client.send_message(message).await.is_err() {
                     ErrorMetrics::error(&ErrorReason::PeerConnection);
                     Err(Error::new(ErrorReason::PeerConnection).with_client_id(client_id.clone()))
                 } else {
@@ -165,20 +159,15 @@ impl AppState {
                 }
             }
             None => {
-                tracing::warn!("Client not found");
                 ErrorMetrics::peer_not_found();
                 Err(Error::new(ErrorReason::ClientNotFound).with_client_id(client_id.clone()))
             }
         }
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn generate_ws_auth_token(&self, cid: &str) -> anyhow::Result<String> {
-        tracing::debug!("Generating web socket auth token");
-
         let token = Uuid::now_v7().to_string();
 
-        tracing::trace!("Storing web socket auth token");
         self.store
             .set(
                 format!("ws.token.{token}").as_str(),
@@ -192,24 +181,15 @@ impl AppState {
         Ok(token)
     }
 
-    #[instrument(level = "debug", skip_all, err)]
     pub async fn verify_ws_auth_token(&self, token: &str) -> anyhow::Result<ClientId> {
-        tracing::debug!("Verifying web socket auth token");
-
         match self.store.get(format!("ws.token.{token}").as_str()).await {
-            Ok(Some(cid)) => {
-                tracing::debug!(?cid, "Web socket auth token verified");
-                Ok(cid)
-            }
+            Ok(Some(cid)) => Ok(cid),
             Ok(None) => anyhow::bail!("Web socket auth token not found"),
             Err(err) => anyhow::bail!(err),
         }
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn generate_api_token(&self, cid: &str) -> anyhow::Result<String> {
-        tracing::debug!("Generating API token");
-
         let token = Uuid::now_v7().to_string();
         let expiry = Duration::from_secs(self.config.auth.api_token.expiry_secs);
 
@@ -222,10 +202,7 @@ impl AppState {
         Ok(token)
     }
 
-    #[instrument(level = "debug", skip_all, err)]
     pub async fn verify_api_token(&self, token: &str) -> anyhow::Result<Option<ClientId>> {
-        tracing::debug!("Verifying API token");
-
         if Uuid::try_parse(token).is_err() {
             tracing::debug!("Rejected malformed API token");
             return Ok(None);
@@ -234,11 +211,10 @@ impl AppState {
         let key = format!("api.token.{token}");
         match self.store.get(key.as_str()).await {
             Ok(Some(cid)) => {
-                tracing::debug!(?cid, "API token verified");
                 // extend TTL on each use (inactivity-based expiry, like sessions)
                 let expiry = Duration::from_secs(self.config.auth.api_token.expiry_secs);
                 if let Err(err) = self.store.expire(&key, expiry).await {
-                    tracing::warn!(?err, "Failed to extend API token TTL");
+                    tracing::warn!(err = format!("{err:#}"), "Failed to extend API token TTL");
                 }
                 Ok(Some(cid))
             }
@@ -247,83 +223,71 @@ impl AppState {
         }
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn revoke_api_token(&self, token: &str) -> anyhow::Result<()> {
-        tracing::debug!("Revoking API token");
         self.store
             .remove(format!("api.token.{token}").as_str())
             .await
             .context("Failed to revoke API token")
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn get_vatsim_controller_info(
         &self,
         cid: &ClientId,
     ) -> anyhow::Result<Option<ControllerInfo>> {
-        tracing::debug!("Retrieving connection info from VATSIM slurper");
         self.slurper
             .get_controller_info(cid)
             .await
             .map_err(Into::into)
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn get_vatsim_controllers(&self) -> anyhow::Result<Vec<ControllerInfo>> {
-        tracing::debug!("Retrieving controller info from VATSIM data feed");
         self.data_feed
             .fetch_controller_info()
             .await
             .map_err(Into::into)
     }
 
-    #[instrument(level = "debug", skip(state))]
     pub fn start_controller_update_task(
         state: Arc<AppState>,
         interval: Duration,
     ) -> JoinHandle<()> {
-        tokio::spawn(
-            async move {
-                let mut ticker = time::interval(interval);
-                ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+        tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
-                let mut shutdown = state.shutdown_rx.clone();
-                loop {
-                    tokio::select! {
-                        biased;
-                        _ = shutdown.changed() => {
-                            tracing::info!("Shutting down controller update task");
-                            break;
+            let mut shutdown = state.shutdown_rx.clone();
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = shutdown.changed() => {
+                        tracing::info!("Shutting down controller update task");
+                        break;
+                    }
+                    _ = ticker.tick() => {
+                        if state.clients.is_empty().await {
+                            continue;
                         }
-                        _ = ticker.tick() => {
-                            if state.clients.is_empty().await {
-                                tracing::trace!("No clients connected, skipping controller update");
-                                continue;
-                            }
 
+                        async {
                             if let Err(err) = state.update_vatsim_controllers(state.config.vatsim.require_active_connection).await {
-                                tracing::warn!(?err, "Failed to update controller info");
+                                tracing::warn!(err = format!("{err:#}"), "VATSIM sync failed");
                             }
                         }
+                        .instrument(vatsim_sync_span())
+                        .await;
                     }
                 }
             }
-            .in_current_span(),
-        )
+        })
     }
 
-    #[tracing::instrument(level = "debug", skip(self), err)]
     async fn update_vatsim_controllers(
         &self,
         require_active_connection: bool,
     ) -> anyhow::Result<()> {
-        tracing::debug!("Updating VATSIM controllers");
-
         let start = std::time::Instant::now();
         let controllers = self.get_vatsim_controllers().await?;
-        let fetch_elapsed = start.elapsed();
-        VatsimSyncMetrics::sync_phase("fetch", fetch_elapsed.as_secs_f64());
-        tracing::trace!(elapsed = ?fetch_elapsed, "Finished retrieving VATSIM controllers");
+        VatsimSyncMetrics::sync_phase("fetch", start.elapsed().as_secs_f64());
 
         let start_sync = std::time::Instant::now();
         let current = ControllerInfo::index_by_cid(controllers);
@@ -334,28 +298,27 @@ impl AppState {
             .clients
             .sync_vatsim_state(&current, require_active_connection)
             .await;
-        let sync_elapsed = start_sync.elapsed();
-        VatsimSyncMetrics::sync_phase("sync", sync_elapsed.as_secs_f64());
-        tracing::trace!(elapsed = ?sync_elapsed, "Finished syncing VATSIM state");
+        VatsimSyncMetrics::sync_phase("sync", start_sync.elapsed().as_secs_f64());
 
         let pending_disconnect = self.clients.pending_disconnect_count().await;
         VatsimSyncMetrics::set_clients_pending_disconnect(pending_disconnect);
-        tracing::debug!(
-            pending_disconnect,
-            "Clients marked for disconnect after sync"
-        );
 
         let start_unregister = std::time::Instant::now();
         for (cid, disconnect_reason) in disconnected_clients {
-            self.unregister_client(&cid, Some(disconnect_reason)).await;
+            let span = tracing::info_span!("kick", client_id = %cid);
+            async {
+                tracing::info!(
+                    reason = disconnect_reason.as_metric_label(),
+                    "Client kicked"
+                );
+                self.unregister_client(&cid, Some(disconnect_reason)).await;
+            }
+            .instrument(span)
+            .await;
         }
-        let unregister_elapsed = start_unregister.elapsed();
-        VatsimSyncMetrics::sync_phase("unregister", unregister_elapsed.as_secs_f64());
-        tracing::trace!(elapsed = ?unregister_elapsed, "Finished unregistering clients");
+        VatsimSyncMetrics::sync_phase("unregister", start_unregister.elapsed().as_secs_f64());
 
-        let total_elapsed = start.elapsed();
-        VatsimSyncMetrics::sync_completed(total_elapsed.as_secs_f64());
-        tracing::debug!(elapsed = ?total_elapsed, "Finished updating VATSIM controllers");
+        VatsimSyncMetrics::sync_completed(start.elapsed().as_secs_f64());
         Ok(())
     }
 
@@ -370,6 +333,10 @@ impl AppState {
     pub async fn replace_network(&self, network: Network) {
         self.clients.replace_network(network).await;
     }
+}
+
+fn vatsim_sync_span() -> tracing::Span {
+    tracing::info_span!(parent: None, "task", task = "vatsim_sync")
 }
 
 #[cfg(test)]

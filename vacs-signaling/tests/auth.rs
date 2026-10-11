@@ -1,6 +1,5 @@
 use pretty_assertions::assert_matches;
 use std::time::Duration;
-use test_log::test;
 use tokio_util::sync::CancellationToken;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
@@ -13,7 +12,7 @@ use vacs_signaling::error::SignalingError;
 use vacs_signaling::test_utils::{RecvWithTimeoutExt, TestRig};
 use vacs_signaling::transport::tokio::TokioTransport;
 
-#[test(tokio::test)]
+#[tokio::test]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login_without_self() {
     let env = TestEnv::builder().default_users(1).build().await;
@@ -50,7 +49,7 @@ async fn login_without_self() {
     client.disconnect().await;
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login() {
     let env = TestEnv::builder().default_users(2).build().await;
@@ -117,7 +116,7 @@ async fn login() {
     client2.disconnect().await;
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 #[cfg_attr(target_os = "windows", ignore)]
 async fn login_timeout() {
     let env = TestEnv::builder().build().await;
@@ -147,7 +146,7 @@ async fn login_timeout() {
     client.disconnect().await;
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn login_invalid_credentials() {
     let env = TestEnv::builder().build().await;
 
@@ -179,7 +178,7 @@ async fn login_invalid_credentials() {
     client.disconnect().await;
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn login_duplicate_id() {
     let test_rig = TestRig::new(1).await;
 
@@ -212,7 +211,7 @@ async fn login_duplicate_id() {
     client.disconnect().await;
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn logout() {
     let mut test_rig = TestRig::new(1).await;
     let client = test_rig.client_mut(0);
@@ -221,7 +220,7 @@ async fn logout() {
     assert!(res.is_ok());
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn login_multiple_clients() {
     let test_rig = TestRig::new(5).await;
 
@@ -232,7 +231,7 @@ async fn login_multiple_clients() {
     }
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_disconnects() {
     let mut test_rig = TestRig::new(2).await;
 
@@ -251,7 +250,7 @@ async fn client_disconnects() {
     assert!(event.is_some());
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_list_synchronization() {
     let mut test_rig = TestRig::new(3).await;
 
@@ -286,7 +285,7 @@ async fn client_list_synchronization() {
     assert!(event.is_some());
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_connected_broadcast() {
     let mut test_rig = TestRig::new(3).await;
 

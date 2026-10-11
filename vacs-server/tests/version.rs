@@ -1,10 +1,9 @@
 use reqwest::StatusCode;
-use test_log::test;
 use vacs_server::test_utils::TestEnv;
 
 /// The `reload-releases` action polls this endpoint with hand-written query keys and this
 /// bundle list; an empty catalog answers a well-formed request with 204.
-#[test(tokio::test)]
+#[tokio::test]
 async fn update_check_accepts_the_reload_action_queries() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
