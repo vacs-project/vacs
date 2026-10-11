@@ -54,7 +54,12 @@ impl StoreBackend for MemoryStore {
                 && Instant::now() > expires_at
             {
                 tracing::trace!("Value expired, removing from memory store and returning None");
-                self.map.remove(key);
+                drop(stored_value);
+                self.map.remove_if(key, |_, stored| {
+                    stored
+                        .expires_at
+                        .is_some_and(|expires_at| Instant::now() > expires_at)
+                });
                 return Ok(None);
             }
 
@@ -113,5 +118,41 @@ impl StoreBackend for MemoryStore {
 
     async fn is_healthy(&self) -> anyhow::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn reading_an_expired_key_returns_none_without_hanging() {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let store = MemoryStore::default();
+                store
+                    .set("key", 1, Some(Duration::from_millis(1)))
+                    .await
+                    .unwrap();
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                let expired = store.get::<i32>("key").await.unwrap();
+
+                store.set("key", 2, None).await.unwrap();
+                let fresh = store.get::<i32>("key").await.unwrap();
+                tx.send((expired, fresh)).unwrap();
+            });
+        });
+
+        let (expired, fresh) = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reading an expired key hung");
+        assert_eq!(expired, None);
+        assert_eq!(fresh, Some(2));
     }
 }
