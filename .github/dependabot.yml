@@ -67,6 +67,10 @@ updates:
       tauri-wdio:
         patterns:
           - "@wdio/tauri-*"
+      wdio:
+        patterns:
+          - "@wdio/*"
+          - "webdriverio"
       tauri:
         patterns:
           - "@tauri-apps/*"
