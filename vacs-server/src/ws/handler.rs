@@ -1,7 +1,9 @@
+use crate::logging;
 use crate::metrics::ClientMetrics;
 use crate::metrics::guards::ClientConnectionGuard;
+use crate::metrics::labels::AsMetricLabel;
 use crate::state::AppState;
-use crate::ws::auth::handle_websocket_login;
+use crate::ws::auth::{LoginSuccess, handle_websocket_login};
 use crate::ws::message::send_message_raw;
 use axum::extract::ws::{CloseCode, CloseFrame, Message, Utf8Bytes, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
@@ -9,8 +11,11 @@ use axum::response::IntoResponse;
 use axum_client_ip::ClientIp;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode as TungsteniteCloseCode;
 use tracing::Instrument;
+use uuid::Uuid;
+use vacs_protocol::profile::ActiveProfile;
 use vacs_protocol::ws::server;
 use vacs_protocol::ws::server::LoginFailureReason;
 
@@ -20,26 +25,46 @@ pub async fn ws_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
-        let span = tracing::trace_span!("websocket_connection", client_ip = ?ip, client_id = tracing::field::Empty);
+        let span = tracing::info_span!(
+            parent: None,
+            "connection",
+            conn_id = %Uuid::now_v7(),
+            client_id = tracing::field::Empty,
+        );
         async move {
-            handle_socket(socket, state).await;
-        }.instrument(span)
+            let started = Instant::now();
+            tracing::info!(client_ip = %logging::client_network(ip), "Client connected");
+            let end = handle_socket(socket, state).await;
+            tracing::info!(
+                reason = end,
+                duration_ms = started.elapsed().as_millis() as u64,
+                "Client disconnected"
+            );
+        }
+        .instrument(span)
     })
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
-    tracing::trace!("Handling new websocket connection");
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>) -> &'static str {
     let client_connection_guard = ClientConnectionGuard::new();
 
     let (mut websocket_tx, mut websocket_rx) = socket.split();
 
-    let Some((client_info, active_profile)) =
-        handle_websocket_login(state.clone(), &mut websocket_rx, &mut websocket_tx).await
+    let Some(LoginSuccess {
+        client_info,
+        active_profile,
+        protocol_version,
+    }) = handle_websocket_login(state.clone(), &mut websocket_rx, &mut websocket_tx).await
     else {
-        return;
+        return "login_failed";
     };
 
-    tracing::Span::current().record("client_id", tracing::field::display(&client_info.id));
+    let position_id = client_info.position_id.clone();
+    let profile = match &active_profile {
+        ActiveProfile::Specific(_) => "specific",
+        ActiveProfile::Custom => "custom",
+        ActiveProfile::None => "none",
+    };
 
     let res = state
         .register_client(client_info, active_profile, client_connection_guard)
@@ -47,6 +72,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut client, mut rx) = match res {
         Ok(client) => client,
         Err(_) => {
+            tracing::info!(
+                reason = LoginFailureReason::DuplicateId.as_metric_label(),
+                "Login rejected"
+            );
             ClientMetrics::login_attempt(false);
             ClientMetrics::login_failure(LoginFailureReason::DuplicateId);
 
@@ -58,7 +87,10 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             )
             .await
             {
-                tracing::warn!(?err, "Failed to send login failure message");
+                tracing::debug!(
+                    err = format!("{err:#}"),
+                    "Failed to send login failure message"
+                );
             }
 
             if let Err(err) = websocket_tx
@@ -68,17 +100,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 })))
                 .await
             {
-                tracing::warn!(?err, "Failed to send close frame");
+                tracing::debug!(%err, "Failed to send close frame");
             }
-            return;
+            return "login_failed";
         }
     };
 
     ClientMetrics::login_attempt(true);
+    tracing::info!(
+        position_id = position_id.as_ref().map(tracing::field::display),
+        protocol_version,
+        profile,
+        "Client logged in"
+    );
 
     let (mut broadcast_rx, mut shutdown_rx) = state.get_client_receivers();
 
-    client
+    let end = client
         .handle_interaction(
             &state,
             websocket_rx,
@@ -91,5 +129,5 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     state.unregister_client(client.id(), None).await;
 
-    tracing::trace!("Finished handling websocket connection");
+    end.as_metric_label()
 }

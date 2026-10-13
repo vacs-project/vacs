@@ -5,8 +5,10 @@ use std::time::{Duration, Instant};
 pub use manager::*;
 use vacs_protocol::ws::server::CallUpdate;
 
+use crate::logging;
 use crate::metrics::CallMetrics;
 use crate::metrics::guards::{CallAttemptGuard, CallAttemptOutcome, CallGuard};
+use crate::metrics::labels::AsMetricLabel;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::shared::{CallId, CallParticipants, CallSource, CallTarget};
 
@@ -114,6 +116,8 @@ struct ActiveCallEntry {
     /// Dead-link reports keyed by the normalized pair, holding which of the
     /// two endpoints reported so far and when the pair was last reported.
     link_reports: HashMap<(ClientId, ClientId), LinkReport>,
+    /// Creation of the entry, which happens when the first invitee accepts.
+    accepted_at: Instant,
     guard: CallGuard,
 }
 
@@ -177,6 +181,14 @@ impl RingingCallEntry {
             .all(|entry| entry.all_rejected_or_errored())
     }
 
+    pub fn involves(&self, client_id: &ClientId) -> bool {
+        self.caller_id == *client_id
+            || self
+                .targets
+                .values()
+                .any(|entry| entry.notified_clients.contains(client_id))
+    }
+
     pub fn invited_participants(&self) -> CallParticipants {
         self.targets
             .iter()
@@ -222,6 +234,7 @@ impl ActiveCallEntry {
             join_order: HashMap::new(),
             next_join_seq: 0,
             link_reports: HashMap::new(),
+            accepted_at: Instant::now(),
             guard: CallGuard::new(),
         }
     }
@@ -318,6 +331,94 @@ impl ActiveCallEntry {
     }
 }
 
+pub(crate) fn peer_ids_without<'a>(
+    ids: impl IntoIterator<Item = &'a ClientId>,
+    self_id: &ClientId,
+) -> Option<String> {
+    let peer_ids = logging::peer_ids(ids.into_iter().filter(|id| *id != self_id));
+    (!peer_ids.is_empty()).then_some(peer_ids)
+}
+
+/// Writes the INFO line for `leaver_id` leaving a call, judged from the actions the call manager
+/// returned: dropped participants mean the call is over, a participant update alone means the
+/// call continues without the leaver. `self_id` is the client whose message or disconnect caused
+/// it and is left out of `peer_ids`.
+pub(crate) fn log_call_teardown(
+    self_id: &ClientId,
+    leaver_id: &ClientId,
+    actions: &[UpdateCallAction],
+    duration: Option<Duration>,
+    reason: &str,
+) {
+    let mut dropped = Vec::new();
+    let mut cancelled = Vec::new();
+    let mut update = None;
+    for action in actions {
+        match action {
+            UpdateCallAction::CancelRingingTarget(ringing_target) => cancelled.push(ringing_target),
+            UpdateCallAction::DropParticipant(_, participant_id) => dropped.push(participant_id),
+            UpdateCallAction::UpdateParticipants(participants) => update = Some(participants),
+        }
+    }
+
+    match update {
+        Some(update) if dropped.is_empty() => {
+            let peer_ids = peer_ids_without(
+                update
+                    .all_participants()
+                    .map(|(id, _)| id)
+                    .chain(std::iter::once(leaver_id)),
+                self_id,
+            );
+            tracing::info!(reason, peer_ids = peer_ids.as_deref(), "Call left");
+            for ringing_target in cancelled {
+                log_target_cancelled(self_id, ringing_target, reason);
+            }
+        }
+        _ => {
+            let peer_ids = peer_ids_without(
+                dropped.into_iter().chain(std::iter::once(leaver_id)).chain(
+                    cancelled
+                        .iter()
+                        .flat_map(|target| ringing_target_clients(target)),
+                ),
+                self_id,
+            );
+            tracing::info!(
+                reason,
+                duration_ms = duration.map(duration_ms),
+                peer_ids = peer_ids.as_deref(),
+                "Call ended"
+            );
+        }
+    }
+}
+
+pub(crate) fn log_target_cancelled(
+    self_id: &ClientId,
+    ringing_target: &RingingTarget,
+    reason: &str,
+) {
+    let peer_ids = peer_ids_without(ringing_target_clients(ringing_target), self_id);
+    tracing::info!(
+        reason,
+        call_target = ringing_target.target.as_metric_label(),
+        peer_ids = peer_ids.as_deref(),
+        "Call target cancelled"
+    );
+}
+
+fn ringing_target_clients(ringing_target: &RingingTarget) -> impl Iterator<Item = &ClientId> {
+    ringing_target
+        .notified_clients
+        .iter()
+        .chain(std::iter::once(&ringing_target.caller_id))
+}
+
+fn duration_ms(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
 impl From<ActiveCallEntry> for ActiveCall {
     fn from(entry: ActiveCallEntry) -> Self {
         Self {
@@ -387,5 +488,29 @@ impl UpdateParticipants {
             joined_participants: self.joined_participants.clone(),
             conference_leader: self.conference_leader.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_ids_without_leaves_out_the_given_client() {
+        let ids = [
+            ClientId::from("1300000"),
+            ClientId::from("1100000"),
+            ClientId::from("1200000"),
+        ];
+        assert_eq!(
+            peer_ids_without(&ids, &ClientId::from("1100000")).as_deref(),
+            Some("1200000,1300000")
+        );
+    }
+
+    #[test]
+    fn peer_ids_without_is_none_when_only_the_given_client_is_left() {
+        let ids = [ClientId::from("1100000")];
+        assert_eq!(peer_ids_without(&ids, &ClientId::from("1100000")), None);
     }
 }

@@ -5,6 +5,7 @@ pub mod dataset;
 pub mod health;
 pub mod http;
 pub mod ice;
+pub mod logging;
 pub mod metrics;
 pub mod ratelimit;
 pub mod release;

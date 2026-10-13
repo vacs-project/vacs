@@ -5,7 +5,6 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 use std::fmt::{Debug, Formatter};
 use std::time::{Duration, Instant};
-use tracing::instrument;
 use vacs_protocol::vatsim::ClientId;
 
 const DATA_FEED_DEFAULT_CACHE_TTL: Duration = Duration::from_secs(15);
@@ -49,7 +48,6 @@ impl VatsimDataFeed {
         self
     }
 
-    #[instrument(level = "trace", skip(self), err)]
     async fn fetch_data_feed(&self) -> Result<VatsimDataFeedResponse> {
         tracing::trace!("Fetching VATSIM data feed");
         let response = self
@@ -68,7 +66,6 @@ impl VatsimDataFeed {
 
 #[async_trait]
 impl DataFeed for VatsimDataFeed {
-    #[instrument(level = "debug", skip(self), err)]
     async fn fetch_controller_info(&self) -> Result<Vec<ControllerInfo>> {
         tracing::debug!("Fetching controller info");
 

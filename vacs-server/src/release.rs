@@ -7,7 +7,6 @@ use crate::release::catalog::{BundleType, Catalog, ReleaseAsset, ReleaseMeta};
 use crate::release::policy::Policy;
 use semver::Version;
 use std::sync::Arc;
-use tracing::instrument;
 use vacs_protocol::http::version::{Release, ReleaseChannel};
 
 pub struct UpdateChecker {
@@ -20,7 +19,6 @@ impl UpdateChecker {
         Self { catalog, policy }
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn check(
         &self,
         channel: &ReleaseChannel,
@@ -29,8 +27,6 @@ impl UpdateChecker {
         arch: &String,
         bundle_type: &BundleType,
     ) -> Result<Option<Release>, AppError> {
-        tracing::debug!("Checking for update");
-
         let visible = self.policy.visible_channels(channel);
 
         let mut newer: Vec<(ReleaseMeta, ReleaseAsset)> = Vec::new();
@@ -50,7 +46,11 @@ impl UpdateChecker {
         let (meta, asset) = match newer.pop() {
             Some(pair) => pair,
             None => {
-                tracing::debug!(?visible, "No update found");
+                tracing::debug!(
+                    channel = channel.as_str(),
+                    %client_version,
+                    "No update found"
+                );
                 return Ok(None);
             }
         };
@@ -82,27 +82,23 @@ impl UpdateChecker {
             required,
         };
 
-        tracing::debug!(?visible, ?release, "Update found");
+        tracing::debug!(
+            channel = channel.as_str(),
+            %client_version,
+            release_version = %release.version,
+            required,
+            "Update found"
+        );
         Ok(Some(release))
     }
 
     /// Repopulate the release catalog, ignoring its cache TTL.
-    #[instrument(level = "info", skip(self), err)]
     pub async fn refresh_catalog(&self) -> Result<(), AppError> {
         self.catalog.refresh().await
     }
 
-    #[instrument(level = "debug", skip(self))]
     pub fn is_compatible_protocol(&self, protocol_version: Version) -> bool {
-        tracing::debug!("Checking client protocol version for compatibility");
-
-        let compatible = self.policy.is_compatible_protocol(&protocol_version);
-
-        tracing::debug!(
-            ?compatible,
-            "Checked client protocol version for compatibility"
-        );
-        compatible
+        self.policy.is_compatible_protocol(&protocol_version)
     }
 }
 

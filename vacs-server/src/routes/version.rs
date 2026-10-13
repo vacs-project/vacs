@@ -36,18 +36,13 @@ mod get {
         ClientIp(client_ip): ClientIp,
     ) -> ApiMaybe<Release> {
         if let Err(until) = state.rate_limiters().check_version_update(client_ip) {
-            tracing::debug!(
-                ?client_ip,
-                ?until,
-                "Rate limit exceeded, rejecting version update check"
-            );
             return Err(AppError::TooManyRequests(until.as_secs()));
         }
 
         let client_ver = match Version::parse(&params.version) {
             Ok(v) => v,
             Err(err) => {
-                tracing::debug!(?err, ?params, "Failed to parse client version");
+                tracing::debug!(%err, "Failed to parse client version");
                 return Ok(MaybeJsonOrProblem::problem(
                     ProblemDetails::from(StatusCode::BAD_REQUEST)
                         .with_title("Invalid version format")

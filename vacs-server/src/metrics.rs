@@ -1,5 +1,5 @@
 pub mod guards;
-mod labels;
+pub(crate) mod labels;
 
 use crate::metrics::labels::AsMetricLabel;
 use crate::release::catalog::BundleType;

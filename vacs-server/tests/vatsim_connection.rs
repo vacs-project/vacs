@@ -11,7 +11,7 @@ fn lo_network() -> Network {
 
 /// With required active connections, the WebSocket login resolves the
 /// client's position from its live VATSIM connection via the slurper.
-#[test_log::test(tokio::test)]
+#[tokio::test]
 async fn login_resolves_position_from_slurper() {
     let env = TestEnv::builder()
         .users(vec![test_user("1234567", "Max", "Mustermann")])
@@ -50,7 +50,7 @@ async fn login_resolves_position_from_slurper() {
 
 /// With required active connections, a user without a live VATSIM
 /// connection is denied the WebSocket login.
-#[test_log::test(tokio::test)]
+#[tokio::test]
 async fn login_fails_without_active_connection() {
     let env = TestEnv::builder()
         .users(vec![test_user("1234567", "Max", "Mustermann")])

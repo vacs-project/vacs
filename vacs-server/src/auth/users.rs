@@ -9,7 +9,6 @@ use oauth2::{
 };
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
 use vacs_protocol::vatsim::ClientId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +86,6 @@ impl Backend {
     }
 
     async fn fetch_user_details(&self, access_token: &str) -> Result<User, AppError> {
-        tracing::trace!("Fetching user details");
         let response = self
             .http_client
             .get(self.vatsim_user_details_endpoint_url.clone())
@@ -98,7 +96,6 @@ impl Backend {
             .error_for_status()
             .context("Received non-200 HTTP status code")?;
 
-        tracing::trace!(content_length = ?response.content_length(), "Parsing response body");
         let user_details = response
             .json::<ConnectUserDetails>()
             .await
@@ -115,13 +112,10 @@ impl AuthnBackend for Backend {
     type Credentials = Credentials;
     type Error = AppError;
 
-    #[instrument(level = "debug", skip_all, err)]
     async fn authenticate(
         &self,
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        tracing::debug!("Authenticating user");
-
         let access_token = match creds {
             Credentials::OAuthCode {
                 code,
@@ -130,11 +124,10 @@ impl AuthnBackend for Backend {
                 pkce_verifier,
             } => {
                 if stored_state != received_state {
-                    tracing::debug!("CSRF token mismatch");
+                    tracing::debug!(reason = "csrf_state_mismatch", "OAuth login rejected");
                     return Ok(None);
                 }
 
-                tracing::trace!("Exchanging code for VATSIM access token");
                 let token = self
                     .client
                     .exchange_code(AuthorizationCode::new(code))
@@ -143,7 +136,10 @@ impl AuthnBackend for Backend {
                     .await
                     .context("Failed to exchange code")
                     .map_err(|err| {
-                        tracing::warn!(?err, "Failed to exchange code for VATSIM access token");
+                        tracing::warn!(
+                            err = %format_args!("{err:#}"),
+                            "Failed to exchange code for VATSIM access token"
+                        );
                         AppError::Unauthorized("Invalid code".to_string())
                     })?;
 
@@ -153,13 +149,10 @@ impl AuthnBackend for Backend {
         };
 
         let user = self.fetch_user_details(&access_token).await?;
-        tracing::debug!(?user, "User authenticated");
         Ok(Some(user))
     }
 
-    #[instrument(level = "trace", skip(self), err)]
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        tracing::trace!(?user_id, "Getting user");
         Ok(Some(User {
             cid: user_id.clone(),
         }))

@@ -60,7 +60,7 @@ mod get {
     ) -> Response {
         if let Some(error) = error {
             let description = error_description.unwrap_or_else(|| error.clone());
-            tracing::warn!(error, "OAuth redirect received error from VATSIM");
+            tracing::info!(reason = "oauth_error", "OAuth redirect rejected");
             return (
                 StatusCode::BAD_REQUEST,
                 Html(
@@ -72,7 +72,7 @@ mod get {
         }
 
         let (Some(code), Some(oauth_state)) = (code, oauth_state) else {
-            tracing::warn!("OAuth redirect received request without code or state");
+            tracing::info!(reason = "missing_code_or_state", "OAuth redirect rejected");
             return (
                 StatusCode::BAD_REQUEST,
                 Html(AUTH_REDIRECT_ERROR_TEMPLATE.replace(
@@ -131,12 +131,14 @@ mod get {
 mod post {
     use super::*;
     use crate::http::StatusCodeResult;
+    use crate::logging::RequestSpan;
     use axum::extract::{FromRequestParts, State};
     use axum::http::StatusCode;
     use axum_client_ip::ClientIp;
     use vacs_protocol::http::auth::AuthExchangeToken;
 
     pub async fn vatsim_callback(
+        request_span: RequestSpan,
         auth_session: AuthSession,
         session: Session,
         Json(AuthExchangeToken { code, state }): Json<AuthExchangeToken>,
@@ -160,12 +162,12 @@ mod post {
             pkce_verifier,
         };
 
-        tracing::debug!("Authenticating with VATSIM");
         let user = match auth_session.authenticate(creds).await {
             Ok(Some(user)) => user,
             Ok(None) => return Err(AppError::Unauthorized("Invalid credentials".to_string())),
             Err(err) => return Err(err.into()),
         };
+        request_span.record_client_id(&user.cid);
 
         auth_session
             .login(&user)
@@ -180,8 +182,6 @@ mod post {
         State(state): State<Arc<AppState>>,
         mut parts: http::request::Parts,
     ) -> StatusCodeResult {
-        tracing::debug!("Logging user out");
-
         if let Some(token) = &auth.api_token {
             state
                 .revoke_api_token(token)
@@ -205,17 +205,13 @@ mod post {
     }
 
     pub async fn vatsim_token(
+        request_span: RequestSpan,
         auth_session: AuthSession,
         State(state): State<Arc<AppState>>,
         ClientIp(client_ip): ClientIp,
         headers: http::HeaderMap,
     ) -> ApiResult<vacs_protocol::http::auth::AuthTokenResponse> {
         if let Err(until) = state.rate_limiters().check_vatsim_token(client_ip) {
-            tracing::debug!(
-                ?client_ip,
-                ?until,
-                "Rate limit exceeded, rejecting token request"
-            );
             return Err(AppError::TooManyRequests(until.as_secs()));
         }
 
@@ -228,12 +224,12 @@ mod post {
 
         let creds = Credentials::AccessToken { access_token };
 
-        tracing::debug!("Authenticating with VATSIM access token");
         let user = match auth_session.authenticate(creds).await {
             Ok(Some(user)) => user,
             Ok(None) => return Err(AppError::Unauthorized("Invalid credentials".to_string())),
             Err(err) => return Err(err.into()),
         };
+        request_span.record_client_id(&user.cid);
 
         let token = state
             .generate_api_token(user.cid.as_str())

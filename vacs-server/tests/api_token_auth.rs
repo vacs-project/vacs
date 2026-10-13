@@ -1,11 +1,10 @@
 use reqwest::StatusCode;
-use test_log::test;
 use vacs_protocol::http::auth::UserInfo;
 use vacs_protocol::http::ws::WebSocketToken;
 use vacs_server::store::memory::MemoryStore;
 use vacs_server::test_utils::TestEnv;
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn user_info_without_auth() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -19,7 +18,7 @@ async fn user_info_without_auth() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn ws_token_without_auth() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -33,7 +32,7 @@ async fn ws_token_without_auth() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn user_info_with_valid_api_token() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -53,7 +52,7 @@ async fn user_info_with_valid_api_token() {
     assert_eq!(info.cid.as_str(), "cid0");
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn user_info_with_invalid_token() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -68,7 +67,7 @@ async fn user_info_with_invalid_token() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn ws_token_with_valid_api_token() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -88,7 +87,7 @@ async fn ws_token_with_valid_api_token() {
     assert!(!ws_token.token.is_empty());
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn ws_token_with_invalid_token() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -103,7 +102,7 @@ async fn ws_token_with_invalid_token() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn logout_revokes_api_token() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -131,7 +130,7 @@ async fn logout_revokes_api_token() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn different_preseeded_tokens_return_different_cids() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();
@@ -162,7 +161,7 @@ async fn different_preseeded_tokens_return_different_cids() {
     assert_eq!(info3.cid.as_str(), "cid3");
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn revoking_one_token_does_not_affect_others() {
     let env = TestEnv::builder().build().await;
     let client = reqwest::Client::new();

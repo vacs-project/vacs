@@ -19,7 +19,7 @@ mod get {
         auth: AuthenticatedUser,
         State(state): State<Arc<AppState>>,
     ) -> ApiResult<IceConfig> {
-        tracing::debug!(user = ?auth.user, "Retrieving ICE config for user");
+        tracing::debug!("Retrieving ICE config");
         let config = state
             .ice_config_provider
             .get_ice_config(&auth.user.cid)

@@ -8,7 +8,6 @@ use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
-use tracing::instrument;
 use vacs_protocol::http::version::ReleaseChannel;
 
 #[derive(Debug)]
@@ -19,7 +18,6 @@ pub struct FileCatalog {
     rc: RwLock<Vec<ReleaseMeta>>,
 }
 impl FileCatalog {
-    #[instrument(level = "info", skip_all, err)]
     pub fn new(path: impl Into<PathBuf>) -> Result<Self, AppError> {
         let catalog = Self {
             path: path.into(),
@@ -31,12 +29,12 @@ impl FileCatalog {
         Ok(catalog)
     }
 
-    #[instrument(level = "info", skip(self), err)]
     pub fn reload(&self) -> Result<(), AppError> {
-        tracing::debug!(manifest_path = ?self.path, "Reloading FileCatalog");
-
         if !self.path.is_file() {
-            tracing::warn!(manifest_path = ?self.path, "FileCatalog not found, skipping reload");
+            tracing::warn!(
+                path = %self.path.display(),
+                "Release manifest not found, skipping reload"
+            );
             return Ok(());
         }
 
@@ -53,19 +51,20 @@ impl FileCatalog {
         validate_and_sort(&mut beta).context("beta channel")?;
         validate_and_sort(&mut rc).context("rc channel")?;
 
+        tracing::info!(
+            catalog = "file",
+            path = %self.path.display(),
+            stable = stable.len(),
+            beta = beta.len(),
+            rc = rc.len(),
+            "Release catalog reloaded"
+        );
+
         {
             *self.stable.write() = stable;
             *self.beta.write() = beta;
             *self.rc.write() = rc;
         }
-
-        tracing::info!(
-            manifest_path = ?self.path,
-            stable = self.stable.read().len(),
-            beta = self.beta.read().len(),
-            rc = self.rc.read().len(),
-            "FileCatalog reloaded"
-        );
 
         Ok(())
     }
@@ -73,7 +72,6 @@ impl FileCatalog {
 
 #[async_trait]
 impl Catalog for FileCatalog {
-    #[instrument(level = "debug", skip(self), err)]
     async fn list(&self, channel: ReleaseChannel) -> Result<Vec<ReleaseMeta>, AppError> {
         Ok(match channel {
             ReleaseChannel::Stable => self.stable.read().clone(),
@@ -82,7 +80,6 @@ impl Catalog for FileCatalog {
         })
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     async fn load_signature(
         &self,
         _meta: &ReleaseMeta,
@@ -93,7 +90,6 @@ impl Catalog for FileCatalog {
         Ok(asset.signature.clone().unwrap_or_default())
     }
 
-    #[instrument(level = "debug", skip(self), err)]
     async fn refresh(&self) -> Result<(), AppError> {
         self.reload()
     }
@@ -148,11 +144,16 @@ fn validate_and_sort(v: &mut [ReleaseMeta]) -> anyhow::Result<()> {
             anyhow::bail!("duplicate version {}", release.version);
         }
         if release.assets.is_empty() {
-            tracing::warn!(?release, "Release has no assets");
+            tracing::warn!(
+                channel = release.channel.as_str(),
+                release_version = %release.version,
+                "Release has no assets"
+            );
         }
         if release.assets.iter().any(|a| a.signature.is_none()) {
             tracing::warn!(
-                ?release,
+                channel = release.channel.as_str(),
+                release_version = %release.version,
                 "Release has missing signature for one or more assets"
             );
         }

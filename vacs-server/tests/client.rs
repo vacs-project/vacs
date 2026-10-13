@@ -1,6 +1,5 @@
 use pretty_assertions::assert_eq;
 use std::time::Duration;
-use test_log::test;
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::Bytes;
 use vacs_protocol::vatsim::ClientId;
@@ -8,7 +7,7 @@ use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{self, ServerMessage};
 use vacs_server::test_utils::{TestClient, TestEnv, cid};
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_connected() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(5).build().await;
     let mut clients = env.setup_clients(5).await;
@@ -46,7 +45,7 @@ async fn client_connected() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_disconnected() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(5).build().await;
     let mut clients = env.setup_clients(5).await;
@@ -107,7 +106,7 @@ async fn client_disconnected() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn client_dropped() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(5).build().await;
     let mut clients = env.setup_clients(5).await;
@@ -157,7 +156,7 @@ async fn client_dropped() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn control_messages() -> anyhow::Result<()> {
     let env = TestEnv::builder().default_users(1).build().await;
     let token = env.ws_token_for(cid(1)).await.unwrap();

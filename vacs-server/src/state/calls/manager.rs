@@ -1,14 +1,16 @@
 use crate::metrics::guards::CallAttemptOutcome;
+use crate::metrics::labels::AsMetricLabel;
 use crate::metrics::{CallMetrics, ErrorMetrics};
 use crate::state::AppState;
 use crate::state::calls::{
     ActiveCall, ActiveCallEntry, RingingCallEntry, RingingTarget, RingingTargetEntry,
-    UpdateCallAction, UpdateParticipants,
+    UpdateCallAction, UpdateParticipants, log_call_teardown, log_target_cancelled,
 };
 use parking_lot::RwLock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use tracing::instrument;
+use std::time::Duration;
+use tracing::Instrument;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::CallDropReason;
 use vacs_protocol::ws::server::CallCancelReason;
@@ -126,6 +128,14 @@ impl CallManager {
         self.active_calls.read().get(call_id).map(Into::into)
     }
 
+    /// Time since the call was accepted, while it is active.
+    pub fn call_duration(&self, call_id: &CallId) -> Option<Duration> {
+        self.active_calls
+            .read()
+            .get(call_id)
+            .map(|active| active.accepted_at.elapsed())
+    }
+
     /// Number of currently active calls, which is what the `vacs_calls_active` gauge tracks:
     /// every entry holds a [`CallGuard`](crate::metrics::guards::CallGuard).
     #[cfg(any(test, feature = "test-utils"))]
@@ -165,7 +175,6 @@ impl CallManager {
             > self.max_conf_size as usize
     }
 
-    #[instrument(level = "trace", skip(self))]
     pub fn attempt_call(
         &self,
         call_id: &CallId,
@@ -219,8 +228,8 @@ impl CallManager {
                     .insert(*call_id, target.clone())
                 {
                     tracing::error!(
-                        ?client_id,
-                        ?old_target,
+                        peer_ids = %client_id,
+                        call_target = old_target.as_metric_label(),
                         "Callee already has an incoming call for this call id, but with a different target"
                     );
                 }
@@ -386,7 +395,6 @@ impl CallManager {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
     pub fn accept_call(
         &self,
         call_id: &CallId,
@@ -423,7 +431,10 @@ impl CallManager {
                             );
 
                             if let Some(old) = ringing_target.take() {
-                                tracing::error!(?old.target, ?target, "Accepting client id was notified in multiple ringing target entries");
+                                tracing::error!(
+                                    call_target = target.as_metric_label(),
+                                    "Accepting client id was notified in multiple ringing target entries"
+                                );
                                 new_ringing_target
                                     .notified_clients
                                     .extend(old.notified_clients);
@@ -546,7 +557,6 @@ impl CallManager {
     /// Removes a single target from a call without ending it: a ringing target
     /// may be dropped by the client that invited it, a joined participant only
     /// by the conference leader.
-    #[instrument(level = "trace", skip(self))]
     pub fn drop_target(
         &self,
         call_id: &CallId,
@@ -669,19 +679,19 @@ impl CallManager {
                             tracing::debug!("Dropping client tried to drop itself");
                             return DropTargetOutcome::NotPermitted;
                         }
-                        Some(_) if active_call.participants.len() <= 2 => {
+                        Some(dropped) if active_call.participants.len() <= 2 => {
                             tracing::debug!(
-                                ?dropped_client_id,
+                                peer_ids = %dropped,
                                 "Call is not a conference, nothing to drop from"
                             );
                             return DropTargetOutcome::NotPermitted;
                         }
-                        Some(_)
+                        Some(dropped)
                             if active_call.conference_leader.as_ref()
                                 != Some(dropping_client_id) =>
                         {
                             tracing::debug!(
-                                ?dropped_client_id,
+                                peer_ids = %dropped,
                                 "Dropping client is not conference leader"
                             );
                             return DropTargetOutcome::NotPermitted;
@@ -692,7 +702,7 @@ impl CallManager {
 
                             if active_call.participants.len() <= 2 {
                                 tracing::debug!(
-                                    ?dropped_client_id,
+                                    peer_ids = %dropped_client_id,
                                     "Dropping participant downgraded conference to regular call"
                                 );
                                 active_call.conference_leader = None;
@@ -897,10 +907,7 @@ impl CallManager {
         }
     }
 
-    #[instrument(level = "trace", skip(self, state))]
     pub async fn cleanup_client_calls(&self, state: &AppState, client_id: &ClientId) {
-        tracing::trace!("Cleaning up client calls");
-
         let mut actions = Vec::new();
 
         {
@@ -911,7 +918,12 @@ impl CallManager {
 
             let active_or_outgoing_call_id = self.client_active_calls.write().remove(client_id);
             if let Some(active_or_ringing_call_id) = active_or_outgoing_call_id {
+                let _span =
+                    tracing::info_span!("call_cleanup", call_id = %active_or_ringing_call_id)
+                        .entered();
                 let mut has_active_or_outgoing_call = false;
+                let mut call_actions = Vec::new();
+                let mut duration = None;
 
                 {
                     match ringing_calls.entry(active_or_ringing_call_id) {
@@ -936,11 +948,8 @@ impl CallManager {
                                 }
                             }
 
-                            tracing::trace!(
-                                ?active_or_ringing_call_id,
-                                "Aborting outgoing ringing call"
-                            );
-                            actions.extend(
+                            tracing::trace!("Aborting outgoing ringing call");
+                            call_actions.extend(
                                 ringing_call
                                     .complete_all_targets(CallAttemptOutcome::Aborted)
                                     .into_iter()
@@ -960,6 +969,7 @@ impl CallManager {
                             let active_call = entry.get_mut();
 
                             if active_call.participants.contains_key(client_id) {
+                                duration = Some(active_call.accepted_at.elapsed());
                                 let participants_without_self =
                                     active_call.participants_without_self(client_id);
 
@@ -971,7 +981,7 @@ impl CallManager {
                                     entry.remove();
                                     drop(active_calls);
 
-                                    actions.extend(self.cancel_pending_invitations(
+                                    call_actions.extend(self.cancel_pending_invitations(
                                         &mut ringing_calls,
                                         &active_or_ringing_call_id,
                                         CallAttemptOutcome::Aborted,
@@ -995,7 +1005,7 @@ impl CallManager {
                                         }
                                     }
 
-                                    actions.extend(participants_without_self.into_keys().map(
+                                    call_actions.extend(participants_without_self.into_keys().map(
                                         |participant_id| {
                                             UpdateCallAction::DropParticipant(
                                                 active_or_ringing_call_id,
@@ -1003,7 +1013,7 @@ impl CallManager {
                                             )
                                         },
                                     ));
-                                    actions.extend(self.cancel_pending_invitations(
+                                    call_actions.extend(self.cancel_pending_invitations(
                                         &mut ringing_calls,
                                         &active_or_ringing_call_id,
                                         CallAttemptOutcome::Aborted,
@@ -1037,7 +1047,7 @@ impl CallManager {
                                         conference_leader,
                                     };
 
-                                    actions.push(UpdateCallAction::UpdateParticipants(update));
+                                    call_actions.push(UpdateCallAction::UpdateParticipants(update));
                                 }
                             } else {
                                 tracing::error!(
@@ -1054,6 +1064,17 @@ impl CallManager {
                         "Client has active call, but call was not found in ringing or active"
                     );
                 }
+
+                if !call_actions.is_empty() || duration.is_some() {
+                    log_call_teardown(
+                        client_id,
+                        client_id,
+                        &call_actions,
+                        duration,
+                        "disconnected",
+                    );
+                }
+                actions.extend(call_actions);
             }
         }
 
@@ -1062,6 +1083,8 @@ impl CallManager {
             let mut ringing_calls = self.ringing_calls.write();
 
             for (call_id, call_target) in incoming_call_ids {
+                let _span = tracing::info_span!("call_cleanup", call_id = %call_id).entered();
+
                 match ringing_calls.entry(call_id) {
                     Entry::Occupied(mut entry) => {
                         let ringing_call = entry.get_mut();
@@ -1074,27 +1097,18 @@ impl CallManager {
                                 ringing_target.rejected_clients.remove(client_id);
                                 ringing_target.errored_clients.remove(client_id);
 
-                                tracing::trace!(
-                                    ?call_id,
-                                    ?ringing_target,
-                                    "Removing client from incoming ringing call"
-                                );
+                                tracing::trace!("Removing client from incoming ringing call");
 
                                 if ringing_target.all_rejected_or_errored() {
-                                    tracing::trace!(
-                                        ?call_id,
-                                        "Aborting incoming ringing call target"
+                                    let cancelled = ringing_target.complete(
+                                        CallAttemptOutcome::Aborted,
+                                        &ringing_call.call_id,
+                                        &ringing_call.caller_id,
+                                        ringing_target.source.clone(),
+                                        &call_target,
                                     );
-
-                                    actions.push(UpdateCallAction::CancelRingingTarget(
-                                        ringing_target.complete(
-                                            CallAttemptOutcome::Aborted,
-                                            &ringing_call.call_id,
-                                            &ringing_call.caller_id,
-                                            ringing_target.source.clone(),
-                                            &call_target,
-                                        ),
-                                    ));
+                                    log_target_cancelled(client_id, &cancelled, "disconnected");
+                                    actions.push(UpdateCallAction::CancelRingingTarget(cancelled));
 
                                     entry.remove();
 
@@ -1113,8 +1127,7 @@ impl CallManager {
                             }
                             Entry::Vacant(_) => {
                                 tracing::error!(
-                                    ?call_id,
-                                    ?call_target,
+                                    call_target = call_target.as_metric_label(),
                                     "Client has incoming call but no related ringing target"
                                 );
                             }
@@ -1134,8 +1147,7 @@ impl CallManager {
                     }
                     Entry::Vacant(_) => {
                         tracing::error!(
-                            ?call_id,
-                            ?call_target,
+                            call_target = call_target.as_metric_label(),
                             "Client has incoming call but no related ringing call"
                         );
                     }
@@ -1144,93 +1156,14 @@ impl CallManager {
         }
 
         for action in actions {
-            match action {
-                UpdateCallAction::CancelRingingTarget(ringing_target) => {
-                    if ringing_target.caller_id == *client_id {
-                        let cancelled = server::CallCancelled::new(
-                            ringing_target.call_id,
-                            HashSet::from([ringing_target.target]),
-                            CallCancelReason::CallerCancelled,
-                        );
-                        for callee_id in ringing_target.notified_clients {
-                            tracing::trace!(
-                                ?callee_id,
-                                "Sending call cancelled to notified client"
-                            );
-                            if let Err(err) =
-                                state.send_message(&callee_id, cancelled.clone()).await
-                            {
-                                tracing::warn!(
-                                    ?err,
-                                    ?callee_id,
-                                    "Failed to send call cancelled to notified client"
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::trace!(
-                            "Ringing target failed or was torn down with the call, sending call cancelled to source and notified clients"
-                        );
-                        let cancelled = server::CallCancelled::new(
-                            ringing_target.call_id,
-                            HashSet::from([ringing_target.target.clone()]),
-                            CallCancelReason::Disconnected,
-                        );
-                        if let Err(err) = state
-                            .send_message(&ringing_target.caller_id, cancelled.clone())
-                            .await
-                        {
-                            tracing::warn!(?err, "Failed to send call cancelled to source client");
-                        }
-                        for callee_id in ringing_target.notified_clients {
-                            tracing::trace!(
-                                ?callee_id,
-                                "Sending call cancelled to notified client"
-                            );
-                            if let Err(err) =
-                                state.send_message(&callee_id, cancelled.clone()).await
-                            {
-                                tracing::warn!(
-                                    ?err,
-                                    ?callee_id,
-                                    "Failed to send call cancelled to notified client"
-                                );
-                            }
-                        }
-                    }
-                }
-                UpdateCallAction::DropParticipant(call_id, participant_id) => {
-                    tracing::trace!(?participant_id, "Sending call end to participant");
-                    if let Err(err) = state
-                        .send_message(&participant_id, CallEnd::new(call_id, client_id.clone()))
-                        .await
-                    {
-                        tracing::warn!(
-                            ?err,
-                            ?participant_id,
-                            "Failed to send call end to participant"
-                        );
-                    }
-                }
-                UpdateCallAction::UpdateParticipants(update) => {
-                    tracing::trace!("Sending call update to all participants");
-                    for (participant_id, _) in update.all_participants() {
-                        if let Err(err) = state
-                            .send_message(
-                                participant_id,
-                                ServerMessage::CallUpdate(update.for_recipient(participant_id)),
-                            )
-                            .await
-                        {
-                            tracing::warn!(
-                                ?err,
-                                ?participant_id,
-                                "Failed to send call update to participant"
-                            );
-                        }
-                    }
-                }
-            }
+            let call_id = match &action {
+                UpdateCallAction::CancelRingingTarget(ringing_target) => ringing_target.call_id,
+                UpdateCallAction::DropParticipant(call_id, _) => *call_id,
+                UpdateCallAction::UpdateParticipants(update) => update.call_id,
+            };
+            send_cleanup_action(state, client_id, action)
+                .instrument(tracing::info_span!("call_cleanup", call_id = %call_id))
+                .await;
         }
     }
 
@@ -1327,6 +1260,22 @@ impl CallManager {
         })
     }
 
+    /// Whether `client_id` is the caller, a ringing invitee or a joined participant of the
+    /// call: the same parties as [`Self::call_state_for_party`], without building the state.
+    pub fn is_party(&self, call_id: &CallId, client_id: &ClientId) -> bool {
+        let ringing = self
+            .ringing_calls
+            .read()
+            .get(call_id)
+            .is_some_and(|call| call.involves(client_id));
+        ringing
+            || self
+                .active_calls
+                .read()
+                .get(call_id)
+                .is_some_and(|call| call.participants.contains_key(client_id))
+    }
+
     fn call_state_if(
         &self,
         call_id: &CallId,
@@ -1421,8 +1370,8 @@ impl CallManager {
         let participating_call_id = self.client_active_calls.read().get(caller_id).copied();
         if let Some(participating_call_id) = participating_call_id {
             if &participating_call_id != call_id {
-                tracing::warn!(
-                    ?participating_call_id,
+                tracing::debug!(
+                    active_call_id = %participating_call_id,
                     "Caller is already participating in a different call"
                 );
                 return Err(StartCallError::CallerBusy);
@@ -1435,21 +1384,21 @@ impl CallManager {
                     if let Some(conference_leader) = active_call.conference_leader.as_ref()
                         && conference_leader != caller_id
                     {
-                        tracing::warn!("Caller is not conference leader of this call");
+                        tracing::debug!("Caller is not conference leader of this call");
                         return Err(StartCallError::NotConferenceLeader);
                     }
 
                     if active_call.participants.iter().any(
                         |(participant_id, participating_target)| {
                             if participating_target == target {
-                                tracing::warn!("Target is already participating in this call");
+                                tracing::debug!("Target is already participating in this call");
                                 return true;
                             }
 
                             notified_clients.iter().any(|callee| {
                                 if participant_id == callee {
-                                    tracing::warn!(
-                                        ?callee,
+                                    tracing::debug!(
+                                        peer_ids = %callee,
                                         "Callee is already participating in this call"
                                     );
                                     true
@@ -1474,7 +1423,7 @@ impl CallManager {
                     .unwrap_or_default();
 
                 if active_targets.contains(target) {
-                    tracing::warn!("Target is already participating in this call");
+                    tracing::debug!("Target is already participating in this call");
                     return Err(StartCallError::AlreadyParticipant);
                 }
             }
@@ -1482,12 +1431,12 @@ impl CallManager {
             {
                 if let Some(ringing_call) = ringing_calls.get(call_id) {
                     if &ringing_call.caller_id != caller_id {
-                        tracing::warn!("Caller is not previous caller of that call");
+                        tracing::debug!("Caller is not previous caller of that call");
                         return Err(StartCallError::NotConferenceLeader);
                     }
 
                     if ringing_call.targets.contains_key(target) {
-                        tracing::warn!("Caller has already rung this target");
+                        tracing::debug!("Caller has already rung this target");
                         return Err(StartCallError::AlreadyParticipant);
                     }
 
@@ -1496,24 +1445,82 @@ impl CallManager {
                             .iter()
                             .find_map(|callee| ringing_target.notified_clients.get(callee))
                     }) {
-                        tracing::warn!(?callee, "Caller has already rung this client");
+                        tracing::debug!(peer_ids = %callee, "Caller has already rung this client");
                         return Err(StartCallError::AlreadyParticipant);
                     }
                 }
             }
         } else {
             if self.active_calls.read().contains_key(call_id) {
-                tracing::warn!("Caller has no reference to active call id from the invite");
+                tracing::debug!("Caller has no reference to active call id from the invite");
                 return Err(StartCallError::NotParticipant);
             }
 
             if ringing_calls.contains_key(call_id) {
-                tracing::warn!("Caller has no reference to ringing call id from the invite");
+                tracing::debug!("Caller has no reference to ringing call id from the invite");
                 return Err(StartCallError::NotParticipant);
             }
         }
 
         Ok(())
+    }
+}
+
+async fn send_cleanup_action(state: &AppState, client_id: &ClientId, action: UpdateCallAction) {
+    match action {
+        UpdateCallAction::CancelRingingTarget(ringing_target) => {
+            let mut recipients: Vec<ClientId> =
+                ringing_target.notified_clients.into_iter().collect();
+            let reason = if ringing_target.caller_id == *client_id {
+                CallCancelReason::CallerCancelled
+            } else {
+                recipients.insert(0, ringing_target.caller_id);
+                CallCancelReason::Disconnected
+            };
+            let cancelled = server::CallCancelled::new(
+                ringing_target.call_id,
+                HashSet::from([ringing_target.target]),
+                reason,
+            );
+            for recipient_id in recipients {
+                if let Err(err) = state.send_message(&recipient_id, cancelled.clone()).await {
+                    tracing::debug!(
+                        peer_ids = %recipient_id,
+                        reason = err.reason.as_metric_label(),
+                        "Failed to send call cancelled"
+                    );
+                }
+            }
+        }
+        UpdateCallAction::DropParticipant(call_id, participant_id) => {
+            if let Err(err) = state
+                .send_message(&participant_id, CallEnd::new(call_id, client_id.clone()))
+                .await
+            {
+                tracing::debug!(
+                    peer_ids = %participant_id,
+                    reason = err.reason.as_metric_label(),
+                    "Failed to send call end to participant"
+                );
+            }
+        }
+        UpdateCallAction::UpdateParticipants(update) => {
+            for (participant_id, _) in update.all_participants() {
+                if let Err(err) = state
+                    .send_message(
+                        participant_id,
+                        ServerMessage::CallUpdate(update.for_recipient(participant_id)),
+                    )
+                    .await
+                {
+                    tracing::debug!(
+                        peer_ids = %participant_id,
+                        reason = err.reason.as_metric_label(),
+                        "Failed to send call update to participant"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -2035,6 +2042,33 @@ mod tests {
             manager.call_state_for_party(&call_id, &ClientId::from("other")),
             None
         );
+    }
+
+    #[test]
+    fn is_party_matches_caller_invitees_and_participants() {
+        let manager = CallManager::new(8);
+        let call_id = CallId::new();
+        let caller = ClientId::from("caller");
+        let callee = ClientId::from("callee");
+        let third = ClientId::from("third");
+        let other = ClientId::from("other");
+
+        join(&manager, &call_id, &caller, &callee);
+        manager
+            .attempt_call(
+                &call_id,
+                &caller,
+                &source(&caller),
+                &CallTarget::Client(third.clone()),
+                &HashSet::from([third.clone()]),
+            )
+            .expect("call attempt should succeed");
+
+        assert!(manager.is_party(&call_id, &caller));
+        assert!(manager.is_party(&call_id, &callee));
+        assert!(manager.is_party(&call_id, &third));
+        assert!(!manager.is_party(&call_id, &other));
+        assert!(!manager.is_party(&CallId::new(), &caller));
     }
 
     /// The size check counts the caller, joined participants, ringing targets

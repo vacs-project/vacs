@@ -35,7 +35,6 @@
 
 use crate::{ControllerInfo, FacilityType, Result};
 use thiserror::Error;
-use tracing::instrument;
 use vacs_protocol::vatsim::ClientId;
 
 /// Default timeout for HTTP requests against the slurper API.
@@ -167,7 +166,6 @@ impl SlurperClient {
     ///     Ok(())
     ///  }
     /// ```
-    #[instrument(level = "debug", skip(self), err)]
     pub async fn get_controller_info(&self, cid: &ClientId) -> Result<Option<ControllerInfo>> {
         tracing::debug!("Retrieving controller info for CID");
 
@@ -178,7 +176,7 @@ impl SlurperClient {
 
         let body = self.fetch_slurper_data(cid).await?;
         if body.is_empty() {
-            tracing::debug!(?cid, "CID is not present in slurper, returning None");
+            tracing::debug!("CID is not present in slurper, returning None");
             return Ok(None);
         }
 
@@ -186,7 +184,6 @@ impl SlurperClient {
     }
 
     /// Performs an HTTP request to fetch the user info data from the Slurper API.
-    #[instrument(level = "trace", skip(self), err)]
     async fn fetch_slurper_data(&self, cid: &ClientId) -> Result<bytes::Bytes> {
         tracing::trace!("Performing HTTP request");
         let response = self
@@ -207,7 +204,6 @@ impl SlurperClient {
 
     /// Parses the CSV data retrieved from the Slurper user info endpoint and returns the
     /// extracted [`ControllerInfo`].
-    #[instrument(level = "trace", skip(self, body), err)]
     fn parse_slurper_data(
         &self,
         cid: &ClientId,
@@ -241,7 +237,6 @@ impl SlurperClient {
 
     /// Extracts the [`ControllerInfo`] from the parsed [`csv::StringRecord`], validating the client is
     /// currently logged in using an ATC connection.
-    #[instrument(level = "trace", skip(self), err)]
     fn extract_controller_info(
         &self,
         cid: &ClientId,

@@ -1,4 +1,4 @@
-use crate::store::StoreBackend;
+use crate::store::{StoreBackend, key_prefix};
 use anyhow::Context;
 use bytes::Bytes;
 use dashmap::DashMap;
@@ -6,7 +6,6 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
-use tracing::instrument;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -46,41 +45,50 @@ impl Default for MemoryStore {
 
 #[async_trait::async_trait]
 impl StoreBackend for MemoryStore {
-    #[instrument(level = "trace", skip(self), err)]
     async fn get<V: DeserializeOwned + Send>(&self, key: &str) -> anyhow::Result<Option<V>> {
-        tracing::trace!("Getting value from memory store");
         if let Some(stored_value) = self.map.get(key) {
             if let Some(expires_at) = stored_value.expires_at
                 && Instant::now() > expires_at
             {
-                tracing::trace!("Value expired, removing from memory store and returning None");
-                self.map.remove(key);
+                drop(stored_value);
+                self.map.remove_if(key, |_, stored| {
+                    stored
+                        .expires_at
+                        .is_some_and(|expires_at| Instant::now() > expires_at)
+                });
+                tracing::trace!(
+                    key_prefix = key_prefix(key),
+                    "Removed expired value from memory store"
+                );
                 return Ok(None);
             }
 
-            tracing::trace!("Deserializing value from memory store");
             let value = serde_json::from_slice(&stored_value.value)
                 .context("Failed to deserialize value from memory store")?;
-
-            tracing::trace!("Successfully retrieved value from memory store");
+            tracing::trace!(
+                key_prefix = key_prefix(key),
+                found = true,
+                "Read value from memory store"
+            );
             Ok(Some(value))
         } else {
-            tracing::trace!("Value not found in memory store");
+            tracing::trace!(
+                key_prefix = key_prefix(key),
+                found = false,
+                "Read value from memory store"
+            );
             Ok(None)
         }
     }
 
-    #[instrument(level = "trace", skip(self, value), err)]
     async fn set<V: Serialize + Send>(
         &self,
         key: &str,
         value: V,
         expiry: Option<Duration>,
     ) -> anyhow::Result<()> {
-        tracing::trace!("Serializing value for memory store");
         let serialized = serde_json::to_vec(&value).context("Failed to serialize value")?;
 
-        tracing::trace!("Storing value in memory store");
         self.map.insert(
             key.to_string(),
             StoredValue {
@@ -89,29 +97,68 @@ impl StoreBackend for MemoryStore {
             },
         );
 
-        tracing::trace!("Successfully stored value in memory store");
+        tracing::trace!(key_prefix = key_prefix(key), "Stored value in memory store");
         Ok(())
     }
 
-    #[instrument(level = "trace", skip(self), err)]
     async fn remove(&self, key: &str) -> anyhow::Result<()> {
-        tracing::trace!("Removing value from memory store");
-        self.map.remove(key);
-
-        tracing::trace!("Successfully removed value from memory store");
+        let removed = self.map.remove(key).is_some();
+        tracing::trace!(
+            key_prefix = key_prefix(key),
+            removed,
+            "Removed value from memory store"
+        );
         Ok(())
     }
 
-    #[instrument(level = "trace", skip(self), err)]
     async fn expire(&self, key: &str, duration: Duration) -> anyhow::Result<()> {
-        tracing::trace!("Setting expiry on memory store key");
         if let Some(mut entry) = self.map.get_mut(key) {
             entry.expires_at = Some(Instant::now() + duration);
         }
+        tracing::trace!(
+            key_prefix = key_prefix(key),
+            "Set expiry on memory store key"
+        );
         Ok(())
     }
 
     async fn is_healthy(&self) -> anyhow::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    #[test]
+    fn reading_an_expired_key_returns_none_without_hanging() {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let store = MemoryStore::default();
+                store
+                    .set("key", 1, Some(Duration::from_millis(1)))
+                    .await
+                    .unwrap();
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                let expired = store.get::<i32>("key").await.unwrap();
+
+                store.set("key", 2, None).await.unwrap();
+                let fresh = store.get::<i32>("key").await.unwrap();
+                tx.send((expired, fresh)).unwrap();
+            });
+        });
+
+        let (expired, fresh) = rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reading an expired key hung");
+        assert_eq!(expired, None);
+        assert_eq!(fresh, Some(2));
     }
 }

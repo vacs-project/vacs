@@ -1,13 +1,12 @@
 use std::collections::HashSet;
 use std::time::Duration;
-use test_log::test;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::ServerMessage;
 use vacs_signaling::client::SignalingEvent;
 use vacs_signaling::test_utils::TestRig;
 
-#[test(tokio::test)]
+#[tokio::test]
 async fn call_offer_answer() {
     let mut test_rig = TestRig::new(2).await;
 
