@@ -140,7 +140,9 @@ describe("PlaybackPage", () => {
             expect(usePlaybackStore.getState().openInstanceIds).toContain(INSTANCE_ID),
         );
 
-        unmount();
+        await act(() => {
+            unmount();
+        });
 
         expect(invokedCommands()).not.toContain("playback_stop");
         expect(usePlaybackStore.getState().openInstanceIds).toEqual([]);
@@ -156,7 +158,9 @@ describe("PlaybackPage", () => {
             expect(usePlaybackStore.getState().openInstanceIds).toContain(INSTANCE_ID),
         );
 
-        unmount();
+        await act(() => {
+            unmount();
+        });
 
         await waitFor(() => expect(invoke).toHaveBeenCalledWith("playback_stop", undefined));
         expect(invoke.mock.calls.filter(([cmd]) => cmd === "playback_stop")).toHaveLength(1);
@@ -173,7 +177,9 @@ describe("PlaybackPage", () => {
             expect(usePlaybackStore.getState().openInstanceIds).toEqual(["other", INSTANCE_ID]),
         );
 
-        unmount();
+        await act(() => {
+            unmount();
+        });
 
         expect(usePlaybackStore.getState().openInstanceIds).toEqual(["other"]);
         expect(invokedCommands()).not.toContain("playback_stop");
