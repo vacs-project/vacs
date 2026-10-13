@@ -375,7 +375,7 @@ const RadioStateAsIndicatorState: {[key in RadioState["state"]]: Status} = {
     NotConfigured: "gray",
     Disconnected: "red",
     Error: "red",
-    Connected: "green",
+    Connected: "yellow",
     VoiceConnected: "green",
     RxIdle: "green",
     RxActive: "green",
@@ -395,9 +395,11 @@ function TrackAudioStatusIndicator() {
 
     const title = canReconnect
         ? "Reconnect to TrackAudio"
-        : radioState !== "NotConfigured"
-          ? "Connected to TrackAudio"
-          : "Deactivated";
+        : radioState === "Connected"
+          ? "Connected to TrackAudio, but TrackAudio is not connected to VATSIM voice"
+          : radioState !== "NotConfigured"
+            ? "Connected to TrackAudio"
+            : "Deactivated";
 
     return (
         <StatusIndicator
