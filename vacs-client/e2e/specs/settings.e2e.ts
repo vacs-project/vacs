@@ -6,9 +6,11 @@ import {
     getClient,
     mockCommand,
     ringSoundField,
+    ringSoundLoop,
     ringSoundReset,
     selectOption,
     waitForRingSound,
+    waitForRingSoundLoop,
 } from "../helpers/browser.ts";
 import {RING_SOUND_NAME, writeInvalidRingSound, writeRingSound} from "../helpers/ring-sound.ts";
 
@@ -179,6 +181,34 @@ describe("Settings", () => {
             throw new Error("The backend rejected the generated ring sound");
         }
 
+        await clickSvg(clientA, ringSoundReset(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
+    });
+
+    it("loops a custom ring sound and keeps the setting after reopening", async () => {
+        const clientA = getClient("clientA");
+        await mockCommand("clientA", "audio_pick_ring_sound", {resolve: ringSound});
+
+        await openSettings(clientA);
+        await openCallSettings(clientA);
+        await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
+        const builtInLoopClasses =
+            (await ringSoundLoop(clientA, "Ring").getAttribute("class")) ?? "";
+        if (!builtInLoopClasses.includes("cursor-not-allowed")) {
+            throw new Error("The loop toggle is active for the built-in chime");
+        }
+
+        await click(clientA, ringSoundField(clientA, "Ring"));
+        await waitForRingSound(clientA, "Ring", RING_SOUND_NAME);
+        await clickSvg(clientA, ringSoundLoop(clientA, "Ring"));
+        await waitForRingSoundLoop(clientA, "Ring", true);
+
+        await reopenCallSettings(clientA);
+        await waitForRingSound(clientA, "Ring", RING_SOUND_NAME);
+        await waitForRingSoundLoop(clientA, "Ring", true);
+
+        await clickSvg(clientA, ringSoundLoop(clientA, "Ring"));
+        await waitForRingSoundLoop(clientA, "Ring", false);
         await clickSvg(clientA, ringSoundReset(clientA, "Ring"));
         await waitForRingSound(clientA, "Ring", BUILT_IN_CHIME);
     });
