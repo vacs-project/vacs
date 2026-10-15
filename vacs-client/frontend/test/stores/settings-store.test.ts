@@ -24,6 +24,7 @@ const CALL_CONFIG: CallConfig = {
     enableParticipantLeftSound: false,
     useDefaultCallSources: true,
     forceRelay: true,
+    endActiveCallOnAccept: true,
 };
 
 const RADIO_CONFIG: RadioConfig = {

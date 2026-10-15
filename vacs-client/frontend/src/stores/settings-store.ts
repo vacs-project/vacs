@@ -51,6 +51,7 @@ export const useSettingsStore = create<SettingsState>()(set => ({
         enableParticipantLeftSound: true,
         useDefaultCallSources: true,
         forceRelay: false,
+        endActiveCallOnAccept: true,
     },
     selectedClientPageConfig: {...emptyClientPageConfig, name: "None"},
     clientPageConfigs: {},

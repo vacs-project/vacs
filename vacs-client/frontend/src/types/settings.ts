@@ -7,6 +7,7 @@ export type CallConfig = {
     enableParticipantLeftSound: boolean;
     useDefaultCallSources: boolean;
     forceRelay: boolean;
+    endActiveCallOnAccept: boolean;
 };
 
 export type RemoteConfig = {

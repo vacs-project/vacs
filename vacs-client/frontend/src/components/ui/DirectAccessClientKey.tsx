@@ -1,7 +1,7 @@
 import {ClientInfo, ClientPageConfig, splitDisplayName} from "../../types/client.ts";
 import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {invokeSafe, invokeStrict} from "../../error.ts";
-import {startCall, useCallStore} from "../../stores/call-store.ts";
+import {canAcceptIncomingCall, startCall, useCallStore} from "../../stores/call-store.ts";
 import {useSettingsStore} from "../../stores/settings-store.ts";
 import {getCallStateColors} from "../../utils/call-state-colors.ts";
 import {useBlinkStore} from "../../stores/blink-store.ts";
@@ -21,6 +21,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
         state => state.actions,
     );
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
+    const endActiveCallOnAccept = useSettingsStore(state => state.callConfig.endActiveCallOnAccept);
 
     const incomingCall = incomingCalls.find(
         call =>
@@ -41,7 +42,7 @@ function DirectAccessClientKey({client, config}: DAKeyProps) {
 
     const handleClick = useAsyncDebounce(async () => {
         if (isCalling) {
-            if (callDisplay !== undefined) return;
+            if (!canAcceptIncomingCall(callDisplay, endActiveCallOnAccept)) return;
 
             await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {

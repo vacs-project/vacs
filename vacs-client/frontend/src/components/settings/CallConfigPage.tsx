@@ -12,66 +12,89 @@ function CallConfigPage() {
     return (
         <SettingsSubPage
             title="Call Config"
-            width="w-2/5"
-            className="py-3 px-4 flex flex-col gap-3"
+            width="w-[69%]"
+            className="grid grid-cols-2 content-start"
         >
-            <CallConfigEntry
-                label="Highlight incoming target"
-                name="display-call-target"
-                property="highlightIncomingCallTarget"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Enable priority calls"
-                name="enable-priority-calls"
-                property="enablePriorityCalls"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Play call start sound"
-                name="enable-call-start-sound"
-                property="enableCallStartSound"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Play call end sound"
-                name="enable-call-end-sound"
-                property="enableCallEndSound"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Play participant joined sound"
-                name="enable-participant-joined-sound"
-                property="enableParticipantJoinedSound"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Play participant left sound"
-                name="enable-participant-left-sound"
-                property="enableParticipantLeftSound"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Use default call sources"
-                name="use-default-call-sources"
-                property="useDefaultCallSources"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <CallConfigEntry
-                label="Always relay calls"
-                name="force-relay"
-                property="forceRelay"
-                callConfig={callConfig}
-                setCallConfig={setCallConfig}
-            />
-            <RingSoundSettings />
+            <div className="flex flex-col">
+                <p className="w-full text-center border-b-2 border-zinc-200 uppercase font-semibold">
+                    General
+                </p>
+                <div className="py-3 px-4 flex flex-col gap-3">
+                    <CallConfigEntry
+                        label="Highlight incoming target"
+                        name="display-call-target"
+                        property="highlightIncomingCallTarget"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="Enable priority calls"
+                        name="enable-priority-calls"
+                        property="enablePriorityCalls"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="Use default call sources"
+                        name="use-default-call-sources"
+                        property="useDefaultCallSources"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="Always relay calls"
+                        name="force-relay"
+                        property="forceRelay"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="End active call on accept"
+                        name="end-active-call-on-accept"
+                        property="endActiveCallOnAccept"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                </div>
+            </div>
+            <div className="flex flex-col border-l-2 border-zinc-200">
+                <p className="w-full text-center border-b-2 border-zinc-200 uppercase font-semibold">
+                    Sounds
+                </p>
+                <div className="py-3 px-4 flex flex-col gap-3">
+                    <CallConfigEntry
+                        label="Call start"
+                        name="enable-call-start-sound"
+                        property="enableCallStartSound"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="Call end"
+                        name="enable-call-end-sound"
+                        property="enableCallEndSound"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="Participant joined"
+                        name="enable-participant-joined-sound"
+                        property="enableParticipantJoinedSound"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                    <CallConfigEntry
+                        label="Participant left"
+                        name="enable-participant-left-sound"
+                        property="enableParticipantLeftSound"
+                        callConfig={callConfig}
+                        setCallConfig={setCallConfig}
+                    />
+                </div>
+            </div>
+            <div className="col-span-2">
+                <RingSoundSettings />
+            </div>
         </SettingsSubPage>
     );
 }

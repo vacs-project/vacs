@@ -1,5 +1,5 @@
 import Button from "./ui/Button.tsx";
-import {someConnectionState, useCallStore} from "../stores/call-store.ts";
+import {canAcceptIncomingCall, someConnectionState, useCallStore} from "../stores/call-store.ts";
 import {invokeSafe, invokeStrict} from "../error.ts";
 import unplug from "../assets/unplug.svg";
 import volumeMute from "../assets/volume-mute.svg";
@@ -26,6 +26,7 @@ function CallQueue() {
     const cid = useAuthStore(state => state.cid);
     const clients = useClientsStore(state => state.clients);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
+    const endActiveCallOnAccept = useSettingsStore(state => state.callConfig.endActiveCallOnAccept);
 
     const handleCallDisplayClick = async (call: CallDisplayCall) => {
         if (callDisplay?.type === "accepted" || callDisplay?.type === "outgoing") {
@@ -41,8 +42,7 @@ function CallQueue() {
     };
 
     const handleAnswerKeyClick = async (call: Call) => {
-        // Can't accept someone's call if something is in your call display
-        if (callDisplay !== undefined) return;
+        if (!canAcceptIncomingCall(callDisplay, endActiveCallOnAccept)) return;
 
         await invokeSafe("signaling_accept_call", {callId: call.callId});
     };
