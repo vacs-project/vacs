@@ -62,6 +62,7 @@ afterEach(() => {
             enableParticipantLeftSound: true,
             useDefaultCallSources: true,
             forceRelay: false,
+            endActiveCallOnAccept: false,
         },
     });
 });

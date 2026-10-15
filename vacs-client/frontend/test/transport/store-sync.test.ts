@@ -53,6 +53,7 @@ const snapshot: SessionStateSnapshot = {
         enableParticipantLeftSound: true,
         useDefaultCallSources: true,
         forceRelay: false,
+        endActiveCallOnAccept: false,
     },
     clientPageSettings: {selected: undefined, configs: {}},
     capabilities: {

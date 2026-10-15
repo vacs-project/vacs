@@ -1856,6 +1856,83 @@ async fn busy_accept_fails_the_ringing_target() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A client ending its call and accepting another one back to back must not be
+/// seen as busy: the server handles one session's messages in order.
+#[tokio::test]
+async fn end_then_accept_back_to_back_accepts_the_ringing_call() -> anyhow::Result<()> {
+    let env = TestEnv::builder().default_users(3).build().await;
+    let mut clients = env.setup_clients(3).await;
+
+    let mut client1 = clients.remove(0);
+    let mut client2 = clients.remove(0);
+    let mut client3 = clients.remove(0);
+
+    let active_call_id = CallId::new();
+    join_call(&mut client2, &mut client3, active_call_id).await?;
+
+    let call_id = CallId::new();
+    client1
+        .send(ClientMessage::CallInvite(
+            vacs_protocol::ws::client::CallInvite {
+                call_id,
+                source: vacs_protocol::ws::shared::CallSource {
+                    client_id: client1.id().clone(),
+                    position_id: None,
+                    station_id: None,
+                },
+                targets: HashSet::from([CallTarget::Client(client2.id().clone())]),
+                prio: false,
+            },
+        ))
+        .await?;
+    client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(invitation) if invitation.call_id == call_id)
+        })
+        .await;
+
+    client2
+        .send(ClientMessage::CallEnd(vacs_protocol::ws::shared::CallEnd {
+            call_id: active_call_id,
+            ending_client_id: client2.id().clone(),
+        }))
+        .await?;
+    client2
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: client2.id().clone(),
+            },
+        ))
+        .await?;
+
+    let ended = client3
+        .recv_until_timeout_with_filter(
+            Duration::from_millis(100),
+            |m| matches!(m, ServerMessage::CallEnd(end) if end.call_id == active_call_id),
+        )
+        .await;
+    assert_eq!(ended.len(), 1, "the previous call ends for its peer");
+
+    let joined = client1
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallUpdate(update)
+                if update.call_id == call_id
+                    && update.joined_participants.contains_key(client2.id()))
+        })
+        .await;
+    assert!(!joined.is_empty(), "the caller sees the callee join");
+
+    let errors = client2
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert!(errors.is_empty(), "neither message is refused: {errors:?}");
+
+    Ok(())
+}
+
 /// A refused drop is answered with the reason and the authoritative call state,
 /// so a client that applied the drop locally converges back.
 #[tokio::test]

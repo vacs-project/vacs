@@ -424,6 +424,10 @@ pub struct CallConfig {
     /// WARP) at the cost of slightly higher latency.
     #[serde(default)]
     pub force_relay: bool,
+    /// Ends the active call when an incoming call is accepted by clicking it. An outgoing call
+    /// that is still ringing keeps blocking the accept, and the accept call keybind is unaffected.
+    #[serde(default = "default_true")]
+    pub end_active_call_on_accept: bool,
 }
 
 fn default_true() -> bool {
@@ -441,6 +445,7 @@ impl Default for CallConfig {
             enable_participant_left_sound: true,
             use_default_call_sources: true,
             force_relay: false,
+            end_active_call_on_accept: true,
         }
     }
 }

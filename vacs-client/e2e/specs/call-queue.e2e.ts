@@ -68,11 +68,6 @@ describe("Call Queue", () => {
         );
         await answerKey2().waitForDisplayed();
 
-        // While busy, clicking the queued call must not accept it.
-        await click(clientA, await answerKey2());
-        await clientA.pause(500);
-        await answerKey2().waitForDisplayed();
-
         // After ending the first call, the second can be accepted.
         const endButton = await clientA.$("button=END");
         await click(clientA, endButton);

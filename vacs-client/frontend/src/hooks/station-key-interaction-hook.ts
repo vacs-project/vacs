@@ -1,5 +1,5 @@
 import {useStationsStore} from "../stores/stations-store.ts";
-import {startCall, useCallStore} from "../stores/call-store.ts";
+import {canAcceptIncomingCall, startCall, useCallStore} from "../stores/call-store.ts";
 import {useAsyncDebounce} from "./debounce-hook.ts";
 import {invokeSafe, invokeStrict} from "../error.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
@@ -28,6 +28,7 @@ export function useStationKeyInteraction(
 
     const highlightTarget = useSettingsStore(state => state.callConfig.highlightIncomingCallTarget);
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
+    const endActiveCallOnAccept = useSettingsStore(state => state.callConfig.endActiveCallOnAccept);
 
     const hasStationId = stationId !== undefined;
     const station = hasStationId && stations.get(stationId);
@@ -92,7 +93,7 @@ export function useStationKeyInteraction(
         }
 
         if (isCalling) {
-            if (callDisplay !== undefined) return;
+            if (!canAcceptIncomingCall(callDisplay, endActiveCallOnAccept)) return;
 
             await invokeSafe("signaling_accept_call", {callId: incomingCall.callId});
         } else if (beingCalled || inCall) {
