@@ -36,7 +36,7 @@ function RingSoundSettings() {
     };
 
     return (
-        <div className="w-full flex flex-col gap-2 pt-2 border-t-2 border-zinc-200">
+        <div className="w-full flex flex-col gap-2 pt-1 pb-3 border-t-2 border-zinc-200">
             <div className="flex flex-row gap-2 items-center justify-center">
                 <p className="font-semibold uppercase text-center">Ring sounds</p>
                 <Hint>
@@ -46,7 +46,7 @@ function RingSoundSettings() {
                     </p>
                 </Hint>
             </div>
-            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-center">
+            <div className="px-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-center">
                 <p>Ring</p>
                 {ringSounds !== undefined ? (
                     <RingSoundField

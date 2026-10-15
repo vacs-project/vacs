@@ -25,6 +25,7 @@ pub struct Call {
     invited_targets: HashSet<CallTarget>,
     joined_participants: CallParticipants,
     conference_leader: Option<ClientId>,
+    incoming: bool,
 }
 
 impl Call {
@@ -35,6 +36,7 @@ impl Call {
             invited_targets: invite.targets.clone(),
             joined_participants: HashMap::new(),
             conference_leader: None,
+            incoming: false,
         }
     }
 
@@ -48,6 +50,7 @@ impl Call {
             invited_targets: invitation.invited_targets.clone(),
             joined_participants: invitation.joined_participants.clone(),
             conference_leader: invitation.conference_leader.clone(),
+            incoming: true,
         }
     }
 
@@ -81,6 +84,12 @@ impl Call {
 
     pub fn is_active(&self, own_client_id: &ClientId) -> bool {
         self.joined_participants.contains_key(own_client_id)
+    }
+
+    /// Whether accepting another incoming call may end this one: a call this client answered or
+    /// takes part in, but never an outgoing call that is still ringing.
+    pub fn is_replaceable(&self, own_client_id: &ClientId) -> bool {
+        self.incoming || self.is_active(own_client_id)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -220,6 +229,55 @@ mod tests {
             prio: false,
         };
         Call::from_invite(&invite, &CancellationToken::new())
+    }
+
+    fn invitation(caller: &str, own: &str) -> Call {
+        let invitation = CallInvitation {
+            call_id: CallId::new(),
+            source: CallSource {
+                client_id: client(caller),
+                position_id: None,
+                station_id: None,
+            },
+            target: target(own),
+            invited_targets: HashSet::new(),
+            joined_participants: CallParticipants::new(),
+            conference_leader: None,
+            prio: false,
+        };
+        Call::from_invitation(&invitation, &CancellationToken::new())
+    }
+
+    #[test]
+    fn a_ringing_outgoing_call_is_not_replaceable() {
+        let call = call("a", &["b"]);
+        assert!(!call.is_replaceable(&client("a")));
+    }
+
+    #[test]
+    fn an_answered_outgoing_call_is_replaceable() {
+        let mut call = call("a", &["b"]);
+        call.update(
+            &client("a"),
+            HashSet::new(),
+            participants(&["a", "b"]),
+            None,
+        );
+        assert!(call.is_replaceable(&client("a")));
+    }
+
+    #[test]
+    fn an_accepted_incoming_call_is_replaceable_before_joining() {
+        let mut call = invitation("b", "a");
+        assert!(call.is_replaceable(&client("a")));
+
+        call.update(
+            &client("a"),
+            HashSet::new(),
+            participants(&["a", "b"]),
+            None,
+        );
+        assert!(call.is_replaceable(&client("a")));
     }
 
     #[test]

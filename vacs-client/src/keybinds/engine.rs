@@ -423,7 +423,7 @@ impl KeybindEngine {
                     _ => {}
                 }
             } else {
-                match state.accept_call(app, None).await {
+                match state.accept_call(app, None, false).await {
                     Ok(found) if !found => log::trace!("No incoming call to accept via keybind"),
                     Err(err) => log::warn!("Failed to accept incoming call via keybind: {err}"),
                     _ => {}
@@ -435,7 +435,7 @@ impl KeybindEngine {
             let state = app.state::<AppState>();
             let mut state = state.lock().await;
 
-            match state.accept_call(app, None).await {
+            match state.accept_call(app, None, false).await {
                 Ok(found) if !found => log::trace!("No incoming call to accept via keybind"),
                 Err(Error::Webrtc(err))
                     if matches!(err.as_ref(), vacs_webrtc::error::WebrtcError::CallActive) =>

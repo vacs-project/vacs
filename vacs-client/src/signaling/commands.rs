@@ -97,7 +97,10 @@ pub async fn signaling_accept_call(
     refresh_ice_config(&app, false).await;
 
     let mut state = app_state.lock().await;
-    state.accept_call(&app, Some(call_id)).await?;
+    let end_active_call = state.config.client.call.end_active_call_on_accept;
+    state
+        .accept_call(&app, Some(call_id), end_active_call)
+        .await?;
 
     Ok(())
 }

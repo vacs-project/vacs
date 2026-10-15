@@ -705,6 +705,13 @@ const callListTargets = (update: CallUpdate): CallListTarget[] => {
     return targets;
 };
 
+export function canAcceptIncomingCall(
+    callDisplay: CallDisplay | undefined,
+    endActiveCallOnAccept: boolean,
+): boolean {
+    return callDisplay === undefined || (endActiveCallOnAccept && callDisplay.type === "accepted");
+}
+
 export function someConnectionState(
     callDisplay: CallDisplay | undefined,
     state: ConnectionState,
