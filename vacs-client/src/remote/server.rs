@@ -597,6 +597,21 @@ async fn dispatch_command(
                 audio_set_ring_sound(app.clone(), app_state, audio_manager, ring_type, path).await,
             )
         }
+        AudioSetRingSoundLoop => {
+            let (ring_type, enabled) = args!(args, "ringType", "enabled");
+            let app_state = app.state::<AppState>();
+            let audio_manager = app.state::<AudioManagerHandle>();
+            dispatch(
+                audio_set_ring_sound_loop(
+                    app.clone(),
+                    app_state,
+                    audio_manager,
+                    ring_type,
+                    enabled,
+                )
+                .await,
+            )
+        }
         AudioPlayUiClick => {
             let audio_manager = app.state::<AudioManagerHandle>();
             dispatch(audio_play_ui_click(audio_manager).await)

@@ -192,6 +192,7 @@ pub fn run() {
             audio::commands::audio_set_host,
             audio::commands::audio_set_radio_prio,
             audio::commands::audio_set_ring_sound,
+            audio::commands::audio_set_ring_sound_loop,
             audio::commands::audio_set_volume,
             audio::commands::audio_start_input_level_meter,
             audio::commands::audio_stop_input_level_meter,

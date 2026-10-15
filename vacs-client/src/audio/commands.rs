@@ -296,6 +296,8 @@ pub async fn audio_set_volume(
         VolumeType::Chime => {
             audio_manager.set_output_volume(SourceType::Ring, volume);
             audio_manager.set_output_volume(SourceType::PriorityRing, volume);
+            audio_manager.set_output_volume(SourceType::RingOneshot, volume);
+            audio_manager.set_output_volume(SourceType::PriorityRingOneshot, volume);
             state.config.audio.chime_volume = volume;
         }
     }
@@ -362,10 +364,49 @@ pub async fn audio_set_ring_sound(
     let mut state = app_state.lock().await;
     {
         let mut audio_manager = audio_manager.write();
-        audio_manager.set_ring_sound(ring_type, clip, state.config.audio.chime_volume)?;
-        audio_manager.restart(ring_type.into());
+        audio_manager.set_ring_sound(
+            ring_type,
+            clip,
+            state.config.audio.ring_sound_loop_pause(ring_type),
+            state.config.audio.chime_volume,
+        )?;
+        audio_manager.restart(ring_type.oneshot_source_type());
     }
     state.config.audio.set_ring_sound(ring_type, path);
+
+    let persisted_audio_config: PersistedAudioConfig = state.config.audio.clone().into();
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .expect("Cannot get config directory");
+    persisted_audio_config.persist(&config_dir, AUDIO_SETTINGS_FILE_NAME)?;
+
+    let audio_manager = audio_manager.read();
+    Ok(RingSounds::new(&state.config.audio, |ring_type| {
+        audio_manager.has_ring_clip(ring_type)
+    }))
+}
+
+#[tauri::command]
+#[vacs_macros::log_err]
+pub async fn audio_set_ring_sound_loop(
+    app: AppHandle,
+    app_state: State<'_, AppState>,
+    audio_manager: State<'_, AudioManagerHandle>,
+    ring_type: RingSoundType,
+    enabled: bool,
+) -> Result<RingSounds, Error> {
+    log::info!("Setting ring sound loop (type: {ring_type:?}, enabled: {enabled})");
+
+    let mut state = app_state.lock().await;
+    let mut audio_config = state.config.audio.clone();
+    audio_config.set_ring_sound_loop(ring_type, enabled);
+    audio_manager.write().set_ring_sound_loop(
+        ring_type,
+        audio_config.ring_sound_loop_pause(ring_type),
+        audio_config.chime_volume,
+    )?;
+    state.config.audio = audio_config;
 
     let persisted_audio_config: PersistedAudioConfig = state.config.audio.clone().into();
     let config_dir = app
