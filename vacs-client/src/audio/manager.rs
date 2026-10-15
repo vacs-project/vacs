@@ -595,21 +595,13 @@ impl AudioManager {
         let (error_tx, mut error_rx) = mpsc::channel(AUDIO_STREAM_ERROR_CHANNEL_SIZE);
         let output = PlaybackStream::start(device, error_tx)?;
 
-        let audio_config_clone = audio_config.clone();
         tauri::async_runtime::spawn(async move {
             // Handle only the first error event: every recovery path either
             // replaces this stream (making any further events from it stale,
             // e.g. queued duplicates from Windows default-role changes) or
             // gives up for good.
             if let Some(err) = error_rx.recv().await {
-                handle_playback_stream_error(
-                    err,
-                    restarted_at,
-                    &audio_config_clone,
-                    device_type,
-                    app.clone(),
-                )
-                .await;
+                handle_playback_stream_error(err, restarted_at, device_type, app.clone()).await;
             }
             log::debug!("Playback stream error receiver closed");
         });
@@ -768,7 +760,6 @@ async fn end_call_on_stream_failure(app: &AppHandle, state: &mut AppStateInner, 
 async fn handle_playback_stream_error(
     err: AudioError,
     restarted_at: Option<Instant>,
-    audio_config: &AudioConfig,
     device_type: PlaybackDeviceType,
     app: AppHandle,
 ) {
@@ -825,7 +816,7 @@ async fn handle_playback_stream_error(
 
         audio_manager.switch_playback_device(
             app.clone(),
-            audio_config,
+            &state.config.audio,
             device_type,
             Some(Instant::now()),
         )
