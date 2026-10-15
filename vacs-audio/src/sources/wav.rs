@@ -86,6 +86,8 @@ impl WavClip {
 }
 
 const RELEASE_DURATION: Duration = Duration::from_millis(10);
+/// Fade at both ends of each cycle of a looping clip, so the wrap cannot click.
+const LOOP_EDGE_FADE: Duration = Duration::from_millis(5);
 
 pub struct WavSource {
     samples: Arc<[f32]>, // mono f32, resampled to output sample_rate
@@ -101,6 +103,10 @@ pub struct WavSource {
     release_total: usize,
     release_remaining: usize,
     restart_after_release: bool,
+
+    loop_pause_frames: Option<usize>,
+    loop_edge_frames: usize,
+    pause_remaining: usize,
 
     update_interval: usize,                     // in ms, defaults to 100ms
     on_update: Option<Box<dyn Fn(f32) + Send>>, // progress from 0.0 to 1.0
@@ -158,9 +164,20 @@ impl WavSource {
             release_total: 0,
             release_remaining: 0,
             restart_after_release: false,
+            loop_pause_frames: None,
+            loop_edge_frames: 0,
+            pause_remaining: 0,
             update_interval: update_interval.unwrap_or(500),
             on_update,
         })
+    }
+
+    /// Plays the clip again after `pause` of silence each time it ends, until stopped.
+    pub fn looped(mut self, pause: Duration) -> Self {
+        self.loop_pause_frames = Some((pause.as_secs_f64() * self.sample_rate as f64) as usize);
+        self.loop_edge_frames = ((LOOP_EDGE_FADE.as_secs_f64() * self.sample_rate as f64) as usize)
+            .min(self.samples.len() / 2);
+        self
     }
 
     fn is_playing(&self) -> bool {
@@ -197,7 +214,7 @@ impl AudioSource for WavSource {
             return;
         }
 
-        if self.pos >= self.samples.len() {
+        if self.pos >= self.samples.len() && self.pause_remaining == 0 {
             if let Some(on_update) = &self.on_update {
                 on_update(1.0);
             }
@@ -206,7 +223,21 @@ impl AudioSource for WavSource {
         }
 
         for frame in output.chunks_mut(self.output_channels) {
+            if self.pause_remaining > 0 {
+                self.pause_remaining -= 1;
+                if self.pause_remaining == 0 {
+                    self.pos = 0;
+                }
+                continue;
+            }
+
             let mut sample = self.samples[self.pos] * self.volume;
+            if self.loop_edge_frames > 0 {
+                let edge_distance = (self.pos + 1).min(self.samples.len() - self.pos);
+                if edge_distance < self.loop_edge_frames {
+                    sample *= edge_distance as f32 / self.loop_edge_frames as f32;
+                }
+            }
             if self.releasing {
                 sample *= self.release_remaining as f32 / self.release_total as f32;
                 self.release_remaining -= 1;
@@ -231,8 +262,15 @@ impl AudioSource for WavSource {
                 if let Some(on_update) = &self.on_update {
                     on_update(1.0);
                 }
-                self.active = false;
-                break;
+                match self.loop_pause_frames {
+                    Some(0) => self.pos = 0,
+                    Some(frames) => self.pause_remaining = frames,
+                    None => {
+                        self.active = false;
+                        break;
+                    }
+                }
+                continue;
             }
 
             if let Some(on_update) = &self.on_update
@@ -253,6 +291,7 @@ impl AudioSource for WavSource {
         if self.is_playing() {
             self.begin_release(false);
         } else {
+            self.pause_remaining = 0;
             self.active = false;
         }
     }
@@ -262,6 +301,7 @@ impl AudioSource for WavSource {
             self.begin_release(true);
         } else {
             self.cancel_release();
+            self.pause_remaining = 0;
             self.pos = 0;
             self.active = true;
         }
@@ -585,6 +625,99 @@ mod tests {
         assert!(!source.active && !source.releasing);
         source.restart();
         assert!(source.active && source.pos == 0 && !source.releasing);
+    }
+
+    fn looped_source(len: usize, pause_frames: u64) -> WavSource {
+        let mut source = constant_source(len).looped(std::time::Duration::from_micros(
+            pause_frames * 1_000_000 / 48_000,
+        ));
+        source.start();
+        source
+    }
+
+    fn sounding(samples: &[f32]) -> bool {
+        samples.iter().all(|s| *s > 0.0)
+    }
+
+    #[test]
+    fn looped_clip_repeats_after_the_pause() {
+        let mut source = looped_source(100, 48);
+        let mut out = vec![0.0f32; 300];
+        source.mix_into(&mut out);
+
+        assert!(sounding(&out[..100]));
+        assert!(out[100..148].iter().all(|s| *s == 0.0));
+        assert!(sounding(&out[148..248]));
+        assert!(out[248..296].iter().all(|s| *s == 0.0));
+        assert!(sounding(&out[296..]));
+        assert!(source.active);
+    }
+
+    #[test]
+    fn looped_clip_without_pause_plays_back_to_back() {
+        let mut source = looped_source(100, 0);
+        let mut out = vec![0.0f32; 250];
+        source.mix_into(&mut out);
+
+        assert!(sounding(&out));
+        assert_eq!(source.pos, 50);
+    }
+
+    #[test]
+    fn looped_clip_fades_both_edges_of_each_cycle() {
+        let mut source = looped_source(4_800, 0);
+        let mut out = vec![0.0f32; 9_600];
+        source.mix_into(&mut out);
+
+        assert!(
+            out[0] < 0.01 && out[4_799] < 0.01,
+            "{} {}",
+            out[0],
+            out[4_799]
+        );
+        assert!(out[4_800] < 0.01, "{}", out[4_800]);
+        assert!(out[..240].windows(2).all(|w| w[1] >= w[0]));
+        assert!(out[4_560..4_800].windows(2).all(|w| w[1] <= w[0]));
+        assert!(out[240..4_560].iter().all(|s| *s == 0.5));
+    }
+
+    #[test]
+    fn stop_during_the_loop_pause_is_immediate_and_stays_silent() {
+        let mut source = looped_source(100, 480);
+        let mut out = vec![0.0f32; 200];
+        source.mix_into(&mut out);
+
+        source.stop();
+        assert!(!source.active && !source.releasing);
+        let mut out = vec![0.0f32; 1_000];
+        source.mix_into(&mut out);
+        assert!(out.iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn restart_during_the_loop_pause_plays_from_the_start() {
+        let mut source = looped_source(100, 480);
+        let mut out = vec![0.0f32; 200];
+        source.mix_into(&mut out);
+
+        source.restart();
+        let mut out = vec![0.0f32; 100];
+        source.mix_into(&mut out);
+        assert!(sounding(&out));
+        assert_eq!(source.pos, 100);
+    }
+
+    #[test]
+    fn stop_near_the_end_of_a_looped_clip_does_not_start_another_cycle() {
+        let mut source = looped_source(500, 0);
+        let mut out = vec![0.0f32; 400];
+        source.mix_into(&mut out);
+
+        source.stop();
+        let mut out = vec![0.0f32; 400];
+        source.mix_into(&mut out);
+        assert!(out[100..].iter().all(|s| *s == 0.0));
+        assert!(!source.active);
     }
 
     #[test]
