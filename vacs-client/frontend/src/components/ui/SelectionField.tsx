@@ -1,5 +1,5 @@
 import {clsx} from "clsx";
-import {Ref} from "preact";
+import {ComponentChildren, Ref} from "preact";
 import {invokeSafe} from "../../error.ts";
 
 type SelectionFieldProps = {
@@ -10,6 +10,7 @@ type SelectionFieldProps = {
     removeDisabled?: boolean;
     className?: string;
     ref?: Ref<HTMLDivElement>;
+    actions?: ComponentChildren;
     onClick: () => void;
     onRemove: () => void;
 };
@@ -45,6 +46,7 @@ const SelectionField = ({ref, ...props}: SelectionFieldProps) => {
             >
                 <p className="truncate max-w-full">{props.label}</p>
             </div>
+            {props.actions}
             <svg
                 onClick={handleOnRemoveClick}
                 xmlns="http://www.w3.org/2000/svg"

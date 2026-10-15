@@ -35,6 +35,16 @@ function RingSoundSettings() {
         } catch {}
     };
 
+    const applyRingSoundLoop = async (ringType: RingSoundType, enabled: boolean) => {
+        try {
+            const sounds = await invokeStrict<RingSounds>("audio_set_ring_sound_loop", {
+                ringType,
+                enabled,
+            });
+            setRingSounds(sounds);
+        } catch {}
+    };
+
     return (
         <div className="w-full flex flex-col gap-2 pt-1 pb-3 border-t-2 border-zinc-200">
             <div className="flex flex-row gap-2 items-center justify-center">
@@ -42,7 +52,8 @@ function RingSoundSettings() {
                 <Hint>
                     <p>
                         Pick a custom chime (WAV, up to 30s). Clear the selection to reset to the
-                        built-in chime.
+                        built-in chime. The loop button repeats a custom chime until the call is
+                        answered or ends.
                     </p>
                 </Hint>
             </div>
@@ -53,6 +64,7 @@ function RingSoundSettings() {
                         ringType="ring"
                         sound={ringSounds.ring}
                         applyRingSound={applyRingSound}
+                        applyRingSoundLoop={applyRingSoundLoop}
                     />
                 ) : (
                     <p>Loading...</p>
@@ -65,6 +77,7 @@ function RingSoundSettings() {
                         disabled={!priorityCallsEnabled}
                         disabledReason="Enable priority calls to use a priority ring"
                         applyRingSound={applyRingSound}
+                        applyRingSoundLoop={applyRingSoundLoop}
                     />
                 ) : (
                     <p>Loading...</p>
@@ -80,6 +93,7 @@ type RingSoundFieldProps = {
     disabled?: boolean;
     disabledReason?: string;
     applyRingSound: (ringType: RingSoundType, path: string | null) => Promise<void>;
+    applyRingSoundLoop: (ringType: RingSoundType, enabled: boolean) => Promise<void>;
 };
 
 function RingSoundField(props: RingSoundFieldProps) {
@@ -96,6 +110,11 @@ function RingSoundField(props: RingSoundFieldProps) {
 
     const handleOnRemove = useAsyncDebounce(async () => {
         await props.applyRingSound(props.ringType, null);
+    });
+
+    const handleOnLoopToggle = useAsyncDebounce(async () => {
+        if (props.sound === undefined) return;
+        await props.applyRingSoundLoop(props.ringType, !props.sound.loop);
     });
 
     const title = [
@@ -120,7 +139,66 @@ function RingSoundField(props: RingSoundFieldProps) {
             )}
             onClick={handleOnClick}
             onRemove={handleOnRemove}
+            actions={
+                <LoopToggle
+                    enabled={props.sound?.loop === true}
+                    disabled={props.disabled === true || props.sound?.available !== true}
+                    disabledReason={
+                        props.disabled ? props.disabledReason : "Only a custom chime can repeat"
+                    }
+                    onToggle={handleOnLoopToggle}
+                />
+            }
         />
+    );
+}
+
+type LoopToggleProps = {
+    enabled: boolean;
+    disabled: boolean;
+    disabledReason?: string;
+    onToggle: () => void;
+};
+
+function LoopToggle(props: LoopToggleProps) {
+    const handleOnClick = () => {
+        if (props.disabled) return;
+        void invokeSafe("audio_play_ui_click");
+        props.onToggle();
+    };
+
+    const title = props.disabled
+        ? props.disabledReason
+        : props.enabled
+          ? "Repeats until the call is answered. Click to play once."
+          : "Plays once. Click to repeat until the call is answered.";
+
+    return (
+        <svg
+            onClick={handleOnClick}
+            xmlns="http://www.w3.org/2000/svg"
+            width="27"
+            height="27"
+            viewBox="0 0 24 24"
+            fill="none"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={clsx(
+                "shrink-0 p-1 pr-0!",
+                props.disabled
+                    ? "stroke-gray-500 cursor-not-allowed"
+                    : props.enabled
+                      ? "stroke-blue-700 cursor-pointer"
+                      : "stroke-gray-700 hover:stroke-blue-700 transition-colors cursor-pointer",
+            )}
+        >
+            <title>{title}</title>
+            <path d="m17 2 4 4-4 4" />
+            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+            <path d="m7 22-4-4 4-4" />
+            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+        </svg>
     );
 }
 
