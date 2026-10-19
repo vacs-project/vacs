@@ -448,7 +448,7 @@ impl AppStateSignalingExt for AppStateInner {
 
         if let Some(current_call) = self.current_call.as_ref() {
             let current_call_id = current_call.call_id();
-            if !end_active_call || !current_call.is_replaceable(&own_client_id) {
+            if !end_active_call || !current_call.is_active(&own_client_id) {
                 log::debug!("Tried to accept call {call_id}, but another call is already active");
                 return Err(WebrtcError::CallActive.into());
             }
