@@ -45,7 +45,9 @@ const pickCalls = () => calledCommands().filter(cmd => cmd === "audio_pick_ring_
 const grid = () => screen.getByText("Ring").parentElement!;
 const field = (index: 0 | 1) =>
     within(grid()).getAllByText(/Built-in chime|\.wav$/)[index].parentElement!;
-const remove = (index: 0 | 1) => field(index).nextElementSibling!;
+const loop = (index: 0 | 1) => field(index).nextElementSibling!;
+const remove = (index: 0 | 1) => loop(index).nextElementSibling!;
+const loopCalls = () => calledCommands().filter(cmd => cmd === "audio_set_ring_sound_loop");
 
 describe("RingSoundSettings", () => {
     it("shows a loading state until the backend answers", () => {
@@ -207,16 +209,75 @@ describe("RingSoundSettings", () => {
         expect(field(1).className).toContain("cursor-not-allowed");
         expect(field(1).getAttribute("title")).toContain("Enable priority calls");
         expect(remove(1).getAttribute("class")).toContain("cursor-not-allowed");
+        expect(loop(1).getAttribute("class")).toContain("cursor-not-allowed");
+        expect(loop(1).querySelector("title")?.textContent).toContain("Enable priority calls");
         fireEvent.click(field(1));
         fireEvent.click(remove(1));
+        fireEvent.click(loop(1));
         expect(pickCalls()).toHaveLength(0);
         expect(calledCommands()).not.toContain("audio_set_ring_sound");
+        expect(loopCalls()).toHaveLength(0);
     });
 
-    it("disables choosing a file in a remote session but still allows the reset", async () => {
+    it("toggles looping of a custom chime", async () => {
+        mockInvoke({
+            audio_get_ring_sounds: () => ({
+                ring: {path: "/home/me/ring.wav", available: true, loop: false},
+            }),
+            audio_set_ring_sound_loop: args => ({
+                ring: {path: "/home/me/ring.wav", available: true, loop: args?.enabled},
+            }),
+        });
+        render(<RingSoundSettings />);
+        await waitFor(() => expect(screen.getByText("ring.wav")).toBeTruthy());
+        expect(loop(0).classList.contains("stroke-blue-700")).toBe(false);
+        expect(loop(0).querySelector("title")?.textContent).toContain("Plays once");
+
+        fireEvent.click(loop(0));
+
+        await waitFor(() =>
+            expect(invoke).toHaveBeenCalledWith("audio_set_ring_sound_loop", {
+                ringType: "ring",
+                enabled: true,
+            }),
+        );
+        await waitFor(() => expect(loop(0).classList.contains("stroke-blue-700")).toBe(true));
+        expect(loop(0).querySelector("title")?.textContent).toContain("Repeats");
+
+        fireEvent.click(loop(0));
+
+        await waitFor(() =>
+            expect(invoke).toHaveBeenCalledWith("audio_set_ring_sound_loop", {
+                ringType: "ring",
+                enabled: false,
+            }),
+        );
+    });
+
+    it("disables looping for the built-in chime and a file that could not be loaded", async () => {
+        mockInvoke({
+            audio_get_ring_sounds: () => ({
+                priorityRing: {path: "/gone/prio.wav", available: false, loop: true},
+            }),
+        });
+        render(<RingSoundSettings />);
+        await waitFor(() => expect(screen.getByText("prio.wav")).toBeTruthy());
+
+        for (const index of [0, 1] as const) {
+            expect(loop(index).getAttribute("class")).toContain("cursor-not-allowed");
+            expect(loop(index).querySelector("title")?.textContent).toContain("custom chime");
+            fireEvent.click(loop(index));
+        }
+        expect(loopCalls()).toHaveLength(0);
+    });
+
+    it("disables choosing a file in a remote session but still allows looping and the reset", async () => {
         state.isTauri = false;
         mockInvoke({
             audio_get_ring_sounds: () => ({ring: {path: "/home/me/ring.wav", available: true}}),
+            audio_set_ring_sound_loop: () => ({
+                ring: {path: "/home/me/ring.wav", available: true, loop: true},
+            }),
             audio_set_ring_sound: () => ({}),
         });
         render(<RingSoundSettings />);
@@ -227,6 +288,9 @@ describe("RingSoundSettings", () => {
         expect(field(0).getAttribute("title")).toContain("desktop client");
         fireEvent.click(field(0));
         expect(pickCalls()).toHaveLength(0);
+
+        fireEvent.click(loop(0));
+        await waitFor(() => expect(loopCalls()).toHaveLength(1));
 
         fireEvent.click(remove(0));
         await waitFor(() =>

@@ -6,8 +6,9 @@ use vacs_audio::sources::AudioSource;
 use vacs_audio::sources::wav::{WavClip, WavSource};
 use vacs_audio::sources::waveform::{Waveform, WaveformSegment, WaveformSource, WaveformTone};
 
-/// Longest custom ring sound accepted. The clip is held in memory fully decoded and plays once
-/// per incoming call, so anything longer than this is a mistake rather than a ringtone.
+/// Longest custom ring sound accepted. The clip is held in memory fully decoded and plays from
+/// the start for every incoming call, so anything longer than this is a mistake rather than a
+/// ringtone.
 pub const MAX_RING_SOUND_DURATION: Duration = Duration::from_secs(30);
 /// Shorter clips are almost certainly truncated files and would ring silently.
 pub const MIN_RING_SOUND_DURATION: Duration = Duration::from_millis(100);
@@ -60,6 +61,8 @@ pub(crate) fn load_ring_clip(path: &Path) -> Result<WavClip, RingSoundError> {
 pub enum SourceType {
     Ring,
     PriorityRing,
+    RingOneshot,
+    PriorityRingOneshot,
     Ringback,
     RingbackOneshot,
     Click,
@@ -70,22 +73,34 @@ pub enum SourceType {
 }
 
 impl SourceType {
-    /// Builds the ring source for an incoming call: the custom `clip` when one is configured,
-    /// otherwise the built-in chime.
+    /// Builds a ring source: the custom `clip` when one is configured, repeating after
+    /// `loop_pause` when that is set, otherwise the built-in chime, which always plays once.
     pub(crate) fn into_ring_source(
         self,
         clip: Option<&WavClip>,
+        loop_pause: Option<Duration>,
         sample_rate: u32,
         output_channels: usize,
         volume: f32,
     ) -> Result<Box<dyn AudioSource>, AudioError> {
-        debug_assert!(matches!(self, SourceType::Ring | SourceType::PriorityRing));
+        debug_assert!(matches!(
+            self,
+            SourceType::Ring
+                | SourceType::PriorityRing
+                | SourceType::RingOneshot
+                | SourceType::PriorityRingOneshot
+        ));
 
         match clip {
-            Some(clip) => Ok(Box::new(
-                WavSource::from_clip(clip, sample_rate, output_channels, volume, None, None)
-                    .map_err(AudioError::Other)?,
-            )),
+            Some(clip) => {
+                let source =
+                    WavSource::from_clip(clip, sample_rate, output_channels, volume, None, None)
+                        .map_err(AudioError::Other)?;
+                Ok(Box::new(match loop_pause {
+                    Some(pause) => source.looped(pause),
+                    None => source,
+                }))
+            }
             None => Ok(Box::new(self.into_waveform_source(
                 sample_rate as f32,
                 output_channels,
@@ -101,6 +116,12 @@ impl SourceType {
         volume: f32,
     ) -> WaveformSource {
         match self {
+            SourceType::RingOneshot => {
+                SourceType::Ring.into_waveform_source(sample_rate, output_channels, volume)
+            }
+            SourceType::PriorityRingOneshot => {
+                SourceType::PriorityRing.into_waveform_source(sample_rate, output_channels, volume)
+            }
             SourceType::Ring => WaveformSource::single(
                 WaveformTone::new(497.0, Waveform::Triangle, 0.2),
                 Duration::from_secs_f32(1.69),
@@ -278,7 +299,7 @@ mod tests {
         assert!((clip.peak() - 0.2).abs() < 1e-3);
         assert!((clip.duration().as_secs_f32() - 1.5).abs() < 0.01);
 
-        let source = SourceType::Ring.into_ring_source(Some(&clip), 48_000, 2, 0.5);
+        let source = SourceType::Ring.into_ring_source(Some(&clip), None, 48_000, 2, 0.5);
         assert!(source.is_ok());
     }
 
@@ -359,8 +380,48 @@ mod tests {
     fn missing_clip_falls_back_to_the_built_in_chime() {
         assert!(
             SourceType::PriorityRing
-                .into_ring_source(None, 48_000, 2, 0.5)
+                .into_ring_source(None, None, 48_000, 2, 0.5)
                 .is_ok()
         );
+    }
+
+    fn rms_per_second(source: &mut dyn AudioSource, seconds: usize) -> Vec<f32> {
+        source.start();
+        (0..seconds)
+            .map(|_| {
+                let mut out = vec![0.0f32; 48_000];
+                source.mix_into(&mut out);
+                (out.iter().map(|s| s * s).sum::<f32>() / out.len() as f32).sqrt()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn looped_custom_ring_repeats_after_the_pause() {
+        let clip = WavClip::from_samples(vec![0.2; 48_000], 48_000);
+        let mut source = SourceType::Ring
+            .into_ring_source(Some(&clip), Some(Duration::from_secs(1)), 48_000, 1, 1.0)
+            .unwrap();
+
+        let rms = rms_per_second(source.as_mut(), 5);
+        assert!(rms[0] > 0.1 && rms[2] > 0.1 && rms[4] > 0.1, "{rms:?}");
+        assert!(rms[1] == 0.0 && rms[3] == 0.0, "{rms:?}");
+    }
+
+    #[test]
+    fn oneshot_ring_and_built_in_chime_play_once_despite_a_loop_pause() {
+        let clip = WavClip::from_samples(vec![0.2; 48_000], 48_000);
+        let mut oneshot = SourceType::RingOneshot
+            .into_ring_source(Some(&clip), None, 48_000, 1, 1.0)
+            .unwrap();
+        let mut built_in = SourceType::Ring
+            .into_ring_source(None, Some(Duration::ZERO), 48_000, 1, 1.0)
+            .unwrap();
+
+        for source in [oneshot.as_mut(), built_in.as_mut()] {
+            let rms = rms_per_second(source, 4);
+            assert!(rms[0] > 0.0, "{rms:?}");
+            assert!(rms[2..].iter().all(|r| *r == 0.0), "{rms:?}");
+        }
     }
 }

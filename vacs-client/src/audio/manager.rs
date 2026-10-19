@@ -440,7 +440,7 @@ impl AudioManager {
                 SourceType::RingbackOneshot => {
                     self.output.restart_audio_source(*source_id);
                 }
-                SourceType::Ring | SourceType::Click if self.speaker.is_none() => {
+                SourceType::RingOneshot | SourceType::Click if self.speaker.is_none() => {
                     self.output.restart_audio_source(*source_id);
                 }
                 _ => {}
@@ -453,7 +453,7 @@ impl AudioManager {
             speaker.set_volume(*source_id, volume);
 
             match source_type {
-                SourceType::Ring | SourceType::Click => {
+                SourceType::RingOneshot | SourceType::Click => {
                     speaker.restart_audio_source(*source_id);
                 }
                 _ => {}
@@ -503,53 +503,98 @@ impl AudioManager {
         Ok(source_id)
     }
 
-    /// Replaces the ring source on every playback stream with `clip`, or with the built-in chime
-    /// when `clip` is `None`. Fails without touching the streams if the clip cannot be prepared.
+    /// Replaces the ring sources on every playback stream with `clip`, or with the built-in chime
+    /// when `clip` is `None`, the ring itself repeating after `loop_pause` when that is set. Fails
+    /// without touching the streams if the clip cannot be prepared.
     pub fn set_ring_sound(
         &mut self,
         ring_type: RingSoundType,
         clip: Option<WavClip>,
+        loop_pause: Option<Duration>,
         volume: f32,
     ) -> Result<(), Error> {
-        let source_type = SourceType::from(ring_type);
-        let output_source = source_type.into_ring_source(
+        self.replace_ring_sources(
             clip.as_ref(),
-            self.output.sample_rate(),
-            self.output.channels() as usize,
+            &[
+                (SourceType::from(ring_type), loop_pause),
+                (ring_type.oneshot_source_type(), None),
+            ],
             volume,
         )?;
-        let speaker_source = self
-            .speaker
-            .as_ref()
-            .map(|speaker| {
-                source_type.into_ring_source(
-                    clip.as_ref(),
-                    speaker.sample_rate(),
-                    speaker.channels() as usize,
-                    volume,
-                )
-            })
-            .transpose()?;
-
-        // Remove before add, so the mixer map never grows inside the data callback.
-        if let Some(previous) = self.output_source_ids.remove(&source_type) {
-            self.output.remove_audio_source(previous);
-        }
-        self.output_source_ids
-            .insert(source_type, self.output.add_audio_source(output_source));
-
-        if let (Some(speaker), Some(source)) = (&self.speaker, speaker_source) {
-            if let Some(previous) = self.speaker_source_ids.remove(&source_type) {
-                speaker.remove_audio_source(previous);
-            }
-            self.speaker_source_ids
-                .insert(source_type, speaker.add_audio_source(source));
-        }
 
         match clip {
             Some(clip) => self.ring_clips.insert(ring_type, clip),
             None => self.ring_clips.remove(&ring_type),
         };
+
+        Ok(())
+    }
+
+    /// Rebuilds the ring source with the current custom clip, so a changed loop setting takes
+    /// effect. The built-in chime never loops, so there is nothing to rebuild without a clip.
+    pub fn set_ring_sound_loop(
+        &mut self,
+        ring_type: RingSoundType,
+        loop_pause: Option<Duration>,
+        volume: f32,
+    ) -> Result<(), Error> {
+        let Some(clip) = self.ring_clips.get(&ring_type).cloned() else {
+            return Ok(());
+        };
+        self.replace_ring_sources(
+            Some(&clip),
+            &[(SourceType::from(ring_type), loop_pause)],
+            volume,
+        )
+    }
+
+    fn replace_ring_sources(
+        &mut self,
+        clip: Option<&WavClip>,
+        sources: &[(SourceType, Option<Duration>)],
+        volume: f32,
+    ) -> Result<(), Error> {
+        let mut replacements = Vec::with_capacity(sources.len());
+        for &(source_type, loop_pause) in sources {
+            let output_source = source_type.into_ring_source(
+                clip,
+                loop_pause,
+                self.output.sample_rate(),
+                self.output.channels() as usize,
+                volume,
+            )?;
+            let speaker_source = self
+                .speaker
+                .as_ref()
+                .map(|speaker| {
+                    source_type.into_ring_source(
+                        clip,
+                        loop_pause,
+                        speaker.sample_rate(),
+                        speaker.channels() as usize,
+                        volume,
+                    )
+                })
+                .transpose()?;
+            replacements.push((source_type, output_source, speaker_source));
+        }
+
+        for (source_type, output_source, speaker_source) in replacements {
+            // Remove before add, so the mixer map never grows inside the data callback.
+            if let Some(previous) = self.output_source_ids.remove(&source_type) {
+                self.output.remove_audio_source(previous);
+            }
+            self.output_source_ids
+                .insert(source_type, self.output.add_audio_source(output_source));
+
+            if let (Some(speaker), Some(source)) = (&self.speaker, speaker_source) {
+                if let Some(previous) = self.speaker_source_ids.remove(&source_type) {
+                    speaker.remove_audio_source(previous);
+                }
+                self.speaker_source_ids
+                    .insert(source_type, speaker.add_audio_source(source));
+            }
+        }
 
         Ok(())
     }
@@ -595,21 +640,13 @@ impl AudioManager {
         let (error_tx, mut error_rx) = mpsc::channel(AUDIO_STREAM_ERROR_CHANNEL_SIZE);
         let output = PlaybackStream::start(device, error_tx)?;
 
-        let audio_config_clone = audio_config.clone();
         tauri::async_runtime::spawn(async move {
             // Handle only the first error event: every recovery path either
             // replaces this stream (making any further events from it stale,
             // e.g. queued duplicates from Windows default-role changes) or
             // gives up for good.
             if let Some(err) = error_rx.recv().await {
-                handle_playback_stream_error(
-                    err,
-                    restarted_at,
-                    &audio_config_clone,
-                    device_type,
-                    app.clone(),
-                )
-                .await;
+                handle_playback_stream_error(err, restarted_at, device_type, app.clone()).await;
             }
             log::debug!("Playback stream error receiver closed");
         });
@@ -630,24 +667,34 @@ impl AudioManager {
             };
 
         for ring_type in [RingSoundType::Ring, RingSoundType::PriorityRing] {
-            let source_type = SourceType::from(ring_type);
-            let source = match source_type.into_ring_source(
-                ring_clips.get(&ring_type),
-                sample_rate as u32,
-                channels,
-                audio_config.chime_volume,
-            ) {
-                Ok(source) => source,
-                Err(err) => {
-                    log::warn!("Falling back to the built-in chime for {ring_type:?}: {err:?}");
-                    Box::new(source_type.into_waveform_source(
-                        sample_rate,
-                        channels,
-                        audio_config.chime_volume,
-                    ))
-                }
-            };
-            source_ids.insert(source_type, output.add_audio_source(source));
+            for (source_type, loop_pause) in [
+                (
+                    SourceType::from(ring_type),
+                    audio_config.ring_sound_loop_pause(ring_type),
+                ),
+                (ring_type.oneshot_source_type(), None),
+            ] {
+                let source = match source_type.into_ring_source(
+                    ring_clips.get(&ring_type),
+                    loop_pause,
+                    sample_rate as u32,
+                    channels,
+                    audio_config.chime_volume,
+                ) {
+                    Ok(source) => source,
+                    Err(err) => {
+                        log::warn!(
+                            "Falling back to the built-in chime for {source_type:?}: {err:?}"
+                        );
+                        Box::new(source_type.into_waveform_source(
+                            sample_rate,
+                            channels,
+                            audio_config.chime_volume,
+                        ))
+                    }
+                };
+                source_ids.insert(source_type, output.add_audio_source(source));
+            }
         }
         insert_waveform_source(
             &mut source_ids,
@@ -768,7 +815,6 @@ async fn end_call_on_stream_failure(app: &AppHandle, state: &mut AppStateInner, 
 async fn handle_playback_stream_error(
     err: AudioError,
     restarted_at: Option<Instant>,
-    audio_config: &AudioConfig,
     device_type: PlaybackDeviceType,
     app: AppHandle,
 ) {
@@ -825,7 +871,7 @@ async fn handle_playback_stream_error(
 
         audio_manager.switch_playback_device(
             app.clone(),
-            audio_config,
+            &state.config.audio,
             device_type,
             Some(Instant::now()),
         )

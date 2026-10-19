@@ -7,9 +7,11 @@ import {
     getClient,
     mockCommandOn,
     ringSoundField,
+    ringSoundLoop,
     ringSoundReset,
     waitForCallColor,
     waitForRingSound,
+    waitForRingSoundLoop,
 } from "../helpers/browser.ts";
 import {REMOTE_ADDR, setRemoteEnabled} from "../helpers/remote.ts";
 import {RING_SOUND_NAME, writeRingSound} from "../helpers/ring-sound.ts";
@@ -122,7 +124,7 @@ describe("Remote Control", () => {
         await endButton.waitForDisplayed();
     });
 
-    it("shows the app's custom ring sound in the remote browser and resets it from there", async () => {
+    it("shows the app's custom ring sound in the remote browser, loops and resets it from there", async () => {
         const clientA = getClient("clientA");
         const remoteBrowser = getClient("remoteBrowser");
 
@@ -148,6 +150,15 @@ describe("Remote Control", () => {
             throw new Error("The ring sound field is not inert in the remote browser");
         }
 
+        await clickSvg(remoteBrowser, ringSoundLoop(remoteBrowser, "Ring"));
+        await waitForRingSoundLoop(remoteBrowser, "Ring", true);
+
+        await openCallSettings(clientA);
+        await waitForRingSoundLoop(clientA, "Ring", true);
+        await toggleSettings(clientA);
+
+        await clickSvg(remoteBrowser, ringSoundLoop(remoteBrowser, "Ring"));
+        await waitForRingSoundLoop(remoteBrowser, "Ring", false);
         await clickSvg(remoteBrowser, ringSoundReset(remoteBrowser, "Ring"));
         await waitForRingSound(remoteBrowser, "Ring", BUILT_IN_CHIME);
 

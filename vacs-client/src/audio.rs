@@ -1,11 +1,14 @@
 use crate::audio::source_type::SourceType;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use vacs_audio::device::DeviceType;
 
 pub(crate) mod commands;
 pub(crate) mod manager;
 pub(crate) mod source_type;
+
+pub const DEFAULT_RING_SOUND_LOOP_PAUSE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioConfig {
@@ -30,6 +33,12 @@ pub struct AudioConfig {
     pub ring_sound: Option<PathBuf>, // Custom WAV file, None means the built-in chime
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority_ring_sound: Option<PathBuf>, // Custom WAV file, None means the built-in chime
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ring_sound_loop: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub priority_ring_sound_loop: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_sound_loop_pause_seconds: Option<f32>,
 }
 
 impl Default for AudioConfig {
@@ -51,6 +60,9 @@ impl Default for AudioConfig {
             chime_volume: 0.5,
             ring_sound: None,
             priority_ring_sound: None,
+            ring_sound_loop: false,
+            priority_ring_sound_loop: false,
+            ring_sound_loop_pause_seconds: None,
         }
     }
 }
@@ -68,6 +80,30 @@ impl AudioConfig {
             RingSoundType::Ring => self.ring_sound = path,
             RingSoundType::PriorityRing => self.priority_ring_sound = path,
         }
+    }
+
+    pub fn ring_sound_loop(&self, ring_type: RingSoundType) -> bool {
+        match ring_type {
+            RingSoundType::Ring => self.ring_sound_loop,
+            RingSoundType::PriorityRing => self.priority_ring_sound_loop,
+        }
+    }
+
+    pub fn set_ring_sound_loop(&mut self, ring_type: RingSoundType, looped: bool) {
+        match ring_type {
+            RingSoundType::Ring => self.ring_sound_loop = looped,
+            RingSoundType::PriorityRing => self.priority_ring_sound_loop = looped,
+        }
+    }
+
+    /// The pause between repetitions of that ring's custom sound, or `None` when it plays once.
+    pub fn ring_sound_loop_pause(&self, ring_type: RingSoundType) -> Option<Duration> {
+        self.ring_sound_loop(ring_type).then(|| {
+            self.ring_sound_loop_pause_seconds
+                .filter(|seconds| seconds.is_finite())
+                .and_then(|seconds| Duration::try_from_secs_f32(seconds.max(0.0)).ok())
+                .unwrap_or(DEFAULT_RING_SOUND_LOOP_PAUSE)
+        })
     }
 }
 
@@ -131,6 +167,16 @@ pub enum RingSoundType {
     PriorityRing,
 }
 
+impl RingSoundType {
+    /// The source that plays the ring once, for previews, even while the ring itself loops.
+    pub fn oneshot_source_type(self) -> SourceType {
+        match self {
+            RingSoundType::Ring => SourceType::RingOneshot,
+            RingSoundType::PriorityRing => SourceType::PriorityRingOneshot,
+        }
+    }
+}
+
 impl From<RingSoundType> for SourceType {
     fn from(value: RingSoundType) -> Self {
         match value {
@@ -146,6 +192,9 @@ pub struct RingSound {
     path: String,
     /// False when the configured file could not be loaded, so the built-in chime plays instead.
     available: bool,
+    /// Whether the sound repeats until every incoming call has been answered or has ended.
+    #[serde(rename = "loop")]
+    looped: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,6 +212,7 @@ impl RingSounds {
             config.ring_sound(ring_type).map(|path| RingSound {
                 path: path.to_string_lossy().into_owned(),
                 available: is_loaded(ring_type),
+                looped: config.ring_sound_loop(ring_type),
             })
         };
         Self {
@@ -300,7 +350,66 @@ mod tests {
         let json = serde_json::to_value(RingSounds::new(&config, |_| false)).unwrap();
         assert_eq!(
             json,
-            serde_json::json!({"ring": {"path": "/tmp/ring.wav", "available": false}})
+            serde_json::json!({"ring": {"path": "/tmp/ring.wav", "available": false, "loop": false}})
         );
+    }
+
+    #[test]
+    fn ring_sounds_payload_reports_the_loop_flag_per_ring() {
+        let mut config = AudioConfig::default();
+        config.set_ring_sound(RingSoundType::Ring, Some(PathBuf::from("/tmp/ring.wav")));
+        config.set_ring_sound(
+            RingSoundType::PriorityRing,
+            Some(PathBuf::from("/tmp/prio.wav")),
+        );
+        config.set_ring_sound_loop(RingSoundType::PriorityRing, true);
+
+        let json = serde_json::to_value(RingSounds::new(&config, |_| true)).unwrap();
+        assert_eq!(json["ring"]["loop"], false);
+        assert_eq!(json["priorityRing"]["loop"], true);
+    }
+
+    #[test]
+    fn ring_sound_loop_round_trips_through_toml_and_is_omitted_when_off() {
+        let serialized = toml::to_string(&AudioConfig::default()).unwrap();
+        assert!(!serialized.contains("loop"));
+
+        let mut config = AudioConfig::default();
+        config.set_ring_sound_loop(RingSoundType::Ring, true);
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("ring_sound_loop = true"));
+
+        let parsed: AudioConfig = toml::from_str(&serialized).unwrap();
+        assert!(parsed.ring_sound_loop(RingSoundType::Ring));
+        assert!(!parsed.ring_sound_loop(RingSoundType::PriorityRing));
+    }
+
+    #[test]
+    fn ring_sound_loop_pause_defaults_and_rejects_invalid_values() {
+        let mut config = AudioConfig::default();
+        assert_eq!(config.ring_sound_loop_pause(RingSoundType::Ring), None);
+
+        config.set_ring_sound_loop(RingSoundType::Ring, true);
+        let pause = |config: &AudioConfig| config.ring_sound_loop_pause(RingSoundType::Ring);
+        assert_eq!(pause(&config), Some(DEFAULT_RING_SOUND_LOOP_PAUSE));
+        assert_eq!(
+            config.ring_sound_loop_pause(RingSoundType::PriorityRing),
+            None
+        );
+
+        config.ring_sound_loop_pause_seconds = Some(1.5);
+        assert_eq!(pause(&config), Some(Duration::from_millis(1500)));
+
+        config.ring_sound_loop_pause_seconds = Some(-2.0);
+        assert_eq!(pause(&config), Some(Duration::ZERO));
+
+        for invalid in [f32::NAN, f32::INFINITY, 1e30] {
+            config.ring_sound_loop_pause_seconds = Some(invalid);
+            assert_eq!(
+                pause(&config),
+                Some(DEFAULT_RING_SOUND_LOOP_PAUSE),
+                "{invalid}"
+            );
+        }
     }
 }

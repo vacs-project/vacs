@@ -638,15 +638,38 @@ export function ringSoundField(
 }
 
 /**
- * Returns the X that resets a ring sound to the built-in chime: an <svg>
- * sibling of the field, so it needs local-name() to match and clickSvg() to be
- * clicked.
+ * Returns the X that resets a ring sound to the built-in chime: the last <svg>
+ * sibling of the field, after the loop toggle, so it needs local-name() to
+ * match and clickSvg() to be clicked.
  */
 export function ringSoundReset(
     browser: WebdriverIO.Browser,
     label: RingSoundLabel,
 ): ChainablePromiseElement {
-    return browser.$(`${ringSoundRow(label)}/*[local-name()="svg"]`);
+    return browser.$(`${ringSoundRow(label)}/*[local-name()="svg"][last()]`);
+}
+
+/** Returns the loop toggle of a ring sound: the first <svg> sibling of the field, clicked with clickSvg(). */
+export function ringSoundLoop(
+    browser: WebdriverIO.Browser,
+    label: RingSoundLabel,
+): ChainablePromiseElement {
+    return browser.$(`${ringSoundRow(label)}/*[local-name()="svg"][1]`);
+}
+
+/** Waits until the loop toggle of a ring sound shows the given state. */
+export async function waitForRingSoundLoop(
+    browser: WebdriverIO.Browser,
+    label: RingSoundLabel,
+    enabled: boolean,
+): Promise<void> {
+    await browser.waitUntil(
+        async () =>
+            ((await ringSoundLoop(browser, label).getAttribute("class")) ?? "")
+                .split(/\s+/)
+                .includes("stroke-blue-700") === enabled,
+        {timeoutMsg: `The ${label} loop toggle did not turn ${enabled ? "on" : "off"}`},
+    );
 }
 
 /** Waits until a ring sound field shows the given file name or "Built-in chime". */

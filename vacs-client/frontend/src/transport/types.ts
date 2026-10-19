@@ -36,6 +36,7 @@ export type RemoteCommand =
     | "audio_set_host"
     | "audio_set_radio_prio"
     | "audio_set_ring_sound"
+    | "audio_set_ring_sound_loop"
     | "audio_set_volume"
     | "audio_start_input_level_meter"
     | "audio_stop_input_level_meter"

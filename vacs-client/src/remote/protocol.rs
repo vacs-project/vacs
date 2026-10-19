@@ -197,6 +197,7 @@ pub enum RemoteCommand {
     AudioGetRingSounds,
     AudioPickRingSound,
     AudioSetRingSound,
+    AudioSetRingSoundLoop,
     AudioPlayUiClick,
     AudioStartInputLevelMeter,
     AudioStopInputLevelMeter,
