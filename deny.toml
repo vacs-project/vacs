@@ -13,6 +13,12 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "tower-sessions-redis-store dependency" },
     { id = "RUSTSEC-2026-0194", reason = "tauri/ashpd/rfd dependency" },
     { id = "RUSTSEC-2026-0195", reason = "tauri/ashpd/rfd dependency" },
+    { id = "RUSTSEC-2026-0367", reason = "tauri-plugin-updater zip, only extracts minisign-verified archives" },
+    { id = "RUSTSEC-2026-0368", reason = "tauri-plugin-updater zip, only extracts minisign-verified archives" },
+    { id = "RUSTSEC-2026-0369", reason = "tauri-plugin-updater zip, only extracts minisign-verified archives" },
+    { id = "RUSTSEC-2026-0370", reason = "zbus 6 merge, waiting on ashpd and tauri-plugin-single-instance" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus 6 merge, waiting on ashpd and tauri-plugin-single-instance" },
+    { id = "RUSTSEC-2026-0372", reason = "zbus 6 merge, waiting on ashpd and tauri-plugin-single-instance" },
 ]
 
 [licenses]
