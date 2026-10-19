@@ -103,6 +103,44 @@ export async function click(
 }
 
 /**
+ * Clicks an element twice within one script, so both clicks run the handler
+ * of the same render: what a fast double click does to a handler that is not
+ * debounced, without depending on how quickly the page re-renders.
+ */
+export async function clickTwice(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    const el = await element;
+    await browser.execute((e: HTMLElement) => {
+        e.click();
+        e.click();
+    }, el);
+}
+
+/**
+ * Asserts that no full-window dialog shows up during the window. Matches the
+ * error overlay along with the other dialogs sharing its dimmed backdrop
+ * (connection terminated, position select), since none of them belongs in a
+ * flow that went right. Sampled throughout, because an overlay with a timeout
+ * can close again before the window ends.
+ */
+export async function expectNoModalOverlay(
+    browser: WebdriverIO.Browser,
+    windowMs: number,
+): Promise<void> {
+    const overlay = '//div[contains(@class, "z-50")][contains(@class, "bg-[rgba(0,0,0,0.5)]")]';
+    const start = Date.now();
+    while (Date.now() - start < windowMs) {
+        if (await browser.$(overlay).isExisting()) {
+            const text = await browser.$(overlay).getText();
+            throw new Error(`A modal overlay appeared: ${text}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+}
+
+/**
  * Returns the client key button for the given display name (CID for clients
  * without a resolved position) on the client page. Client keys are the only
  * buttons whose name line is a `w-full truncate` paragraph carrying the full
@@ -138,6 +176,21 @@ export function callDisplaySlot(browser: WebdriverIO.Browser): ChainablePromiseE
     return browser.$(
         '//div[contains(@class, "scrollbar-none")]' +
             '/div[contains(@class, "relative")]/button[contains(@class, "h-16")]',
+    );
+}
+
+/**
+ * Waits until the call display is labeled with the given display name. Needed
+ * where callQueueSlot is ambiguous: the same label sits on an answer key
+ * while that client is still ringing in.
+ */
+export async function waitForCallDisplayOf(
+    browser: WebdriverIO.Browser,
+    displayName: string,
+): Promise<void> {
+    await browser.waitUntil(
+        async () => callDisplaySlot(browser).$(`.//p[@title="${displayName}"]`).isExisting(),
+        {timeoutMsg: `Call display did not show ${displayName}`},
     );
 }
 

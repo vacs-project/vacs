@@ -41,23 +41,45 @@ runs:
           valkey/valkey:9-alpine
         until [ "$(docker inspect --format='{{.State.Health.Status}}' valkey)" = "healthy" ]; do sleep 1; done
 
-    - name: Install Memurai (Windows)
+    - name: Start Redis (Windows)
       if: runner.os == 'Windows'
+      # Valkey has no Windows build and Windows runners cannot run Linux containers,
+      # so use a prebuilt community Redis, pinned by version and sha256.
       shell: pwsh
+      env:
+        REDIS_VERSION: "8.10.2"
+        REDIS_SHA256: "6de5cc7f5adbf97b5928b13766383d4ad424626ef3d8b313ffff12d820ec6fc1"
       run: |
-        choco install memurai-developer -y --no-progress
+        $name = "Redis-$env:REDIS_VERSION-Windows-x64-cygwin"
+        $url = "https://github.com/redis-windows/redis-windows/releases/download/$env:REDIS_VERSION/$name.zip"
+        $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 60
+            $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLowerInvariant()
+            if ($hash -eq $env:REDIS_SHA256) { break }
+            Write-Host "Attempt ${attempt}: sha256 mismatch ($hash)"
+          } catch {
+            Write-Host "Attempt ${attempt}: $_"
+          }
+          if ($attempt -eq 5) { throw "Could not download a verified $name.zip" }
+          Start-Sleep -Seconds (5 * $attempt)
+        }
+        Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
+        $dir = Join-Path $env:RUNNER_TEMP $name
+        Start-Process -FilePath (Join-Path $dir "redis-server.exe") -ArgumentList "--port", "6379" -WorkingDirectory $dir -WindowStyle Hidden
         $deadline = (Get-Date).AddSeconds(30)
         while ((Get-Date) -lt $deadline) {
           try {
             $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 6379)
             $tcp.Close()
-            Write-Host "Memurai is ready on port 6379"
+            Write-Host "Redis is ready on port 6379"
             exit 0
           } catch {
             Start-Sleep -Milliseconds 500
           }
         }
-        throw "Memurai did not become available within 30s"
+        throw "Redis did not become available within 30s"
 
     - name: Start Valkey (macOS)
       if: runner.os == 'macOS'

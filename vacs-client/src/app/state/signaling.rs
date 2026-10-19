@@ -104,6 +104,7 @@ pub trait AppStateSignalingExt: sealed::Sealed {
         &mut self,
         app: &AppHandle,
         call_id: Option<CallId>,
+        end_active_call: bool,
     ) -> Result<bool, Error>;
     async fn invite_to_call(
         &mut self,
@@ -431,6 +432,7 @@ impl AppStateSignalingExt for AppStateInner {
         &mut self,
         app: &AppHandle,
         call_id: Option<CallId>,
+        end_active_call: bool,
     ) -> Result<bool, Error> {
         let own_client_id = self.require_client_id()?;
 
@@ -439,13 +441,23 @@ impl AppStateSignalingExt for AppStateInner {
             None => return Ok(false),
         };
 
-        if self.current_call.is_some() {
-            log::debug!("Tried to accept call {call_id}, but another call is already active");
-            return Err(WebrtcError::CallActive.into());
+        if !self.incoming_calls.contains_key(&call_id) {
+            log::warn!("Tried to accept call {call_id} that is not incoming");
+            return Ok(false);
+        }
+
+        if let Some(current_call) = self.current_call.as_ref() {
+            let current_call_id = current_call.call_id();
+            if !end_active_call || !current_call.is_active(&own_client_id) {
+                log::debug!("Tried to accept call {call_id}, but another call is already active");
+                return Err(WebrtcError::CallActive.into());
+            }
+
+            log::debug!("Ending call {current_call_id} to accept call {call_id}");
+            self.end_call(app, current_call_id).await?;
         }
 
         let Some(call) = self.incoming_calls.remove(&call_id) else {
-            log::warn!("Tried to accept call {call_id} that is not incoming");
             return Ok(false);
         };
 

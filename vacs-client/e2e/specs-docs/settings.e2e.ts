@@ -143,12 +143,12 @@ describe("Documentation screenshots: settings", function () {
         // The two conference sounds, in the order the page lists them.
         await annotate(clientA, [
             {
-                target: callConfigRowSelector("Play participant joined sound"),
+                target: callConfigRowSelector("Participant joined"),
                 badge: 1,
                 place: "left",
             },
             {
-                target: callConfigRowSelector("Play participant left sound"),
+                target: callConfigRowSelector("Participant left"),
                 badge: 2,
                 place: "left",
             },

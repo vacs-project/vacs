@@ -106,6 +106,7 @@ afterEach(() => {
             enableParticipantJoinedSound: true,
             enableParticipantLeftSound: true,
             forceRelay: false,
+            endActiveCallOnAccept: false,
             useDefaultCallSources: true,
         },
     });
@@ -712,6 +713,67 @@ describe("useStationKeyInteraction", () => {
             expect(invoke).toHaveBeenCalledWith("signaling_end_call", {callId: "call0"});
             expect(useCallStore.getState().callDisplay).toBeUndefined();
         });
+    });
+
+    describe("clicking a station that calls during another call", () => {
+        function ringDuringCall(type: CallDisplayType, endActiveCallOnAccept: boolean) {
+            setStations([
+                {id: OWN_STATION, own: true},
+                {id: FOREIGN_STATION, own: false},
+                {id: SECOND_FOREIGN_STATION, own: false},
+            ]);
+            useSettingsStore.setState(state => ({
+                callConfig: {...state.callConfig, endActiveCallOnAccept},
+            }));
+            useCallStore.setState({
+                callDisplay: makeCallDisplay({
+                    type,
+                    invitedTargets: type === "outgoing" ? [SECOND_FOREIGN_STATION] : [],
+                    ownInvitedTargets: type === "outgoing" ? [SECOND_FOREIGN_STATION] : [],
+                    joinedStations:
+                        type === "accepted" ? [OWN_STATION, SECOND_FOREIGN_STATION] : [],
+                }),
+                incomingCalls: [
+                    makeTestCall("incoming", {
+                        callId: "call1" as CallId,
+                        source: {
+                            clientId: "client9" as ClientId,
+                            positionId: "position9" as PositionId,
+                            stationId: FOREIGN_STATION,
+                        },
+                    }),
+                ],
+            });
+            return renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+        }
+
+        it("ignores the click while the setting is off", async () => {
+            const {result} = ringDuringCall("accepted", false);
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).not.toHaveBeenCalled();
+        });
+
+        it("accepts the call while the setting is on", async () => {
+            const {result} = ringDuringCall("accepted", true);
+
+            await act(() => result.current.handleClick());
+
+            expect(invoke).toHaveBeenCalledTimes(1);
+            expect(invoke).toHaveBeenCalledWith("signaling_accept_call", {callId: "call1"});
+        });
+
+        it.each<CallDisplayType>(["outgoing", "rejected", "error"])(
+            "ignores the click during a %s call even with the setting on",
+            async type => {
+                const {result} = ringDuringCall(type, true);
+
+                await act(() => result.current.handleClick());
+
+                expect(invoke).not.toHaveBeenCalled();
+            },
+        );
     });
 
     describe("prio", () => {

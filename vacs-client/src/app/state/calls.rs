@@ -222,6 +222,55 @@ mod tests {
         Call::from_invite(&invite, &CancellationToken::new())
     }
 
+    fn invitation(caller: &str, own: &str) -> Call {
+        let invitation = CallInvitation {
+            call_id: CallId::new(),
+            source: CallSource {
+                client_id: client(caller),
+                position_id: None,
+                station_id: None,
+            },
+            target: target(own),
+            invited_targets: HashSet::new(),
+            joined_participants: CallParticipants::new(),
+            conference_leader: None,
+            prio: false,
+        };
+        Call::from_invitation(&invitation, &CancellationToken::new())
+    }
+
+    #[test]
+    fn a_ringing_outgoing_call_is_not_active() {
+        let call = call("a", &["b"]);
+        assert!(!call.is_active(&client("a")));
+    }
+
+    #[test]
+    fn an_answered_outgoing_call_is_active() {
+        let mut call = call("a", &["b"]);
+        call.update(
+            &client("a"),
+            HashSet::new(),
+            participants(&["a", "b"]),
+            None,
+        );
+        assert!(call.is_active(&client("a")));
+    }
+
+    #[test]
+    fn an_accepted_incoming_call_is_active_only_once_joined() {
+        let mut call = invitation("b", "a");
+        assert!(!call.is_active(&client("a")));
+
+        call.update(
+            &client("a"),
+            HashSet::new(),
+            participants(&["a", "b"]),
+            None,
+        );
+        assert!(call.is_active(&client("a")));
+    }
+
     #[test]
     fn update_when_joining_reports_all_other_participants() {
         let mut call = call("a", &["b", "c"]);
