@@ -1,5 +1,20 @@
 # Changelog 
 
+## [3.0.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.4.0...vacs-server-v3.0.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* add ad-hoc conference calls with up to eight participants ([#1135](https://github.com/vacs-project/vacs/issues/1135))
+
+### Features
+
+* add ad-hoc conference calls with up to eight participants ([#1135](https://github.com/vacs-project/vacs/issues/1135)) ([d6c582c](https://github.com/vacs-project/vacs/commit/d6c582ccb34d36041a7584acd946e76b2e91382e))
+* **vacs-client:** end active call when accepting an incoming one ([#1301](https://github.com/vacs-project/vacs/issues/1301)) ([9a9e622](https://github.com/vacs-project/vacs/commit/9a9e622eab84b33429faf4df64ba508b4a225f1f))
+* **vacs-server:** add a healthcheck subcommand for the container image ([1b61a32](https://github.com/vacs-project/vacs/commit/1b61a32a43730138a00cfb400d30548063ab9536))
+* **vacs-server:** add release catalog reload endpoint ([1b61a32](https://github.com/vacs-project/vacs/commit/1b61a32a43730138a00cfb400d30548063ab9536))
+* **vacs-server:** log flat json events per the logging policy ([#1282](https://github.com/vacs-project/vacs/issues/1282)) ([7ea9780](https://github.com/vacs-project/vacs/commit/7ea97809eda1f9d487e85e84b43ce59dfe8ee80d))
+
 ## [2.4.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.3.5...vacs-server-v2.4.0) (2026-09-20)
 
 
