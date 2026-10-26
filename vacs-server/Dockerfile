@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry \
 # Directories the runtime stage cannot create itself: distroless has no shell.
 RUN mkdir -p /etc/vacs-server /var/lib/vacs-server/data/coverage
 
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2 AS runtime
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e AS runtime
 
 LABEL org.opencontainers.image.title="vacs-server" \
       org.opencontainers.image.description="VATSIM ATC Comm System - Signaling Server" \
