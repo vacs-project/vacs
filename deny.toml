@@ -19,6 +19,7 @@ ignore = [
     { id = "RUSTSEC-2026-0370", reason = "zbus 6 merge, waiting on ashpd and tauri-plugin-single-instance" },
     { id = "RUSTSEC-2026-0371", reason = "zbus 6 merge, waiting on ashpd and tauri-plugin-single-instance" },
     { id = "RUSTSEC-2026-0372", reason = "zbus 6 merge, waiting on ashpd and tauri-plugin-single-instance" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 via webrtc 0.17 dtls, fixed only by the webrtc 0.21 migration" },
 ]
 
 [licenses]
