@@ -79,7 +79,7 @@ function SplitPage() {
                 <RadioPage />
             </MainPageContainer>
             <div
-                className="absolute z-10 h-full w-[calc(0.625rem+3px)] cursor-ew-resize touch-none opacity-0 bg-gray-500 hover:opacity-30 transition-opacity"
+                className="absolute z-[5] h-full w-[calc(0.625rem+3px)] cursor-ew-resize touch-none opacity-0 bg-gray-500 hover:opacity-30 transition-opacity"
                 onPointerDown={handleOnPointerDown}
                 onPointerMove={handleOnPointerMove}
                 onPointerUp={handleOnDragEnd}
