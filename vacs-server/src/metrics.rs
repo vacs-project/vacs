@@ -20,9 +20,7 @@ use vacs_protocol::ws::shared::{CallErrorReason, CallSource, CallTarget};
 use vacs_vatsim::FacilityType;
 
 pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, PrometheusHandle) {
-    register_metrics();
-
-    PrometheusMetricLayerBuilder::new()
+    let pair = PrometheusMetricLayerBuilder::new()
         .with_ignore_patterns(&["/health", "/favicon.ico"])
         .with_endpoint_label_type(EndpointLabel::MatchedPathWithFallbackFn(|_| {
             "404".to_string()
@@ -75,7 +73,7 @@ pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, Prome
                 .unwrap()
                 .set_buckets_for_metric(
                     Matcher::Full("vacs_calls_invite_targets".to_string()),
-                    &[1.0, 2.0, 3.0, 4.0, 6.0, 8.0],
+                    &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
                 )
                 .unwrap()
                 .set_buckets_for_metric(
@@ -85,13 +83,18 @@ pub fn setup_prometheus_metric_layer() -> (PrometheusMetricLayer<'static>, Prome
                 .unwrap()
                 .set_buckets_for_metric(
                     Matcher::Full("vacs_calls_participants_max".to_string()),
-                    &[2.0, 3.0, 4.0, 5.0, 6.0, 8.0],
+                    &[2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
                 )
                 .unwrap()
                 .install_recorder()
                 .unwrap()
         })
-        .build_pair()
+        .build_pair();
+
+    // Must run after build_pair installs the global recorder, or it only reaches the no-op one.
+    register_metrics();
+
+    pair
 }
 
 pub fn register_metrics() {
@@ -266,6 +269,23 @@ impl CallMetrics {
             Unit::Count,
             "Participants evicted over confirmed dead links, labeled by scope (whole_call when the evictee led the conference)"
         );
+
+        // Rare counters start at zero so increase() and rate() count their first event.
+        counter!("vacs_calls_conferences_total").increment(0);
+        counter!("vacs_calls_link_reports_expired_total").increment(0);
+        for outcome in [
+            "recorded",
+            "refreshed",
+            "confirmed",
+            "self_report",
+            "unknown_call",
+            "non_participant",
+        ] {
+            counter!("vacs_calls_link_reports_total", "outcome" => outcome).increment(0);
+        }
+        for scope in ["whole_call", "participant"] {
+            counter!("vacs_calls_link_evictions_total", "scope" => scope).increment(0);
+        }
     }
 }
 
@@ -533,5 +553,25 @@ impl NetworkDatasetMetrics {
             Unit::Count,
             "Total number of profiles defined in the loaded network dataset"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_registers_descriptions_and_zeroed_counters() {
+        let (_layer, handle) = setup_prometheus_metric_layer();
+        let rendered = handle.render();
+
+        assert!(rendered.contains(
+            "# HELP vacs_calls_conferences_total Total number of calls that grew beyond two joined participants"
+        ));
+        assert!(rendered.contains("vacs_calls_conferences_total 0"));
+        assert!(rendered.contains("vacs_calls_link_reports_expired_total 0"));
+        assert!(rendered.contains(r#"vacs_calls_link_reports_total{outcome="confirmed"} 0"#));
+        assert!(rendered.contains(r#"vacs_calls_link_evictions_total{scope="whole_call"} 0"#));
+        assert!(rendered.contains(r#"vacs_calls_link_evictions_total{scope="participant"} 0"#));
     }
 }
