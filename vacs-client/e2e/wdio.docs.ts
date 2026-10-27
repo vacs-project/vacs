@@ -58,7 +58,7 @@ export const config: WebdriverIO.MultiremoteConfig = {
     // looked at rather than silently repeated.
     specFileRetries: 0,
 
-    onPrepare(...args) {
+    async onPrepare(...args) {
         // Three instances boot in parallel per test, which makes the shared
         // log directory's rotation race (see clearAppLogs) likely enough to
         // hit within a single run.
@@ -67,7 +67,7 @@ export const config: WebdriverIO.MultiremoteConfig = {
         // Build and cleanup, from the base config.
         const baseHooks = baseConfig.onPrepare;
         for (const hook of Array.isArray(baseHooks) ? baseHooks : baseHooks ? [baseHooks] : []) {
-            hook.apply(this, args);
+            await hook.apply(this, args);
         }
     },
 };
