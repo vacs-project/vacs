@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default,
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum FrequencyDisplayMode {
     /// Hide frequencies for all clients.
     HideAll,
@@ -16,6 +17,7 @@ pub enum FrequencyDisplayMode {
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default,
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ClientGroupMode {
     /// Don't group.
     None,
@@ -30,6 +32,7 @@ pub enum ClientGroupMode {
 
 /// Configuration for the Client page, displaying all currently connected clients.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema), schemars(default))]
 pub struct ClientPageConfig {
     /// Optional list of callsign patterns to include.
     ///

@@ -76,6 +76,7 @@ rfd = { version = "0.17.2", features = ["common-controls-v6"] }
 ringbuf = "0.5.0"
 rubato = "5.0.0"
 rustls = { version = "0.23.40", features = ["aws-lc-rs"] }
+schemars = "1.0.4"
 sdl3 = { version = "0.20.0", features = ["build-from-source-static"] }
 # Slim the vendored SDL3 static build down to the joystick subsystem (we use SDL solely
 # for global joystick button capture); notably no-sdl-video avoids X11/Wayland build deps.
