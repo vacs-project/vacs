@@ -162,22 +162,35 @@ impl BlockingMessageDialog for rfd::MessageDialog {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct ClientConfig {
+    /// Whether the window stays above other windows.
     pub always_on_top: bool,
+    /// Whether the window starts in full screen.
     pub fullscreen: bool,
+    /// Window position in physical pixels. Written by vacs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, schemars(with = "Option<schema::WindowPosition>"))]
     pub position: Option<PhysicalPosition<i32>>,
+    /// Window size in physical pixels. Written by vacs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, schemars(with = "Option<schema::WindowSize>"))]
     pub size: Option<PhysicalSize<u32>>,
     /// Whether `size` measures the content area rather than the GTK window including its
     /// client-side decorations. On Wayland, a size without this flag is discarded on restore.
     #[serde(default)]
     pub size_is_content: bool,
+    /// Release channel checked for updates.
     #[serde(default = "default_release_channel")]
+    #[cfg_attr(test, schemars(default = "ReleaseChannel::default"))]
     pub release_channel: ReleaseChannel,
+    /// Whether the client reconnects on its own after losing the server connection.
     pub signaling_auto_reconnect: bool,
+    /// Call microphone mode and its bindings.
     pub transmit_config: TransmitConfig,
+    /// Radio client integration.
     pub radio: RadioConfig,
+    /// Seconds after which an unanswered outgoing call is ended. `0` disables the timer.
     pub auto_hangup_seconds: u64,
     /// List of peer IDs (CIDs) that should be ignored by the client.
     ///
@@ -186,31 +199,63 @@ pub struct ClientConfig {
     /// parties as the (local) user can still actively initiate calls to them.
     #[serde(default, skip_serializing_if = "HashSet::is_empty")]
     pub ignored: HashSet<ClientId>,
+    /// Bindings for call and playback actions.
     #[serde(default)]
     pub keybinds: KeybindsConfig,
+    /// Call behavior and sounds.
     #[serde(default)]
     pub call: CallConfig,
+    /// Name of the client page config selected on the Mission page.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_client_page_config: Option<String>,
+    /// Path to an additional client page config file, read after all other files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_client_page_config: Option<String>,
+    /// Debounce delay before a changed test profile is reloaded, in milliseconds. `0`
+    /// disables reloading on change.
     pub test_profile_watcher_delay_ms: u64,
+    /// Remote control server.
     #[serde(default)]
     pub remote: RemoteConfig,
+    /// Radio transmission recording and playback.
     #[serde(default)]
     pub playback: PlaybackConfig,
+    /// Zoom factor of the interface.
     #[serde(default = "default_zoom_level")]
     pub zoom_level: f64,
+    /// How the clock shows seconds.
     #[serde(default)]
     pub clock_mode: ClockMode,
+    /// Behavior of the CPL button.
     #[serde(default)]
     pub cpl_mode: CplMode,
     /// Joystick devices excluded from binding capture. Existing bindings on
     /// these devices keep working; they just can no longer win a capture.
     #[serde(default)]
     pub ignored_joysticks: HashSet<JoystickDevice>,
+    /// Width of the profile pane in split view, in pixels, per profile. Set by dragging the divider.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub split_profile_widths: HashMap<ProfileId, u16>,
+}
+
+/// Schema shapes of the window geometry types, which come from tauri without a schema.
+#[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "only describe the serialized shape, never constructed"
+)]
+mod schema {
+    #[derive(schemars::JsonSchema)]
+    pub struct WindowPosition {
+        pub x: i32,
+        pub y: i32,
+    }
+
+    #[derive(schemars::JsonSchema)]
+    pub struct WindowSize {
+        pub width: u32,
+        pub height: u32,
+    }
 }
 
 fn default_zoom_level() -> f64 {
@@ -258,17 +303,24 @@ impl Default for ClientConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum ClockMode {
+    /// Seconds, updated every second.
     #[default]
     Realtime,
+    /// Seconds, updated every ten seconds.
     Relaxed,
+    /// The day of the month instead of seconds.
     Day,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum CplMode {
+    /// CPL toggles couple mode, in which frequencies are coupled one by one.
     #[default]
     Original,
+    /// CPL couples all transmitting frequencies at once.
     Fast,
 }
 
@@ -397,6 +449,7 @@ impl ClientConfig {
 
 /// Various settings regarding calls.
 #[derive(Debug, Clone, Serialize, Deserialize, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CallConfig {
     /// Toggles highlighting of incoming call target DA keys.
     #[serde(default = "default_true")]
@@ -451,6 +504,7 @@ impl Default for CallConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct ClientPageSettings {
     /// Named configs for different client page configurations.
     /// Users can switch between configs in the UI.

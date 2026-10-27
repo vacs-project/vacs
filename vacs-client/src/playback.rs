@@ -80,10 +80,15 @@ pub enum RecordingMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct PlaybackConfig {
+    /// Whether incoming radio transmissions are recorded for playback.
     pub enabled: bool,
+    /// Number of recordings kept.
     pub max_clips: usize,
+    /// Silence after a transmission before its recording is closed, in milliseconds.
     pub hangover_ms: u64,
+    /// Longest single recording, in seconds. A longer transmission continues in a new one.
     pub max_clip_duration_s: u64,
 }
 

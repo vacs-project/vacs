@@ -30,6 +30,7 @@ pub enum RadioError {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum RadioIntegration {
     AudioForVatsim,
     TrackAudio,
@@ -179,22 +180,31 @@ pub type DynRadio = Arc<dyn Radio>;
 pub type RadioHandle = Arc<RwLock<Option<DynRadio>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct RadioConfig {
+    /// Radio client vacs controls. Unset disables the integration.
     pub integration: Option<RadioIntegration>,
+    /// Audio for VATSIM integration settings.
     #[frontend(nested)]
     pub audio_for_vatsim: Option<AudioForVatsimRadioConfig>,
+    /// TrackAudio integration settings.
     #[frontend(nested)]
     pub track_audio: Option<TrackAudioRadioConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct AudioForVatsimRadioConfig {
+    /// Key code vacs presses to transmit in Audio for VATSIM, for example `"F13"`.
     #[frontend(key)]
+    #[cfg_attr(test, schemars(with = "Option<String>"))]
     pub emit: Option<Code>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct TrackAudioRadioConfig {
+    /// Address of the TrackAudio SDK. Unset uses TrackAudio's default.
     pub endpoint: Option<String>,
 }
 

@@ -29,8 +29,10 @@ e2e = ["mock-audio", "dep:tauri-plugin-wdio", "dep:tauri-plugin-wdio-webdriver"]
 
 [package.metadata.cargo-machete]
 # sdl3-sys is not imported directly; the dependency exists to enable its
-# `no-sdl-*` features, slimming the vendored SDL build to the joystick subsystem
-ignored = ["sdl3-sys"]
+# `no-sdl-*` features, slimming the vendored SDL build to the joystick subsystem.
+# vacs-protocol is a dev-dependency only to enable its `schema` feature for the
+# config schema test; the code reaches it through vacs-signaling's re-export.
+ignored = ["sdl3-sys", "vacs-protocol"]
 
 [build-dependencies]
 tauri-build = { workspace = true, features = [] }
@@ -101,7 +103,9 @@ tauri-plugin-prevent-default = { workspace = true }
 x11rb = { workspace = true }
 
 [dev-dependencies]
+schemars = { workspace = true }
 tempfile = { workspace = true }
+vacs-protocol = { workspace = true, features = ["schema"] }
 
 [lints]
 workspace = true

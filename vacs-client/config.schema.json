@@ -1,0 +1,978 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AppConfig",
+  "description": "The client configuration.\n\nIt is read from `config.toml`, `audio.toml`, `client_page.toml` and `client.toml` in that\norder, and any file may hold any part of it. vacs itself writes `[audio]` to `audio.toml` and\n`[client]` to `client.toml`.",
+  "type": "object",
+  "properties": {
+    "audio": {
+      "$ref": "#/definitions/AudioConfig"
+    },
+    "backend": {
+      "$ref": "#/definitions/BackendConfig"
+    },
+    "client": {
+      "$ref": "#/definitions/ClientConfig"
+    },
+    "client_page": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ClientPageSettings"
+        }
+      ],
+      "default": {
+        "configs": {}
+      }
+    },
+    "ice": {
+      "$ref": "#/definitions/IceConfig"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "AudioConfig": {
+      "type": "object",
+      "properties": {
+        "chime_volume": {
+          "description": "Volume of the ring and notification sounds, from `0.0` to `1.0`.",
+          "type": "number",
+          "format": "float",
+          "default": 0.5
+        },
+        "click_volume": {
+          "description": "Volume of the button click sound, from `0.0` to `1.0`.",
+          "type": "number",
+          "format": "float",
+          "default": 0.5
+        },
+        "host_name": {
+          "description": "Audio backend to use, for example `WASAPI`, `ALSA` or `CoreAudio`. Unset uses the\nplatform default.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "input_device_id": {
+          "description": "Stable identifier of the microphone, used to find it again when its name changes.",
+          "type": ["string", "null"]
+        },
+        "input_device_name": {
+          "description": "Name of the microphone. Unset uses the system default.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "input_device_volume": {
+          "description": "Microphone volume, from `0.0` to `1.0`.",
+          "type": "number",
+          "format": "float",
+          "default": 0.5
+        },
+        "input_device_volume_amp": {
+          "description": "Gain applied to the microphone at full volume.",
+          "type": "number",
+          "format": "float",
+          "default": 4.0
+        },
+        "output_device_id": {
+          "description": "Stable identifier of the headset output, used to find it again when its name changes.",
+          "type": ["string", "null"]
+        },
+        "output_device_name": {
+          "description": "Name of the headset output for call audio. Unset uses the system default.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "output_device_volume": {
+          "description": "Call audio volume, from `0.0` to `1.0`.",
+          "type": "number",
+          "format": "float",
+          "default": 0.5
+        },
+        "output_device_volume_amp": {
+          "description": "Gain applied to call audio at full volume.",
+          "type": "number",
+          "format": "float",
+          "default": 2.0
+        },
+        "priority_ring_sound": {
+          "description": "WAV file played for incoming priority calls instead of the built-in ring.",
+          "type": ["string", "null"]
+        },
+        "priority_ring_sound_loop": {
+          "description": "Whether `priority_ring_sound` repeats until the call is answered.",
+          "type": "boolean"
+        },
+        "ring_sound": {
+          "description": "WAV file played for incoming calls instead of the built-in ring.",
+          "type": ["string", "null"]
+        },
+        "ring_sound_loop": {
+          "description": "Whether `ring_sound` repeats until the call is answered.",
+          "type": "boolean"
+        },
+        "ring_sound_loop_pause_seconds": {
+          "description": "Pause between repetitions of a looping ring sound, in seconds. Defaults to 3.",
+          "type": ["number", "null"],
+          "format": "float"
+        },
+        "speaker_device_id": {
+          "description": "Stable identifier of the speaker device, used to find it again when its name changes.",
+          "type": ["string", "null"]
+        },
+        "speaker_device_name": {
+          "description": "Name of the speaker device. Unset uses the system default.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "speaker_enabled": {
+          "description": "Whether ring, chime and click sounds play on the speaker device instead of the headset.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "AudioForVatsimRadioConfig": {
+      "type": "object",
+      "properties": {
+        "emit": {
+          "description": "Key code vacs presses to transmit in Audio for VATSIM, for example `\"F13\"`.",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "BackendConfig": {
+      "type": "object",
+      "properties": {
+        "base_url": {
+          "description": "Base URL of the vacs server. Defaults to `https://vacs.network`.",
+          "type": "string"
+        },
+        "dev_position_id": {
+          "description": "Position to connect as. Only honored by development and release candidate builds.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PositionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "endpoints": {
+          "description": "HTTP endpoint paths, relative to `base_url`.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BackendEndpointsConfigs"
+            }
+          ]
+        },
+        "timeout_ms": {
+          "description": "Timeout for HTTP requests to the server, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ws_url": {
+          "description": "WebSocket URL of the vacs server. Defaults to `wss://vacs.network/ws`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BackendEndpointsConfigs": {
+      "type": "object",
+      "properties": {
+        "exchange_code": {
+          "description": "Exchanges the VATSIM Connect authorization code for a session.",
+          "type": "string"
+        },
+        "ice_config": {
+          "description": "Returns the STUN and TURN servers for calls.",
+          "type": "string"
+        },
+        "init_auth": {
+          "description": "Starts the VATSIM Connect login.",
+          "type": "string"
+        },
+        "logout": {
+          "description": "Ends the session.",
+          "type": "string"
+        },
+        "terminate_ws_session": {
+          "description": "Terminates the WebSocket session.",
+          "type": "string"
+        },
+        "user_info": {
+          "description": "Returns the logged in user.",
+          "type": "string"
+        },
+        "version_update_check": {
+          "description": "Checks for client updates. `{{...}}` placeholders are filled in by the client.",
+          "type": "string"
+        },
+        "ws_token": {
+          "description": "Issues the token for the WebSocket connection.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "CallConfig": {
+      "description": "Various settings regarding calls.",
+      "type": "object",
+      "properties": {
+        "enable_call_end_sound": {
+          "description": "Enables sound effect when the call is ended",
+          "type": "boolean",
+          "default": true
+        },
+        "enable_call_start_sound": {
+          "description": "Enables sound effect when a call is established",
+          "type": "boolean",
+          "default": true
+        },
+        "enable_participant_joined_sound": {
+          "description": "Enables sound effect when a participant joined a conference call",
+          "type": "boolean",
+          "default": true
+        },
+        "enable_participant_left_sound": {
+          "description": "Enables sound effect when a participant left a conference call",
+          "type": "boolean",
+          "default": true
+        },
+        "enable_priority_calls": {
+          "description": "Enables the priority call ringtone and visual highlighting. If disabled, Priority calls will still be received, but not handled differently.",
+          "type": "boolean",
+          "default": true
+        },
+        "end_active_call_on_accept": {
+          "description": "Ends the active call when an incoming call is accepted by clicking it. An outgoing call\nthat is still ringing keeps blocking the accept, and the accept call keybind is unaffected.",
+          "type": "boolean",
+          "default": true
+        },
+        "force_relay": {
+          "description": "Forces call audio to always be relayed via a TURN server instead of attempting a direct\npeer-to-peer connection. Helps with one-way audio issues caused by VPNs (e.g. Cloudflare\nWARP) at the cost of slightly higher latency.",
+          "type": "boolean",
+          "default": false
+        },
+        "highlight_incoming_call_target": {
+          "description": "Toggles highlighting of incoming call target DA keys.",
+          "type": "boolean",
+          "default": true
+        },
+        "use_default_call_sources": {
+          "description": "Enables default call source selection based on the dataset position",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "CallMicMode": {
+      "oneOf": [
+        {
+          "description": "The microphone is always open during a call.",
+          "type": "string",
+          "const": "VoiceActivation"
+        },
+        {
+          "description": "The microphone is open while `push_to_talk` is held.",
+          "type": "string",
+          "const": "PushToTalk"
+        },
+        {
+          "description": "The microphone is closed while `push_to_mute` is held.",
+          "type": "string",
+          "const": "PushToMute"
+        }
+      ]
+    },
+    "ClientConfig": {
+      "type": "object",
+      "properties": {
+        "always_on_top": {
+          "description": "Whether the window stays above other windows.",
+          "type": "boolean",
+          "default": false
+        },
+        "auto_hangup_seconds": {
+          "description": "Seconds after which an unanswered outgoing call is ended. `0` disables the timer.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 60,
+          "minimum": 0
+        },
+        "call": {
+          "description": "Call behavior and sounds.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CallConfig"
+            }
+          ],
+          "default": {
+            "enable_call_end_sound": true,
+            "enable_call_start_sound": true,
+            "enable_participant_joined_sound": true,
+            "enable_participant_left_sound": true,
+            "enable_priority_calls": true,
+            "end_active_call_on_accept": true,
+            "force_relay": false,
+            "highlight_incoming_call_target": true,
+            "use_default_call_sources": true
+          }
+        },
+        "clock_mode": {
+          "description": "How the clock shows seconds.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ClockMode"
+            }
+          ],
+          "default": "Realtime"
+        },
+        "cpl_mode": {
+          "description": "Behavior of the CPL button.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CplMode"
+            }
+          ],
+          "default": "Original"
+        },
+        "extra_client_page_config": {
+          "description": "Path to an additional client page config file, read after all other files.",
+          "type": ["string", "null"]
+        },
+        "fullscreen": {
+          "description": "Whether the window starts in full screen.",
+          "type": "boolean",
+          "default": false
+        },
+        "ignored": {
+          "description": "List of peer IDs (CIDs) that should be ignored by the client.\n\nAny incoming calls initiated by a CID in this list will be silently ignored\nby the client. This does **not** completely block communications with ignored\nparties as the (local) user can still actively initiate calls to them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ClientId"
+          },
+          "uniqueItems": true
+        },
+        "ignored_joysticks": {
+          "description": "Joystick devices excluded from binding capture. Existing bindings on\nthese devices keep working; they just can no longer win a capture.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/JoystickDevice"
+          },
+          "uniqueItems": true
+        },
+        "keybinds": {
+          "description": "Bindings for call and playback actions.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindsConfig"
+            }
+          ],
+          "default": {
+            "accept_call": null,
+            "end_call": null,
+            "say_again": null,
+            "toggle_radio_prio": null
+          }
+        },
+        "playback": {
+          "description": "Radio transmission recording and playback.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PlaybackConfig"
+            }
+          ],
+          "default": {
+            "enabled": false,
+            "hangover_ms": 250,
+            "max_clip_duration_s": 90,
+            "max_clips": 15
+          }
+        },
+        "position": {
+          "description": "Window position in physical pixels. Written by vacs.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WindowPosition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "radio": {
+          "description": "Radio client integration.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RadioConfig"
+            }
+          ],
+          "default": {
+            "audio_for_vatsim": null,
+            "integration": null,
+            "track_audio": null
+          }
+        },
+        "release_channel": {
+          "description": "Release channel checked for updates.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ReleaseChannel"
+            }
+          ],
+          "default": "stable"
+        },
+        "remote": {
+          "description": "Remote control server.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RemoteConfig"
+            }
+          ],
+          "default": {
+            "enabled": false,
+            "listen_addr": "0.0.0.0:9600",
+            "serve_frontend": true
+          }
+        },
+        "selected_client_page_config": {
+          "description": "Name of the client page config selected on the Mission page.",
+          "type": ["string", "null"]
+        },
+        "signaling_auto_reconnect": {
+          "description": "Whether the client reconnects on its own after losing the server connection.",
+          "type": "boolean",
+          "default": true
+        },
+        "size": {
+          "description": "Window size in physical pixels. Written by vacs.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WindowSize"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size_is_content": {
+          "description": "Whether `size` measures the content area rather than the GTK window including its\nclient-side decorations. On Wayland, a size without this flag is discarded on restore.",
+          "type": "boolean",
+          "default": false
+        },
+        "split_profile_widths": {
+          "description": "Width of the profile pane in split view, in pixels, per profile. Set by dragging the divider.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0
+          }
+        },
+        "test_profile_watcher_delay_ms": {
+          "description": "Debounce delay before a changed test profile is reloaded, in milliseconds. `0`\ndisables reloading on change.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 500,
+          "minimum": 0
+        },
+        "transmit_config": {
+          "description": "Call microphone mode and its bindings.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TransmitConfig"
+            }
+          ],
+          "default": {
+            "call_mic_mode": "VoiceActivation",
+            "push_to_mute": null,
+            "push_to_talk": null,
+            "radio_push_to_talk": null
+          }
+        },
+        "zoom_level": {
+          "description": "Zoom factor of the interface.",
+          "type": "number",
+          "format": "double",
+          "default": 1.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClientGroupMode": {
+      "description": "Mode for controlling how DA keys are grouped on the Client page.",
+      "oneOf": [
+        {
+          "description": "Don't group.",
+          "type": "string",
+          "const": "None"
+        },
+        {
+          "description": "Group by the first two letters (FIR) of the display name.",
+          "type": "string",
+          "const": "Fir"
+        },
+        {
+          "description": "Group by the first four letters (ICAO code) of the display name.",
+          "type": "string",
+          "const": "Icao"
+        },
+        {
+          "description": "First, group by the first two letters (FIR), then by the first four letters (ICAO code) of the display name.",
+          "type": "string",
+          "const": "FirAndIcao"
+        }
+      ]
+    },
+    "ClientId": {
+      "description": "Unique identifier for a VATSIM client (CID).",
+      "type": "string"
+    },
+    "ClientPageConfig": {
+      "description": "Configuration for the Client page, displaying all currently connected clients.",
+      "type": "object",
+      "properties": {
+        "exclude": {
+          "description": "Optional list of callsign patterns to exclude.\n\n- Clients matching any pattern here are never shown, even if they match an `include` rule.\n\nGlob syntax is supported: `\"LO*\"`, `\"LOWW_*\"`, `\"*_APP\"`, …\nMatching is case-insensitive.\n\nExample:\n  `[\"*_TWR\", \"*_GND\", \"*_DEL\"]`",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "frequencies": {
+          "description": "Control how frequencies are displayed on the DA keys.\n\n- `ShowAll`: Show frequency for all clients (default).\n- `HideAll`: Never show frequencies.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FrequencyDisplayMode"
+            }
+          ],
+          "default": "ShowAll"
+        },
+        "grouping": {
+          "description": "Control how DA keys are grouped.\n\n- `None`: Don't group.\n- `Fir`: Group by the first two letters (FIR) of the display name.\n- `FirAndIcao`: First, group by the first two letters (FIR), then by the first four letters\n  (ICAO code) of the display name (default).\n- `Icao`: Group by the first four letters (ICAO code) of the display name.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ClientGroupMode"
+            }
+          ],
+          "default": "FirAndIcao"
+        },
+        "include": {
+          "description": "Optional list of callsign patterns to include.\n\n- If this list is empty, all clients are eligible to be shown (subject to `exclude`).\n- If this list is not empty, only clients matching at least one pattern are eligible to be shown.\n\nGlob syntax is supported: `\"LO*\"`, `\"LOWW_*\"`, `\"*_APP\"`, …\nMatching is case-insensitive.\n\nExample:\n  `[\"LO*\", \"EDDM_*\", \"EDMM_*\"]`",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "priority": {
+          "description": "Optional ordered list of callsign patterns used to assign priority.\n\nThe *first* matching pattern in the list determines the client's\npriority bucket. Earlier entries = higher priority.\n\nGlob syntax is supported: `\"LO*\"`, `\"LOWW_*\"`, `\"*_APP\"`, …\nMatching is case-insensitive.\n\nExample:\n  `[\"LOVV_*\", \"LOWW_*_APP\", \"LOWW_*_TWR\", \"LOWW_*\"]`",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClientPageSettings": {
+      "type": "object",
+      "properties": {
+        "configs": {
+          "description": "Named configs for different client page configurations.\nUsers can switch between configs in the UI.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ClientPageConfig"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "ClockMode": {
+      "oneOf": [
+        {
+          "description": "Seconds, updated every second.",
+          "type": "string",
+          "const": "Realtime"
+        },
+        {
+          "description": "Seconds, updated every ten seconds.",
+          "type": "string",
+          "const": "Relaxed"
+        },
+        {
+          "description": "The day of the month instead of seconds.",
+          "type": "string",
+          "const": "Day"
+        }
+      ]
+    },
+    "CplMode": {
+      "oneOf": [
+        {
+          "description": "CPL toggles couple mode, in which frequencies are coupled one by one.",
+          "type": "string",
+          "const": "Original"
+        },
+        {
+          "description": "CPL couples all transmitting frequencies at once.",
+          "type": "string",
+          "const": "Fast"
+        }
+      ]
+    },
+    "FrequencyDisplayMode": {
+      "description": "Mode for controlling how frequencies are displayed on DA keys of the Client page.",
+      "oneOf": [
+        {
+          "description": "Hide frequencies for all clients.",
+          "type": "string",
+          "const": "HideAll"
+        },
+        {
+          "description": "Always show frequencies for all clients.",
+          "type": "string",
+          "const": "ShowAll"
+        }
+      ]
+    },
+    "IceConfig": {
+      "type": "object",
+      "properties": {
+        "ice_servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IceServer"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "IceServer": {
+      "type": "object",
+      "properties": {
+        "credential": {
+          "type": ["string", "null"]
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "InputCode": {
+      "description": "A keyboard key or a joystick button.",
+      "anyOf": [
+        {
+          "description": "A keyboard key code, for example \"KeyA\" or \"ControlRight\".",
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/JoystickButton"
+        }
+      ]
+    },
+    "JoystickButton": {
+      "description": "A joystick/gamepad button, addressed by stable device identity.\n\nDevices are identified by their SDL joystick GUID (derived from bus/VID/PID),\nwhich is stable across reconnects and USB ports - unlike SDL instance ids,\nwhich change on every reconnect and thus cannot be persisted. Two physically\nidentical devices share a GUID, so a binding matches either of them; distinct\nproducts (yoke, throttle, pedals) always have distinct GUIDs.",
+      "type": "object",
+      "properties": {
+        "button": {
+          "description": "Raw button index on the device (SDL joystick button numbering).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "device": {
+          "description": "SDL joystick GUID as a hex string.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Last-seen human-readable device name; display-only.",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "JoystickDevice": {
+      "description": "A joystick/gamepad device, addressed by its stable SDL GUID.\n\nUsed for the capture ignore list: devices with latched switches or\nposition-simulated buttons (common on flight sim throttles) would instantly\n\"capture\" during binding, so users can exclude them. The GUID keeps the\nentry valid across unplugs; `name` is retained for display while the device\nis disconnected. Physically identical devices share a GUID and are ignored\ntogether.",
+      "type": "object",
+      "properties": {
+        "device": {
+          "description": "SDL joystick GUID as a hex string.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Last-seen human-readable device name; display-only.",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "KeybindsConfig": {
+      "description": "Configuration for generic call and playback control keybinds.\n\nThese keybinds allow accepting and ending calls, toggling radio prio and replaying the last\nradio transmission without needing to use the UI and can be used independently of the transmit\nmode.",
+      "type": "object",
+      "properties": {
+        "accept_call": {
+          "description": "Input binding to accept an incoming call.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "end_call": {
+          "description": "Input binding to end an active call.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "say_again": {
+          "description": "Input binding to start or stop the SAY AGAIN replay.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "toggle_radio_prio": {
+          "description": "Input binding to toggle radio prio during an active call.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "PlaybackConfig": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether incoming radio transmissions are recorded for playback.",
+          "type": "boolean",
+          "default": false
+        },
+        "hangover_ms": {
+          "description": "Silence after a transmission before its recording is closed, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 250,
+          "minimum": 0
+        },
+        "max_clip_duration_s": {
+          "description": "Longest single recording, in seconds. A longer transmission continues in a new one.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 90,
+          "minimum": 0
+        },
+        "max_clips": {
+          "description": "Number of recordings kept.",
+          "type": "integer",
+          "format": "uint",
+          "default": 15,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "PositionId": {
+      "description": "Unique identifier for a VATSIM position.",
+      "type": "string"
+    },
+    "RadioConfig": {
+      "type": "object",
+      "properties": {
+        "audio_for_vatsim": {
+          "description": "Audio for VATSIM integration settings.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AudioForVatsimRadioConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "integration": {
+          "description": "Radio client vacs controls. Unset disables the integration.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RadioIntegration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "track_audio": {
+          "description": "TrackAudio integration settings.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TrackAudioRadioConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "RadioIntegration": {
+      "type": "string",
+      "enum": ["AudioForVatsim", "TrackAudio"]
+    },
+    "ReleaseChannel": {
+      "type": "string",
+      "enum": ["stable", "beta", "rc"]
+    },
+    "RemoteConfig": {
+      "description": "Configuration for the embedded remote-control server.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether the remote control server is enabled.",
+          "type": "boolean",
+          "default": false
+        },
+        "listen_addr": {
+          "description": "Socket address to bind the remote control server to.\nMust be in the format \"IP:PORT\", e.g. \"0.0.0.0:9600\".",
+          "type": "string",
+          "default": "0.0.0.0:9600"
+        },
+        "serve_frontend": {
+          "description": "Whether to serve the web frontend. When disabled, only the WebSocket\nAPI is exposed (useful for custom or third-party clients).",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "TrackAudioRadioConfig": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "description": "Address of the TrackAudio SDK. Unset uses TrackAudio's default.",
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TransmitConfig": {
+      "description": "Configuration for the transmission mode and associated keybinds.",
+      "type": "object",
+      "properties": {
+        "call_mic_mode": {
+          "description": "The transmit mode to use.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CallMicMode"
+            }
+          ],
+          "default": "VoiceActivation"
+        },
+        "push_to_mute": {
+          "description": "Input binding for Push-to-Mute mode.\nRequired if mode is `PushToMute`.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "push_to_talk": {
+          "description": "Input binding for Push-to-Talk mode.\nRequired if mode is `PushToTalk`.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "radio_push_to_talk": {
+          "description": "Input binding for Radio PTT.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "WindowPosition": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "y": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "additionalProperties": false
+    },
+    "WindowSize": {
+      "type": "object",
+      "properties": {
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
