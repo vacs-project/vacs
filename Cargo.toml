@@ -106,7 +106,7 @@ tauri-plugin-deep-link = "2.6.1"
 tauri-plugin-log = "2.10.0"
 tauri-plugin-prevent-default = "6.0.0"
 tauri-plugin-single-instance = "2.5.2"
-tauri-plugin-updater = "2.13.1"
+tauri-plugin-updater = "2.14.1"
 # WebDriver automation plugins for E2E tests. Young packages with recent
 # breaking changes, pinned exactly; bump deliberately.
 tauri-plugin-wdio = "=1.5.0"
