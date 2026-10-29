@@ -64,7 +64,7 @@ octocrab = { version = "0.54.3", default-features = false, features = ["default-
 # shellexecute-on-windows keeps cmd.exe out of the URL path, as the opener plugin did.
 open = { version = "5.3.2", features = ["shellexecute-on-windows"] }
 opus = "0.4.0"
-parking_lot = "0.12.5"
+parking_lot = "0.13.0"
 pipewire = "0.10.0"
 pretty_assertions = "1.4.1"
 proc-macro2 = "1.0.95"
