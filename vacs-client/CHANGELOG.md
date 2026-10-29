@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/vacs-project/vacs/compare/vacs-client-v3.0.0...vacs-client-v3.0.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **vacs-client:** restore the custom windows install location lost in 3.0.0 ([#1342](https://github.com/vacs-project/vacs/issues/1342)) ([9cbad76](https://github.com/vacs-project/vacs/commit/9cbad768d26d24dc28a21eb3c14628ac33ba0205))
+
 ## [3.0.0](https://github.com/vacs-project/vacs/compare/vacs-client-v2.8.0...vacs-client-v3.0.0) (2026-10-27)
 
 
