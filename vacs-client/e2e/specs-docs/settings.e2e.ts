@@ -56,6 +56,8 @@ describe("Documentation screenshots: settings", function () {
         await openSettings(clientA);
         await clientA.$(MISC_SECTION).waitForDisplayed();
 
+        await captureWindow(clientA, "settings/overview-plain.png");
+
         await annotate(clientA, [{target: SETTINGS_BUTTON, badge: 1, place: "top-left"}]);
         await captureWindow(clientA, "settings/overview.png");
         await clearAnnotations(clientA);
