@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Unique identifier for a vacs profile.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[repr(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ProfileId(String);
 
 /// Representation of a VACS profile.

@@ -90,6 +90,26 @@ impl<'de> Deserialize<'de> for InputCode {
     }
 }
 
+#[cfg(test)]
+impl schemars::JsonSchema for InputCode {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "InputCode".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "A keyboard key or a joystick button.",
+            "anyOf": [
+                {
+                    "type": "string",
+                    "description": "A keyboard key code, for example \"KeyA\" or \"ControlRight\"."
+                },
+                generator.subschema_for::<JoystickButton>()
+            ]
+        })
+    }
+}
+
 /// A joystick/gamepad button, addressed by stable device identity.
 ///
 /// Devices are identified by their SDL joystick GUID (derived from bus/VID/PID),
@@ -98,6 +118,7 @@ impl<'de> Deserialize<'de> for InputCode {
 /// identical devices share a GUID, so a binding matches either of them; distinct
 /// products (yoke, throttle, pedals) always have distinct GUIDs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct JoystickButton {
     /// SDL joystick GUID as a hex string.
     pub device: String,
@@ -135,6 +156,7 @@ impl fmt::Display for JoystickButton {
 /// is disconnected. Physically identical devices share a GUID and are ignored
 /// together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct JoystickDevice {
     /// SDL joystick GUID as a hex string.
     pub device: String,
@@ -267,15 +289,20 @@ pub(crate) fn compose_wayland_trigger(
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum CallMicMode {
+    /// The microphone is always open during a call.
     #[default]
     VoiceActivation,
+    /// The microphone is open while `push_to_talk` is held.
     PushToTalk,
+    /// The microphone is closed while `push_to_mute` is held.
     PushToMute,
 }
 
 /// Configuration for the transmission mode and associated keybinds.
 #[derive(Debug, Clone, Serialize, Default, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct TransmitConfig {
     /// The transmit mode to use.
     pub call_mic_mode: CallMicMode,
@@ -473,6 +500,7 @@ impl<'de> Deserialize<'de> for TransmitConfig {
 /// radio transmission without needing to use the UI and can be used independently of the transmit
 /// mode.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct KeybindsConfig {
     /// Input binding to accept an incoming call.
     pub accept_call: Option<InputCode>,

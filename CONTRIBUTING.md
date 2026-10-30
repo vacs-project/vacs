@@ -128,6 +128,12 @@ cd vacs-client && npm test -w frontend                         # frontend tests
 cd vacs-client && npm test -w e2e                              # end-to-end tests (see vacs-client/e2e/README.md)
 ```
 
+`vacs-client/config.schema.json` is generated from the client config types, and a test fails when it is out of date. After changing a config struct, regenerate it:
+
+```sh
+VACS_UPDATE_CONFIG_SCHEMA=1 cargo test -p vacs-client config_schema_is_current
+```
+
 ### Type checking the frontend
 
 ```sh

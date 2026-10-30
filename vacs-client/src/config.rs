@@ -18,7 +18,13 @@ pub const CLIENT_SETTINGS_FILE_NAME: &str = "client.toml";
 #[cfg(not(feature = "e2e"))]
 pub const CLIENT_PAGE_SETTINGS_FILE_NAME: &str = "client_page.toml";
 
+/// The client configuration.
+///
+/// It is read from `config.toml`, `audio.toml`, `client_page.toml` and `client.toml` in that
+/// order, and any file may hold any part of it. vacs itself writes `[audio]` to `audio.toml` and
+/// `[client]` to `client.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct AppConfig {
     pub backend: BackendConfig,
     pub audio: AudioConfig,
@@ -115,11 +121,17 @@ impl AppConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct BackendConfig {
+    /// Base URL of the vacs server. Defaults to `https://vacs.network`.
     pub base_url: String,
+    /// WebSocket URL of the vacs server. Defaults to `wss://vacs.network/ws`.
     pub ws_url: String,
+    /// HTTP endpoint paths, relative to `base_url`.
     pub endpoints: BackendEndpointsConfigs,
+    /// Timeout for HTTP requests to the server, in milliseconds.
     pub timeout_ms: u64,
+    /// Position to connect as. Only honored by development and release candidate builds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dev_position_id: Option<PositionId>,
 }
@@ -187,14 +199,23 @@ impl BackendEndpoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct BackendEndpointsConfigs {
+    /// Starts the VATSIM Connect login.
     pub init_auth: String,
+    /// Exchanges the VATSIM Connect authorization code for a session.
     pub exchange_code: String,
+    /// Returns the logged in user.
     pub user_info: String,
+    /// Ends the session.
     pub logout: String,
+    /// Issues the token for the WebSocket connection.
     pub ws_token: String,
+    /// Terminates the WebSocket session.
     pub terminate_ws_session: String,
+    /// Checks for client updates. `{{...}}` placeholders are filled in by the client.
     pub version_update_check: String,
+    /// Returns the STUN and TURN servers for calls.
     pub ice_config: String,
 }
 
@@ -226,5 +247,53 @@ impl<T: Serialize> Persistable for T {
             .context("Failed to write config to file")?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use schemars::generate::SchemaSettings;
+    use schemars::transform::RecursiveTransform;
+
+    const SCHEMA_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/config.schema.json");
+
+    fn config_schema() -> String {
+        // Each file holds only part of the config and the rest falls back to the defaults, so
+        // nothing is required in any one file. Unknown keys are ignored when parsing, which
+        // hides typos; the schema rejects them so an editor can point them out.
+        let generator = SchemaSettings::draft07()
+            .with_transform(RecursiveTransform(|schema: &mut schemars::Schema| {
+                schema.remove("required");
+                if schema.get("properties").is_some()
+                    && schema.get("additionalProperties").is_none()
+                {
+                    schema.insert("additionalProperties".into(), false.into());
+                }
+            }))
+            .into_generator();
+        let schema = generator.into_root_schema_for::<AppConfig>();
+        serde_json::to_string_pretty(&schema).expect("Failed to serialize config schema") + "\n"
+    }
+
+    #[test]
+    fn config_schema_is_current() {
+        let schema = config_schema();
+        if std::env::var_os("VACS_UPDATE_CONFIG_SCHEMA").is_some() {
+            fs::write(SCHEMA_PATH, &schema).expect("Failed to write config schema");
+            return;
+        }
+
+        // Compared as JSON values, because the pre-commit prettier hook reformats the file.
+        let committed: Option<serde_json::Value> = fs::read_to_string(SCHEMA_PATH)
+            .ok()
+            .and_then(|committed| serde_json::from_str(&committed).ok());
+        let generated: serde_json::Value =
+            serde_json::from_str(&schema).expect("Failed to parse generated config schema");
+        assert!(
+            committed.as_ref() == Some(&generated),
+            "vacs-client/config.schema.json is out of date, regenerate it with \
+             `VACS_UPDATE_CONFIG_SCHEMA=1 cargo test -p vacs-client config_schema_is_current`"
+        );
     }
 }

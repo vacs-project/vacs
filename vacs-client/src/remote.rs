@@ -9,6 +9,7 @@ use vacs_macros::Frontend;
 
 /// Configuration for the embedded remote-control server.
 #[derive(Debug, Clone, Serialize, Deserialize, Frontend)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct RemoteConfig {
     /// Whether the remote control server is enabled.
     pub enabled: bool,

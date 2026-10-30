@@ -11,32 +11,53 @@ pub(crate) mod source_type;
 pub const DEFAULT_RING_SOUND_LOOP_PAUSE: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(default))]
 pub struct AudioConfig {
+    /// Audio backend to use, for example `WASAPI`, `ALSA` or `CoreAudio`. Unset uses the
+    /// platform default.
     pub host_name: Option<String>, // Name of audio backend host, None means default host
+    /// Name of the microphone. Unset uses the system default.
     pub input_device_name: Option<String>, // None means default device
+    /// Stable identifier of the microphone, used to find it again when its name changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_device_id: Option<String>, // Stable device ID for reliable matching, None means default device
+    /// Name of the headset output for call audio. Unset uses the system default.
     pub output_device_name: Option<String>, // None means default device
+    /// Stable identifier of the headset output, used to find it again when its name changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_device_id: Option<String>, // Stable device ID for reliable matching, None means default device
+    /// Whether ring, chime and click sounds play on the speaker device instead of the headset.
     pub speaker_enabled: bool,
+    /// Name of the speaker device. Unset uses the system default.
     pub speaker_device_name: Option<String>, // None means default device
+    /// Stable identifier of the speaker device, used to find it again when its name changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker_device_id: Option<String>, // Stable device ID for reliable matching, None means default device
+    /// Microphone volume, from `0.0` to `1.0`.
     pub input_device_volume: f32,
+    /// Gain applied to the microphone at full volume.
     pub input_device_volume_amp: f32,
+    /// Call audio volume, from `0.0` to `1.0`.
     pub output_device_volume: f32,
+    /// Gain applied to call audio at full volume.
     pub output_device_volume_amp: f32,
+    /// Volume of the button click sound, from `0.0` to `1.0`.
     pub click_volume: f32,
+    /// Volume of the ring and notification sounds, from `0.0` to `1.0`.
     pub chime_volume: f32,
+    /// WAV file played for incoming calls instead of the built-in ring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_sound: Option<PathBuf>, // Custom WAV file, None means the built-in chime
+    /// WAV file played for incoming priority calls instead of the built-in ring.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority_ring_sound: Option<PathBuf>, // Custom WAV file, None means the built-in chime
+    /// Whether `ring_sound` repeats until the call is answered.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ring_sound_loop: bool,
+    /// Whether `priority_ring_sound` repeats until the call is answered.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub priority_ring_sound_loop: bool,
+    /// Pause between repetitions of a looping ring sound, in seconds. Defaults to 3.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ring_sound_loop_pause_seconds: Option<f32>,
 }

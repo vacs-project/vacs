@@ -12,10 +12,12 @@ default = []
 http = ["http-webrtc"]
 http-webrtc = []
 profile = ["vatsim"]
+schema = ["dep:schemars"]
 vatsim = []
 ws = ["profile", "vatsim"]
 
 [dependencies]
+schemars = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

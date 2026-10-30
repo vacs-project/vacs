@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 /// Unique identifier for a VATSIM client (CID).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[repr(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ClientId(String);
 
 /// Unique identifier for a VATSIM position.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[repr(transparent)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PositionId(String);
 
 /// Unique identifier for a VATSIM station.
