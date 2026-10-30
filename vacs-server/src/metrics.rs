@@ -375,8 +375,8 @@ impl VersionMetrics {
     pub fn check(
         channel: &ReleaseChannel,
         client_version: &Version,
-        target: impl Into<String>,
-        arch: impl Into<String>,
+        target: &str,
+        arch: &str,
         bundle_type: &BundleType,
         update_available: bool,
     ) {
@@ -384,8 +384,8 @@ impl VersionMetrics {
             "vacs_version_checks_total",
             "channel" => channel.as_metric_label(),
             "client_version" => client_version.to_string(),
-            "target" => target.into(),
-            "arch" => arch.into(),
+            "target" => bounded_label(target, &UPDATE_TARGETS),
+            "arch" => bounded_label(arch, &UPDATE_ARCHS),
             "bundle_type" => bundle_type.as_metric_label(),
             "result" => if update_available { "update_available" } else { "up_to_date" }
         )
@@ -399,6 +399,18 @@ impl VersionMetrics {
             "Version checks labeled by version, channel, platform, architecture, bundle, and update availability"
         );
     }
+}
+
+const UPDATE_TARGETS: [&str; 3] = ["windows", "linux", "darwin"];
+const UPDATE_ARCHS: [&str; 5] = ["i686", "x86_64", "armv7", "aarch64", "riscv64"];
+
+/// Collapses a client-supplied update parameter to a known value so a caller cannot mint series.
+fn bounded_label(value: &str, known: &[&'static str]) -> &'static str {
+    known
+        .iter()
+        .copied()
+        .find(|k| *k == value)
+        .unwrap_or("other")
 }
 
 pub struct CoverageMetrics;
@@ -573,5 +585,21 @@ mod tests {
         assert!(rendered.contains(r#"vacs_calls_link_reports_total{outcome="confirmed"} 0"#));
         assert!(rendered.contains(r#"vacs_calls_link_evictions_total{scope="whole_call"} 0"#));
         assert!(rendered.contains(r#"vacs_calls_link_evictions_total{scope="participant"} 0"#));
+    }
+
+    #[test]
+    fn bounded_label_keeps_known_values_and_collapses_the_rest() {
+        for known in UPDATE_TARGETS {
+            assert_eq!(bounded_label(known, &UPDATE_TARGETS), known);
+        }
+        for unknown in ["macos_x64", "darwin_x86_64", "Windows", "", "../etc"] {
+            assert_eq!(bounded_label(unknown, &UPDATE_TARGETS), "other");
+        }
+        for known in UPDATE_ARCHS {
+            assert_eq!(bounded_label(known, &UPDATE_ARCHS), known);
+        }
+        for unknown in ["arm64", "x64", "AARCH64", "", "x86_64 "] {
+            assert_eq!(bounded_label(unknown, &UPDATE_ARCHS), "other");
+        }
     }
 }
