@@ -1,5 +1,13 @@
 # Changelog 
 
+## [3.0.1](https://github.com/vacs-project/vacs/compare/vacs-server-v3.0.0...vacs-server-v3.0.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **vacs-server:** bound the version check target and arch metric labels ([#1347](https://github.com/vacs-project/vacs/issues/1347)) ([832c208](https://github.com/vacs-project/vacs/commit/832c2089222d7c460d44414eabb8876c08b884d3))
+* **vacs-server:** register metric descriptions after the recorder and zero rare call counters ([#1338](https://github.com/vacs-project/vacs/issues/1338)) ([9b3a12b](https://github.com/vacs-project/vacs/commit/9b3a12b89d4831d618dd5304a4a6f1b69320f115))
+
 ## [3.0.0](https://github.com/vacs-project/vacs/compare/vacs-server-v2.4.0...vacs-server-v3.0.0) (2026-10-27)
 
 
