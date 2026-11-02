@@ -94,7 +94,7 @@ jobs:
         run: rustup toolchain install stable --profile minimal --no-self-update
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Tests
         run: cargo test --locked --workspace --all-targets --all-features
@@ -162,7 +162,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: ${{ matrix.platform }}-${{ matrix.arch }}
 
