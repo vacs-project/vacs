@@ -70,7 +70,8 @@ fn spawn_wasapi_thread(
     tx: mpsc::Sender<LoopbackEvent>,
 ) -> Result<(Arc<AtomicBool>, JoinHandle<()>), PlaybackError> {
     let refreshes = RefreshKind::nothing().with_processes(ProcessRefreshKind::everything());
-    let system = System::new_with_specifics(refreshes);
+    let system = System::new_with_specifics(refreshes)
+        .map_err(|err| PlaybackError::Source(format!("Failed to read process list: {err}")))?;
     let source_app_name = source.to_string();
     let process_ids = system.processes_by_name(OsStr::new(source_app_name.as_str()));
     let mut process_id = 0;
