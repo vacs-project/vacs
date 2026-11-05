@@ -99,7 +99,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.150"
 sha1 = "0.11.0"
 syn = { version = "3.0.2", features = ["full"] }
-sysinfo = "0.39.3"
+sysinfo = "0.40.0"
 tar = "0.4.46"
 tauri = "2.12.1"
 tauri-build = "2.7.1"
