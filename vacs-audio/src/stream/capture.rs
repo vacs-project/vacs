@@ -28,6 +28,10 @@ const RESAMPLER_BUFFER_WAIT: Duration = Duration::from_micros(500);
 const INPUT_VOLUME_OPS_CAPACITY: usize = 16;
 const INPUT_VOLUME_OPS_PER_DATA_CALLBACK: usize = 16;
 const ENCODED_AUDIO_FRAME_BUFFER_SIZE: usize = 512;
+const CAPTURE_STATS_LOG_INTERVAL_FRAMES: u64 = 500;
+const SILENT_FRAME_PEAK: f32 = 1e-4;
+/// About -30 dBFS: quieter input is room noise the gate is meant to remove.
+const SPEECH_FRAME_PEAK: f32 = 0.0316;
 
 type InputVolumeOp = Box<dyn Fn(&mut f32) + Send>;
 
@@ -117,7 +121,7 @@ impl CaptureStream {
         let mut resampler = device.resampler()?;
 
         let (tx, _) = broadcast::channel(ENCODED_AUDIO_FRAME_BUFFER_SIZE);
-        let mut opus_framer = OpusFramer::new(tx.clone())?;
+        let mut opus_framer = OpusFramer::new(tx.clone(), muted.clone())?;
 
         let task = tokio::runtime::Handle::current().spawn_blocking(move || {
             tracing::trace!("Input capture stream task started");
@@ -224,10 +228,14 @@ impl CaptureStream {
                 }
             }
 
+            opus_framer.log_partial_stats();
             tracing::trace!("Input capture stream task completed");
         });
 
-        tracing::info!("Input capture stream started");
+        tracing::info!(
+            muted = muted.load(Ordering::Relaxed),
+            "Input capture stream started"
+        );
         Ok(Self {
             _stream: stream,
             volume_ops: Mutex::new(ops_prod),
@@ -310,7 +318,9 @@ impl CaptureStream {
     }
 
     pub fn set_muted(&self, muted: bool) {
-        self.muted.store(muted, Ordering::Relaxed);
+        if self.muted.swap(muted, Ordering::Relaxed) != muted && !self.is_level_meter {
+            tracing::debug!(muted, "Input capture mute changed");
+        }
     }
 
     pub fn is_muted(&self) -> bool {
@@ -358,10 +368,15 @@ struct OpusFramer {
     encoder: opus::Encoder,
     encoded: Vec<u8>,
     tx: broadcast::Sender<EncodedAudioFrame>,
+    muted: Arc<AtomicBool>,
+    stats: CaptureStats,
 }
 
 impl OpusFramer {
-    fn new(tx: broadcast::Sender<EncodedAudioFrame>) -> Result<Self, AudioError> {
+    fn new(
+        tx: broadcast::Sender<EncodedAudioFrame>,
+        muted: Arc<AtomicBool>,
+    ) -> Result<Self, AudioError> {
         let mut encoder = opus::Encoder::new(
             TARGET_SAMPLE_RATE,
             opus::Channels::Mono,
@@ -383,7 +398,17 @@ impl OpusFramer {
             encoder,
             encoded: vec![0u8; MAX_OPUS_FRAME_SIZE],
             tx,
+            muted,
+            stats: CaptureStats::default(),
         })
+    }
+
+    /// Logs the counters of an interval cut short by the end of the stream, so a
+    /// device that stops delivering still leaves a last line behind.
+    fn log_partial_stats(&mut self) {
+        if let Some(report) = self.stats.take_partial() {
+            report.log(true);
+        }
     }
 
     #[inline]
@@ -399,7 +424,17 @@ impl OpusFramer {
             samples = &samples[take..];
 
             if self.pos == FRAME_SIZE {
+                let input_peak = frame_peak(&self.frame);
                 self.processor.process_frame(&mut self.frame);
+                self.stats.gain = gain;
+                self.stats.record(
+                    self.muted.load(Ordering::Relaxed),
+                    input_peak,
+                    frame_peak(&self.frame),
+                );
+                if let Some(report) = self.stats.take_report() {
+                    report.log(false);
+                }
 
                 match self.encoder.encode_float(&self.frame, &mut self.encoded) {
                     Ok(len) => {
@@ -508,5 +543,205 @@ impl InputLevelMeter {
             return Some(out);
         }
         None
+    }
+}
+
+/// Peak magnitude of a frame, or `None` if it holds a NaN or infinite sample.
+fn frame_peak(frame: &[f32]) -> Option<f32> {
+    let mut peak = 0.0f32;
+    for &s in frame {
+        if !s.is_finite() {
+            return None;
+        }
+        peak = peak.max(s.abs());
+    }
+    Some(peak)
+}
+
+fn peak_dbfs(peak: f32) -> f32 {
+    if peak > 0.0 {
+        (200.0 * peak.log10()).round() / 10.0
+    } else {
+        -120.0
+    }
+}
+
+/// Per-interval counters over the frames handed to the encoder. Frames are
+/// counted, never the samples inside the device callback.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct CaptureStats {
+    frames: u64,
+    muted_frames: u64,
+    /// Unmuted frames that were exactly zero before processing.
+    zero_frames: u64,
+    /// Speech-level input that processing (noise gate, limiter) turned silent.
+    gated_frames: u64,
+    non_finite_input_frames: u64,
+    non_finite_output_frames: u64,
+    peak_input: f32,
+    peak_output: f32,
+    /// Input volume times amp of the latest frame; the peaks are measured after it.
+    gain: f32,
+    warned_non_finite: bool,
+}
+
+impl CaptureStats {
+    fn record(&mut self, muted: bool, input_peak: Option<f32>, output_peak: Option<f32>) {
+        self.frames += 1;
+        if muted {
+            self.muted_frames += 1;
+        }
+
+        match input_peak {
+            Some(peak) => {
+                self.peak_input = self.peak_input.max(peak);
+                if peak == 0.0 && !muted {
+                    self.zero_frames += 1;
+                }
+            }
+            None => self.non_finite_input_frames += 1,
+        }
+
+        match output_peak {
+            Some(peak) => {
+                self.peak_output = self.peak_output.max(peak);
+                if peak < SILENT_FRAME_PEAK && input_peak.is_some_and(|p| p >= SPEECH_FRAME_PEAK) {
+                    self.gated_frames += 1;
+                }
+            }
+            None => self.non_finite_output_frames += 1,
+        }
+
+        if !self.warned_non_finite && (input_peak.is_none() || output_peak.is_none()) {
+            self.warned_non_finite = true;
+            tracing::warn!(
+                input_finite = input_peak.is_some(),
+                output_finite = output_peak.is_some(),
+                "Non-finite samples in captured audio"
+            );
+        }
+    }
+
+    /// Returns the counters once an interval is complete and starts the next one.
+    fn take_report(&mut self) -> Option<Self> {
+        if self.frames < CAPTURE_STATS_LOG_INTERVAL_FRAMES {
+            return None;
+        }
+        Some(self.reset())
+    }
+
+    fn take_partial(&mut self) -> Option<Self> {
+        (self.frames > 0).then(|| self.reset())
+    }
+
+    fn reset(&mut self) -> Self {
+        let warned_non_finite = self.warned_non_finite;
+        let report = std::mem::take(self);
+        self.warned_non_finite = warned_non_finite;
+        report
+    }
+
+    fn log(&self, partial: bool) {
+        tracing::debug!(
+            partial,
+            frames = self.frames,
+            muted_frames = self.muted_frames,
+            zero_frames = self.zero_frames,
+            gated_frames = self.gated_frames,
+            non_finite_input_frames = self.non_finite_input_frames,
+            non_finite_output_frames = self.non_finite_output_frames,
+            peak_input_dbfs = peak_dbfs(self.peak_input),
+            peak_output_dbfs = peak_dbfs(self.peak_output),
+            gain = self.gain,
+            "Capture stats"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_peak_rejects_non_finite_samples() {
+        assert_eq!(frame_peak(&[0.1, -0.5, 0.2]), Some(0.5));
+        assert_eq!(frame_peak(&[0.1, f32::NAN]), None);
+        assert_eq!(frame_peak(&[f32::INFINITY]), None);
+        assert_eq!(frame_peak(&[0.0; 4]), Some(0.0));
+    }
+
+    #[test]
+    fn stats_separate_muted_zero_and_gated_frames() {
+        let mut stats = CaptureStats::default();
+        stats.record(true, Some(0.0), Some(0.0));
+        stats.record(false, Some(0.0), Some(0.0));
+        stats.record(false, Some(0.01), Some(0.0));
+        stats.record(false, Some(0.1), Some(0.0));
+        stats.record(false, Some(0.5), Some(0.4));
+
+        assert_eq!(stats.frames, 5);
+        assert_eq!(stats.muted_frames, 1);
+        assert_eq!(stats.zero_frames, 1);
+        assert_eq!(
+            stats.gated_frames, 1,
+            "only speech-level input silenced by processing counts as gated"
+        );
+        assert_eq!(stats.peak_input, 0.5);
+        assert_eq!(stats.peak_output, 0.4);
+    }
+
+    #[test]
+    fn stats_count_non_finite_frames_per_stage() {
+        let mut stats = CaptureStats::default();
+        stats.record(false, Some(0.2), None);
+        stats.record(false, None, None);
+
+        assert_eq!(stats.non_finite_input_frames, 1);
+        assert_eq!(stats.non_finite_output_frames, 2);
+        assert!(stats.warned_non_finite);
+    }
+
+    #[test]
+    fn report_is_taken_once_per_interval_and_resets_counters() {
+        let mut stats = CaptureStats::default();
+        stats.record(false, None, None);
+        for _ in 1..CAPTURE_STATS_LOG_INTERVAL_FRAMES - 1 {
+            stats.record(false, Some(0.1), Some(0.1));
+            assert!(stats.take_report().is_none());
+        }
+        stats.record(false, Some(0.1), Some(0.1));
+
+        let report = stats.take_report().expect("interval complete");
+        assert_eq!(report.frames, CAPTURE_STATS_LOG_INTERVAL_FRAMES);
+        assert_eq!(report.non_finite_input_frames, 1);
+
+        assert_eq!(stats.frames, 0);
+        assert_eq!(stats.peak_input, 0.0);
+        assert!(
+            stats.warned_non_finite,
+            "the non-finite warning stays once per stream"
+        );
+    }
+
+    #[test]
+    fn partial_report_covers_an_unfinished_interval_once() {
+        let mut stats = CaptureStats::default();
+        assert!(stats.take_partial().is_none());
+
+        stats.gain = 2.0;
+        stats.record(false, Some(0.1), Some(0.1));
+        stats.record(false, Some(0.1), Some(0.1));
+
+        let report = stats.take_partial().expect("frames recorded");
+        assert_eq!(report.frames, 2);
+        assert_eq!(report.gain, 2.0);
+        assert!(stats.take_partial().is_none());
+    }
+
+    #[test]
+    fn peak_dbfs_rounds_and_floors_silence() {
+        assert_eq!(peak_dbfs(1.0), 0.0);
+        assert_eq!(peak_dbfs(0.5), -6.0);
+        assert_eq!(peak_dbfs(0.0), -120.0);
     }
 }
