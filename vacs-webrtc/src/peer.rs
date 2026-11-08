@@ -6,7 +6,7 @@ use crate::error::WebrtcError;
 use anyhow::Context;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -22,6 +22,9 @@ use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::rtcp::packet::Packet as RtcpPacket;
+use webrtc::rtcp::receiver_report::ReceiverReport;
+use webrtc::rtcp::sender_report::SenderReport;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::TrackLocal;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
@@ -62,6 +65,7 @@ pub struct Peer {
     forwarded_rtp: Arc<AtomicU64>,
     received_rtcp: Arc<AtomicU64>,
     sent_frames: Arc<AtomicU64>,
+    remote_reception: Arc<RemoteReception>,
     rtcp_reader: JoinHandle<()>,
     watchdog: Option<JoinHandle<()>>,
 }
@@ -116,6 +120,7 @@ impl Peer {
         let forwarded_rtp = Arc::new(AtomicU64::new(0));
         let received_rtcp = Arc::new(AtomicU64::new(0));
         let sent_frames = Arc::new(AtomicU64::new(0));
+        let remote_reception = Arc::new(RemoteReception::default());
 
         let receiver = crate::Receiver::new(
             &peer_connection,
@@ -125,11 +130,13 @@ impl Peer {
 
         let rtcp_reader = {
             let received_rtcp = Arc::clone(&received_rtcp);
+            let remote_reception = Arc::clone(&remote_reception);
             tokio::spawn(async move {
                 // Draining RTCP also drives the default interceptors; the counter feeds the
                 // no-inbound-media watchdog.
-                while rtp_sender.read_rtcp().await.is_ok() {
+                while let Ok((packets, _)) = rtp_sender.read_rtcp().await {
                     received_rtcp.fetch_add(1, Ordering::Relaxed);
+                    remote_reception.record(&packets);
                 }
                 tracing::trace!("RTCP reader task finished");
             })
@@ -226,6 +233,7 @@ impl Peer {
                 forwarded_rtp,
                 received_rtcp,
                 sent_frames,
+                remote_reception,
                 rtcp_reader,
                 watchdog: None,
             },
@@ -263,6 +271,7 @@ impl Peer {
             Arc::clone(&self.forwarded_rtp),
             Arc::clone(&self.received_rtcp),
             Arc::clone(&self.sent_frames),
+            Arc::clone(&self.remote_reception),
             self.events_tx.clone(),
         ));
 
@@ -465,6 +474,7 @@ fn spawn_media_watchdog(
     forwarded_rtp: Arc<AtomicU64>,
     received_rtcp: Arc<AtomicU64>,
     sent_frames: Arc<AtomicU64>,
+    remote_reception: Arc<RemoteReception>,
     events_tx: broadcast::Sender<PeerEvent>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -479,10 +489,13 @@ fn spawn_media_watchdog(
         let mut last_inbound_change = started_at;
         let mut fired = false;
         let mut ticks: u64 = 0;
+        let mut seq_advance = SeqAdvance::default();
+        seq_advance.observe(&remote_reception.snapshot());
 
         loop {
             interval.tick().await;
             ticks += 1;
+            seq_advance.observe(&remote_reception.snapshot());
 
             let inbound = (
                 received_rtp.load(Ordering::Relaxed),
@@ -509,16 +522,117 @@ fn spawn_media_watchdog(
             }
 
             if ticks.is_multiple_of(MEDIA_STATS_LOG_INTERVAL_TICKS) {
+                let remote = remote_reception.snapshot();
                 tracing::debug!(
                     inbound_rtp = inbound.0,
                     forwarded_rtp = forwarded_rtp.load(Ordering::Relaxed),
                     inbound_rtcp = inbound.1,
                     outbound_frames = sent_frames.load(Ordering::Relaxed),
+                    remote_reports = remote.reports,
+                    remote_highest_seq = remote.highest_seq,
+                    remote_seq_advance = seq_advance.take(&remote),
+                    remote_total_lost = remote.total_lost,
+                    remote_fraction_lost_pct = remote.fraction_lost_pct(),
+                    remote_jitter_ms = remote.jitter_ms(),
                     "Call media stats"
                 );
             }
         }
     })
+}
+
+/// The remote's view of our outbound stream, from the reception report blocks of the RTCP receiver
+/// and sender reports it sends. Its interceptors build these from the packets that reached its
+/// transport, before its application handles them.
+#[derive(Debug, Default)]
+struct RemoteReception {
+    reports: AtomicU64,
+    highest_seq: AtomicU32,
+    total_lost: AtomicU32,
+    fraction_lost: AtomicU32,
+    jitter: AtomicU32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RemoteReceptionSnapshot {
+    reports: u64,
+    highest_seq: u32,
+    total_lost: u32,
+    fraction_lost: u32,
+    jitter: u32,
+}
+
+impl RemoteReception {
+    fn record(&self, packets: &[Box<dyn RtcpPacket + Send + Sync>]) {
+        for packet in packets {
+            let packet = packet.as_any();
+            let reports = if let Some(rr) = packet.downcast_ref::<ReceiverReport>() {
+                &rr.reports
+            } else if let Some(sr) = packet.downcast_ref::<SenderReport>() {
+                &sr.reports
+            } else {
+                continue;
+            };
+
+            // A peer sends a single audio track, so every block describes that stream.
+            for report in reports {
+                self.reports.fetch_add(1, Ordering::Relaxed);
+                self.highest_seq
+                    .store(report.last_sequence_number, Ordering::Relaxed);
+                self.total_lost.store(report.total_lost, Ordering::Relaxed);
+                self.fraction_lost
+                    .store(u32::from(report.fraction_lost), Ordering::Relaxed);
+                self.jitter.store(report.jitter, Ordering::Relaxed);
+            }
+        }
+    }
+
+    fn snapshot(&self) -> RemoteReceptionSnapshot {
+        RemoteReceptionSnapshot {
+            reports: self.reports.load(Ordering::Relaxed),
+            highest_seq: self.highest_seq.load(Ordering::Relaxed),
+            total_lost: self.total_lost.load(Ordering::Relaxed),
+            fraction_lost: self.fraction_lost.load(Ordering::Relaxed),
+            jitter: self.jitter.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl RemoteReceptionSnapshot {
+    fn fraction_lost_pct(&self) -> f32 {
+        (self.fraction_lost as f32 * 1000.0 / 256.0).round() / 10.0
+    }
+
+    fn jitter_ms(&self) -> f32 {
+        (self.jitter as f32 * 10_000.0 / TARGET_SAMPLE_RATE as f32).round() / 10.0
+    }
+}
+
+/// How far the remote's highest received sequence number moved between two stats lines. A flat
+/// advance while we keep sending means our packets stopped reaching the remote.
+#[derive(Debug, Default)]
+struct SeqAdvance {
+    baseline: Option<u32>,
+}
+
+impl SeqAdvance {
+    /// Seeds the baseline from the first report: our sequence numbers start at a random value,
+    /// so a baseline taken before any report would turn that offset into a bogus advance.
+    fn observe(&mut self, snapshot: &RemoteReceptionSnapshot) {
+        if self.baseline.is_none() && snapshot.reports > 0 {
+            self.baseline = Some(snapshot.highest_seq);
+        }
+    }
+
+    fn take(&mut self, snapshot: &RemoteReceptionSnapshot) -> Option<u32> {
+        let advance = self
+            .baseline
+            .map(|baseline| snapshot.highest_seq.wrapping_sub(baseline));
+        if snapshot.reports > 0 {
+            self.baseline = Some(snapshot.highest_seq);
+        }
+        advance
+    }
 }
 
 /// Checks whether an address is within the CGNAT range 100.64.0.0/10 (RFC 6598), which is
@@ -538,6 +652,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_matches;
     use test_log::test;
+    use webrtc::rtcp::reception_report::ReceptionReport;
 
     /// Building a peer without ICE servers keeps these tests offline: nothing
     /// is gathered until a local description is set.
@@ -636,6 +751,88 @@ mod tests {
         assert!(peer.receiver.is_none(), "stop must drop the receiver");
     }
 
+    fn reception_report(last_sequence_number: u32, total_lost: u32) -> ReceptionReport {
+        ReceptionReport {
+            ssrc: 1,
+            fraction_lost: 64,
+            total_lost,
+            last_sequence_number,
+            jitter: 480,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn remote_reception_tracks_receiver_and_sender_report_blocks() {
+        let reception = RemoteReception::default();
+        let packets: Vec<Box<dyn RtcpPacket + Send + Sync>> = vec![
+            Box::new(ReceiverReport {
+                ssrc: 2,
+                reports: vec![reception_report(100, 1)],
+                ..Default::default()
+            }),
+            Box::new(SenderReport {
+                ssrc: 2,
+                reports: vec![reception_report(150, 3)],
+                ..Default::default()
+            }),
+        ];
+
+        reception.record(&packets);
+
+        let snapshot = reception.snapshot();
+        assert_eq!(snapshot.reports, 2);
+        assert_eq!(snapshot.highest_seq, 150);
+        assert_eq!(snapshot.total_lost, 3);
+        assert_eq!(snapshot.fraction_lost_pct(), 25.0);
+        assert_eq!(snapshot.jitter_ms(), 10.0);
+    }
+
+    #[test]
+    fn remote_reception_ignores_reports_without_blocks() {
+        let reception = RemoteReception::default();
+        let packets: Vec<Box<dyn RtcpPacket + Send + Sync>> = vec![Box::new(ReceiverReport {
+            ssrc: 2,
+            ..Default::default()
+        })];
+
+        reception.record(&packets);
+
+        assert_eq!(reception.snapshot().reports, 0);
+    }
+
+    fn reception_snapshot(reports: u64, highest_seq: u32) -> RemoteReceptionSnapshot {
+        RemoteReceptionSnapshot {
+            reports,
+            highest_seq,
+            total_lost: 0,
+            fraction_lost: 0,
+            jitter: 0,
+        }
+    }
+
+    #[test]
+    fn seq_advance_ignores_the_random_initial_sequence_number() {
+        let mut advance = SeqAdvance::default();
+        advance.observe(&reception_snapshot(0, 0));
+        assert_eq!(advance.take(&reception_snapshot(0, 0)), None);
+
+        advance.observe(&reception_snapshot(1, 60_000));
+        assert_eq!(advance.take(&reception_snapshot(9, 60_450)), Some(450));
+        assert_eq!(
+            advance.take(&reception_snapshot(19, 60_450)),
+            Some(0),
+            "a stalled remote shows no advance while reports keep arriving"
+        );
+    }
+
+    #[test]
+    fn seq_advance_resumes_from_the_live_value_after_a_restart() {
+        let mut advance = SeqAdvance::default();
+        advance.observe(&reception_snapshot(40, 70_000));
+        assert_eq!(advance.take(&reception_snapshot(50, 70_500)), Some(500));
+    }
+
     struct WatchdogRig {
         received_rtp: Arc<AtomicU64>,
         received_rtcp: Arc<AtomicU64>,
@@ -653,6 +850,7 @@ mod tests {
                 Arc::new(AtomicU64::new(0)),
                 Arc::clone(&received_rtcp),
                 Arc::new(AtomicU64::new(0)),
+                Arc::new(RemoteReception::default()),
                 events_tx,
             );
             Self {
