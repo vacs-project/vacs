@@ -17,14 +17,6 @@ inputs:
       when specs are updated for newer dataset states.
     default: "39b4712a10b3c84566d3d4b50caf972ed1381769"
 
-outputs:
-  browser-cache-key:
-    description: Exact key to save the Chrome for Testing cache under.
-    value: ${{ steps.browser-cache.outputs.cache-primary-key }}
-  browser-cache-hit:
-    description: Whether the exact browser cache key was restored.
-    value: ${{ steps.browser-cache.outputs.cache-hit }}
-
 runs:
   using: composite
   steps:
@@ -168,24 +160,6 @@ runs:
           ~/.cargo/bin/vatsim-mock
           ~/.cargo/bin/vatsim-mock.exe
         key: ${{ steps.vatsim-api-hash.outputs.key }}
-
-    - name: Compute browser cache key
-      id: browser-week
-      # Rotate weekly: "stable" moves on its own cadence, so a fresh key
-      # forces at most one re-download per week while restore-keys keep
-      # serving the previous browser in the meantime.
-      shell: bash
-      run: echo "week=$(date +%G-%V)" >> "$GITHUB_OUTPUT"
-
-    - name: Restore Chrome for Testing
-      id: browser-cache
-      # Saved by the calling workflow only after the suite passed, so a
-      # partial download can never become a cache entry.
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.cache/wdio-browsers
-        key: e2e-browsers-${{ runner.os }}-${{ steps.browser-week.outputs.week }}
-        restore-keys: e2e-browsers-${{ runner.os }}-
 
     - name: Install npm dependencies
       shell: bash

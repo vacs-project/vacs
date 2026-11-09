@@ -28,7 +28,7 @@ export const config: WebdriverIO.MultiremoteConfig = {
     ...base,
     specs: ["./specs-remote/**/*.ts"],
     // Chrome for Testing downloads default to os.tmpdir(); pin them to a
-    // deterministic location so CI can cache the browser between runs.
+    // deterministic location so local runs reuse the browser.
     cacheDir: path.join(os.homedir(), ".cache", "wdio-browsers"),
     capabilities: {
         clientA: {
