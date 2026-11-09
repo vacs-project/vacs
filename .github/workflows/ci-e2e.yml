@@ -27,7 +27,6 @@ jobs:
           persist-credentials: false
 
       - name: Set up the E2E environment
-        id: setup
         uses: $/.github/actions/setup-e2e
         with:
           platform: ${{ matrix.platform }}
@@ -48,13 +47,6 @@ jobs:
         env:
           RUST_BACKTRACE: "1"
           VACS_DATA_DIR: ${{ github.workspace }}/vacs-data
-
-      - name: Save Chrome for Testing
-        if: success() && steps.setup.outputs.browser-cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/wdio-browsers
-          key: ${{ steps.setup.outputs.browser-cache-key }}
 
       - name: Summary
         shell: bash
