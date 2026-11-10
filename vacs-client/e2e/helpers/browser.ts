@@ -180,6 +180,30 @@ export function callDisplaySlot(browser: WebdriverIO.Browser): ChainablePromiseE
 }
 
 /**
+ * Returns the answer key of a ringing conference invitation, meaning one with
+ * more than one other party. It reads "CONF" instead of naming the caller and
+ * carries no title attribute for callQueueSlot to key off. Answer keys are the
+ * h-16 buttons sitting directly in the call queue column; the call display,
+ * which reads "CONF" for a conference as well, is wrapped in its own div.
+ */
+export function conferenceAnswerKey(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$(
+        '//div[contains(@class, "scrollbar-none")]' +
+            '/button[contains(@class, "h-16")][normalize-space()="CONF"]',
+    );
+}
+
+/** Waits until the call display reads "CONF", which it does from the third party on. */
+export async function waitForConferenceCallDisplay(browser: WebdriverIO.Browser): Promise<void> {
+    await browser.waitUntil(
+        async () =>
+            (await callDisplaySlot(browser).isExisting()) &&
+            (await callDisplaySlot(browser).getText()).trim() === "CONF",
+        {timeoutMsg: "Call display did not read CONF"},
+    );
+}
+
+/**
  * Waits until the call display is labeled with the given display name. Needed
  * where callQueueSlot is ambiguous: the same label sits on an answer key
  * while that client is still ringing in.
@@ -319,6 +343,79 @@ export async function waitForCallColor(
         {
             timeoutMsg: `Element did not become ${options.active ? "active (green)" : "idle"}`,
         },
+    );
+}
+
+/**
+ * Waits until a key blinks green the way it does for a client ringing in (the
+ * caller, or a participant already joined to the ringing call). It has to be
+ * seen both green and gray, which separates it from the steady green of a
+ * participant in the current call. Sampled faster than the 500ms blink so
+ * the polling cannot alias with it.
+ */
+export async function waitForCallingKey(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    let seenGreen = false;
+    let seenGray = false;
+    await browser.waitUntil(
+        async () => {
+            const classes = (await element.getAttribute("class")) ?? "";
+            seenGreen ||= classes.includes("bg-[#4b8747]");
+            seenGray ||= classes.includes("bg-gray-300");
+            return seenGreen && seenGray;
+        },
+        {interval: 150, timeoutMsg: "Key did not blink green for a client ringing in"},
+    );
+}
+
+/**
+ * Waits until a key shows a target that is still being invited into the
+ * current call: a gray key carrying the green inner highlight, steady over a
+ * window longer than two blink periods. The window is what separates it from
+ * a rejected target, which carries the same highlight but blinks the key.
+ */
+export async function waitForPendingKey(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    await browser.waitUntil(
+        async () => {
+            for (let sample = 0; sample < 12; sample++) {
+                const classes = (await element.getAttribute("class")) ?? "";
+                const highlighted = await element
+                    .$('./div[contains(@class, "bg-[#4b8747]")]')
+                    .isExisting();
+                if (!highlighted || !classes.includes("bg-gray-300")) return false;
+                await browser.pause(100);
+            }
+            return true;
+        },
+        {timeoutMsg: "Key did not show a steady pending invitation"},
+    );
+}
+
+/**
+ * Waits until a key shows no call state at all: plain gray without an inner
+ * highlight, steady over a window longer than two blink periods, so neither a
+ * ringing nor a rejected or errored key can pass in its gray half.
+ */
+export async function waitForIdleKey(
+    browser: WebdriverIO.Browser,
+    element: ChainablePromiseElement,
+): Promise<void> {
+    await browser.waitUntil(
+        async () => {
+            for (let sample = 0; sample < 12; sample++) {
+                const classes = (await element.getAttribute("class")) ?? "";
+                const highlighted = await element.$("./div").isExisting();
+                if (highlighted || !classes.includes("bg-gray-300")) return false;
+                await browser.pause(100);
+            }
+            return true;
+        },
+        {timeoutMsg: "Key did not settle on the idle state"},
     );
 }
 
