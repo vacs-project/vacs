@@ -35,6 +35,23 @@ export function conferenceKeyTargets(
         );
 }
 
+export function conferenceKeyCoverage(
+    stationIds: StationId[],
+    callDisplay: CallDisplay | undefined,
+): {allJoined: boolean; allCovered: boolean} {
+    if (callDisplay === undefined || stationIds.length === 0) {
+        return {allJoined: false, allCovered: false};
+    }
+    const {joinedParticipants, invitedTargets} = callDisplay.call;
+    const joined = (station: StationId) => hasTarget(joinedParticipants, {station});
+    return {
+        allJoined: callDisplay.type === "accepted" && stationIds.every(joined),
+        allCovered: stationIds.every(
+            station => joined(station) || hasTarget(invitedTargets, {station}),
+        ),
+    };
+}
+
 export function shouldInvite(
     targets: CallTarget[],
     callDisplay: CallDisplay | undefined,
@@ -81,6 +98,7 @@ export function useStationKeyInteraction(
                 hasTarget(call.joinedParticipants, {station: stationId})),
     );
     const isCalling = incomingCall !== undefined && !own;
+    const coverage = conferenceKeyCoverage(isConference ? stationIds : [], callDisplay);
     const beingCalled =
         hasStationId &&
         !own &&
@@ -193,9 +211,9 @@ export function useStationKeyInteraction(
             (incomingCall?.prio ?? false));
 
     const {color, highlight} = getCallStateColors({
-        inCall,
+        inCall: inCall || coverage.allJoined,
         isCalling,
-        beingCalled,
+        beingCalled: beingCalled || (coverage.allCovered && !coverage.allJoined),
         isRejected,
         isError,
         isTarget,
