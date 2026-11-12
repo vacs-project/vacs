@@ -60,14 +60,19 @@ export const isPlaybackRoot = () => {
     return openInstanceIds[0] === INSTANCE_ID;
 };
 
+export const stopPlayback = async () => {
+    if (usePlaybackStore.getState().status === undefined) return;
+    try {
+        await invokeStrict("playback_stop");
+        usePlaybackStore.getState().actions.setStatus(undefined);
+    } catch {}
+};
+
 export const toggleSayAgain = async () => {
     const {status, playbackDevice, actions} = usePlaybackStore.getState();
 
     if (status?.sayAgain === true) {
-        try {
-            await invokeStrict("playback_stop");
-            actions.setStatus(undefined);
-        } catch {}
+        await stopPlayback();
         return;
     }
 

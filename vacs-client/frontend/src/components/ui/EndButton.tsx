@@ -4,6 +4,7 @@ import {useAsyncDebounce} from "../../hooks/debounce-hook.ts";
 import {useCallStore} from "../../stores/call-store.ts";
 import {useFilterStore} from "../../stores/filter-store.ts";
 import {goToPage} from "../../stores/navigation-store.ts";
+import {stopPlayback} from "../../stores/playback-store.ts";
 import {useProfileStore, useProfileType} from "../../stores/profile-store.ts";
 import Button from "./Button.tsx";
 import {useSplitView} from "../../hooks/page-hook.ts";
@@ -40,6 +41,7 @@ function EndButton() {
         }
         goToPage(splitView ? "split" : "phone");
 
+        void stopPlayback();
         void endAnyCall();
     };
 
