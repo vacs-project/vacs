@@ -193,6 +193,39 @@ export function conferenceAnswerKey(browser: WebdriverIO.Browser): ChainableProm
     );
 }
 
+/**
+ * Returns the answer key of a ringing incoming call, whatever its label. Like
+ * conferenceAnswerKey it relies on answer keys being the h-16 buttons sitting
+ * directly in the call queue column, so only use it while at most one call
+ * rings in.
+ */
+export function answerKey(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//div[contains(@class, "scrollbar-none")]/button[contains(@class, "h-16")]');
+}
+
+/**
+ * Returns the direct access key of a tabbed profile carrying all the given
+ * label lines, each a paragraph with the line in its title. Call queue slots
+ * (h-16) are excluded: a call to a station shows the key's label on the call
+ * display as well.
+ */
+export function directAccessKey(
+    browser: WebdriverIO.Browser,
+    ...labelLines: string[]
+): ChainablePromiseElement {
+    const lines = labelLines.map(line => `.//p[@title="${line}"]`).join(" and ");
+    return browser.$(`//button[not(contains(@class, "h-16"))][${lines}]`);
+}
+
+/**
+ * Returns the info grid cell that names the reason of a failed call or of an
+ * errored target (the bottom right one, the only uppercase cell). It is empty
+ * while the current call carries no error.
+ */
+export function callErrorCell(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//div[contains(@class, "info-grid-cell")][contains(@class, "uppercase")]');
+}
+
 /** Waits until the call display reads "CONF", which it does from the third party on. */
 export async function waitForConferenceCallDisplay(browser: WebdriverIO.Browser): Promise<void> {
     await browser.waitUntil(
