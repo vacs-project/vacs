@@ -143,6 +143,21 @@ impl CallManager {
         self.active_calls.read().len()
     }
 
+    pub fn clients_in_call(&self, call_id: &CallId) -> HashSet<ClientId> {
+        let mut clients: HashSet<ClientId> = self
+            .active_calls
+            .read()
+            .get(call_id)
+            .map(|call| call.participants.keys().cloned().collect())
+            .unwrap_or_default();
+        if let Some(call) = self.ringing_calls.read().get(call_id) {
+            for target in call.targets.values() {
+                clients.extend(target.notified_clients.iter().cloned());
+            }
+        }
+        clients
+    }
+
     pub fn invite_exceeds_max_conf_size(
         &self,
         call_id: &CallId,
