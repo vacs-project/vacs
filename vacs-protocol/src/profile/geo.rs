@@ -130,17 +130,26 @@ pub struct GeoPageButton {
 
     /// The optional direct access page that opens when this button is clicked.
     ///
-    /// If [`GeoPageButton::page`] and [`GeoPageButton::station_id`] are `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
-    /// This field is mutually exclusive with [`GeoPageButton::station_id`].
+    /// If [`GeoPageButton::page`], [`GeoPageButton::station_id`] and [`GeoPageButton::station_ids`] are `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
+    /// This field is mutually exclusive with [`GeoPageButton::station_id`] and [`GeoPageButton::station_ids`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<DirectAccessPage>,
 
     /// The optional station ID associated with this button.
     ///
-    /// If [`GeoPageButton::page`] and [`GeoPageButton::station_id`] are `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
-    /// This field is mutually exclusive with [`GeoPageButton::page`].
+    /// If [`GeoPageButton::page`], [`GeoPageButton::station_id`] and [`GeoPageButton::station_ids`] are `None`, the button will be displayed and clickable on the UI, but will otherwise be non-functional.
+    /// This field is mutually exclusive with [`GeoPageButton::page`] and [`GeoPageButton::station_ids`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_id: Option<StationId>,
+
+    /// The optional stations of a conference button, called together in one call.
+    ///
+    /// Unlike [`GeoPageButton::station_id`], which starts a 1:1 call with one station, this rings all listed
+    /// stations at once. Holds 2 to 7 distinct station IDs. This field is mutually exclusive with
+    /// [`GeoPageButton::station_id`] and [`GeoPageButton::page`]. Clients that predate it show the button without a
+    /// function.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_ids: Option<Vec<StationId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

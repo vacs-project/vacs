@@ -662,6 +662,69 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
         ))));
     }
 
+    fn write_profile(dir: &std::path::Path, fir: &str, id: &str, content: &str) {
+        let profiles = dir.join(fir).join("profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        std::fs::write(profiles.join(format!("{id}.toml")), content).unwrap();
+    }
+
+    #[test]
+    fn load_from_dir_accepts_conference_key_across_firs() {
+        let dir = tempfile::tempdir().unwrap();
+        create_minimal_valid_fir(dir.path(), "LOVV");
+        create_minimal_valid_fir(dir.path(), "EDMM");
+        write_profile(
+            dir.path(),
+            "LOVV",
+            "LOVV_CONF",
+            r#"
+id = "LOVV_CONF"
+type = "Tabbed"
+
+[[tabs]]
+label = "Main"
+page.rows = 1
+page.keys = [{ label = "CONF", station_ids = ["LOVV_CTR", "EDMM_CTR"] }]
+"#,
+        );
+
+        let network = Network::load_from_dir(dir.path()).unwrap();
+        let profile = network.get_profile(&ProfileId::from("LOVV_CONF")).unwrap();
+        assert_eq!(
+            profile.relevant_station_ids,
+            HashSet::from(["LOVV_CTR", "EDMM_CTR"].map(StationId::from))
+        );
+    }
+
+    #[test]
+    fn load_from_dir_rejects_conference_key_with_unknown_station() {
+        let dir = tempfile::tempdir().unwrap();
+        create_minimal_valid_fir(dir.path(), "LOVV");
+        write_profile(
+            dir.path(),
+            "LOVV",
+            "LOVV_CONF",
+            r#"
+id = "LOVV_CONF"
+type = "Geo"
+direction = "row"
+
+[[children]]
+label = "CONF"
+size = 1.0
+station_ids = ["LOVV_CTR", "LOWW_APP"]
+"#,
+        );
+
+        let errors = Network::load_from_dir(dir.path()).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(causes(&errors[0], |x| matches!(
+            x,
+            CoverageError::Validation(ValidationError::MissingReference { field, ref_id })
+                if field == "station_ids" && ref_id == "LOWW_APP"
+        )));
+    }
+
     #[test]
     fn load_from_dir_valid_single() {
         let dir = tempfile::tempdir().unwrap();
