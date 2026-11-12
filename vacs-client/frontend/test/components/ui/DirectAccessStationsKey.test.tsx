@@ -11,7 +11,7 @@ vi.mock("../../../src/transport", () => ({invoke, listen, isTauri: false, isRemo
 
 import {act, cleanup, fireEvent, render, screen} from "@testing-library/preact";
 import DirectAccessStationsKey from "../../../src/components/ui/DirectAccessStationsKey.tsx";
-import {ButtonColors} from "../../../src/components/ui/Button.tsx";
+import {ButtonColors, ButtonHighlightColors} from "../../../src/components/ui/Button.tsx";
 import {useCallStore} from "../../../src/stores/call-store.ts";
 import {useAuthStore} from "../../../src/stores/auth-store.ts";
 import {useStationsStore} from "../../../src/stores/stations-store.ts";
@@ -73,7 +73,7 @@ describe("DirectAccessStationsKey with a conference key", () => {
         });
     });
 
-    it("stays gray and does nothing on press during a call with its stations", async () => {
+    function setCall(joined: StationId[], invited: StationId[], type: "accepted" | "outgoing") {
         useAuthStore.setState({cid: "1000000" as ClientId});
         useStationsStore.setState({
             stations: new Map<StationId, boolean>([
@@ -81,30 +81,53 @@ describe("DirectAccessStationsKey with a conference key", () => {
                 [B, false],
             ]),
         });
-        const display = makeTestCallDisplay("accepted", {
+        const display = makeTestCallDisplay(type, {
             callId: "call0" as CallId,
-            invitedTargets: [{station: B}],
+            invitedTargets: invited.map(station => ({station})),
         });
         useCallStore.setState({
             callDisplay: {
                 ...display,
                 call: {
                     ...display.call,
-                    joinedParticipants: {
-                        ["peer0" as ClientId]: {target: {station: A}, state: "connected"},
-                    },
+                    joinedParticipants: Object.fromEntries(
+                        joined.map((station, i) => [
+                            `peer${i}` as ClientId,
+                            {target: {station}, state: "connected"},
+                        ]),
+                    ),
                 },
             },
         });
+    }
+
+    it("lights up and does nothing on press when all stations are joined or invited", async () => {
+        setCall([A], [B], "accepted");
         renderKey();
 
-        expect(screen.getByRole("button")).toHaveClasses(ButtonColors.gray);
-        expect(screen.getByRole("button").querySelector("div")).toBeNull();
+        expect(screen.getByRole("button").querySelector("div")).toHaveClasses(
+            ButtonHighlightColors.green,
+        );
 
         await click();
 
         const signaling = invoke.mock.calls.filter(([cmd]) => cmd.startsWith("signaling_"));
         expect(signaling).toEqual([]);
+    });
+
+    it("turns green when all of its stations have joined", () => {
+        setCall([A, B], [], "accepted");
+        renderKey();
+
+        expect(screen.getByRole("button")).toHaveClasses(ButtonColors.green);
+    });
+
+    it("stays gray while only some of its stations are in the call", () => {
+        setCall([A], [], "accepted");
+        renderKey();
+
+        expect(screen.getByRole("button")).toHaveClasses(ButtonColors.gray);
+        expect(screen.getByRole("button").querySelector("div")).toBeNull();
     });
 
     it("does not light up for an incoming call from one of its stations", () => {
