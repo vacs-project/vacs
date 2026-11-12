@@ -12,6 +12,7 @@ import {
     hasTarget,
     callSourceToTarget,
     participantCount,
+    sameTarget,
 } from "../types/call.ts";
 import {CallId, ClientId, StationId} from "../types/generic.ts";
 import {useConnectionStore} from "./connection-store.ts";
@@ -55,6 +56,7 @@ type CallState = {
         removeCall: (id: CallId, callEnd?: boolean) => void;
         cancelInvitedTarget: (id: CallId, target: CallTarget) => void;
         rejectTargets: (id: CallId, targets: CallTarget[]) => void;
+        dropCoveredTarget: (id: CallId, target: CallTarget) => void;
         dismissRejectedCall: () => void;
         dismissRejectedTarget: (target: CallTarget) => void;
         errorTargets: (error: CallError) => void;
@@ -395,6 +397,31 @@ export const useCallStore = create<CallState>()((set, get) => ({
             set({callDisplay});
 
             startBlink();
+        },
+        dropCoveredTarget: (id, target) => {
+            const callDisplay = get().callDisplay;
+            if (callDisplay?.call.callId !== id || isTerminalCallDisplay(callDisplay)) return;
+
+            const others = (targets: CallTarget[]) =>
+                targets.filter(other => !sameTarget(other, target));
+            const invitedTargets = others(callDisplay.call.invitedTargets);
+
+            set({
+                callDisplay: {
+                    ...callDisplay,
+                    call: {
+                        ...callDisplay.call,
+                        target:
+                            sameTarget(callDisplay.call.target, target) && invitedTargets.length > 0
+                                ? invitedTargets[0]
+                                : callDisplay.call.target,
+                        invitedTargets,
+                        ownInvitedTargets: others(callDisplay.call.ownInvitedTargets),
+                    },
+                    prioTargets: others(callDisplay.prioTargets),
+                },
+            });
+            removeTargetsFromCallListEntry(id, [target]);
         },
         dismissRejectedCall: () => {
             set({callDisplay: undefined});

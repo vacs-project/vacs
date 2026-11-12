@@ -1,5 +1,11 @@
 import {useStationsStore} from "../stores/stations-store.ts";
-import {canAcceptIncomingCall, startCall, useCallStore} from "../stores/call-store.ts";
+import {
+    CallDisplay,
+    canAcceptIncomingCall,
+    ConferenceState,
+    startCall,
+    useCallStore,
+} from "../stores/call-store.ts";
 import {useAsyncDebounce} from "./debounce-hook.ts";
 import {invokeSafe, invokeStrict} from "../error.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
@@ -9,13 +15,44 @@ import {CustomButtonColor} from "../types/custom-button-colors.ts";
 import {useBlinkStore} from "../stores/blink-store.ts";
 import {CallTarget, hasTarget, participantCount} from "../types/call.ts";
 
+export function keyStationIds(key: {stationId?: StationId; stationIds?: StationId[]}) {
+    return key.stationIds ?? (key.stationId !== undefined ? [key.stationId] : []);
+}
+
+export function conferenceKeyTargets(
+    stationIds: StationId[],
+    callDisplay: CallDisplay | undefined,
+    stations: Map<StationId, boolean>,
+): CallTarget[] {
+    return stationIds
+        .filter(stationId => stations.get(stationId) === false)
+        .map((station): CallTarget => ({station}))
+        .filter(
+            target =>
+                callDisplay === undefined ||
+                (!hasTarget(callDisplay.call.joinedParticipants, target) &&
+                    !hasTarget(callDisplay.call.invitedTargets, target)),
+        );
+}
+
+export function shouldInvite(
+    targets: CallTarget[],
+    callDisplay: CallDisplay | undefined,
+    conferenceState: ConferenceState,
+): boolean {
+    if (targets.length === 0) return false;
+    if (callDisplay === undefined) return true;
+    return conferenceState === "modify" && callDisplay.call.isConferenceLeader !== false;
+}
+
 export function useStationKeyInteraction(
-    stationId: StationId | undefined,
+    stationIds: StationId[],
     defaultColor?: CustomButtonColor,
 ) {
     const blink = useBlinkStore(state => state.blink);
     const stations = useStationsStore(state => state.stations);
     const callDisplay = useCallStore(state => state.callDisplay);
+    const conferenceState = useCallStore(state => state.conferenceState);
     const incomingCalls = useCallStore(state => state.incomingCalls);
     const {endCall, cancelInvitedTarget, dismissRejectedTarget, dismissErrorTarget} = useCallStore(
         state => state.actions,
@@ -30,6 +67,8 @@ export function useStationKeyInteraction(
     const enablePrio = useSettingsStore(state => state.callConfig.enablePriorityCalls);
     const endActiveCallOnAccept = useSettingsStore(state => state.callConfig.endActiveCallOnAccept);
 
+    const isConference = stationIds.length > 1;
+    const stationId = isConference ? undefined : stationIds[0];
     const hasStationId = stationId !== undefined;
     const station = hasStationId && stations.get(stationId);
     const online = station !== undefined;
@@ -72,6 +111,13 @@ export function useStationKeyInteraction(
                 callDisplay.call.target.station === stationId));
 
     const handleClick = useAsyncDebounce(async () => {
+        if (isConference) {
+            const targets = conferenceKeyTargets(stationIds, callDisplay, stations);
+            if (shouldInvite(targets, callDisplay, conferenceState)) {
+                await startCall(...targets);
+            }
+            return;
+        }
         if (!hasStationId) return;
 
         if (own) {
@@ -161,5 +207,9 @@ export function useStationKeyInteraction(
         defaultColor,
     });
 
-    return {color, highlight, disabled: !hasStationId || !online, own, handleClick};
+    const disabled = isConference
+        ? !stationIds.some(id => stations.get(id) === false)
+        : !hasStationId || !online;
+
+    return {color, highlight, disabled, own, handleClick};
 }
