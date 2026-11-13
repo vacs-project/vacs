@@ -64,7 +64,7 @@ pub async fn connect() -> zbus::Result<zbus::Connection> {
 }
 
 async fn register(connection: &zbus::Connection, app_id: &str) -> zbus::Result<()> {
-    let options = HashMap::<&str, zbus::zvariant::Value<'_>>::new();
+    let options = HashMap::<&str, zbus::Variant<'_>>::new();
     connection
         .call_method(
             Some(PORTAL_DESTINATION),
