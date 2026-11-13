@@ -1,0 +1,28 @@
+{
+  "id": "E2E_DOCS_CONFERENCE_KEY",
+  "type": "Geo",
+  "direction": "row",
+  "children": [
+    {
+      "label": ["S", "LOWG"],
+      "size": 9,
+      "page": {
+        "rows": 6,
+        "keys": [
+          {"label": ["380", "S6", "PLC"], "station_id": "LOVV_S6"},
+          {"label": ["370", "S5", "PLC"], "station_id": "LOVV_S5"},
+          {"label": ["360", "S4", "PLC"], "station_id": "LOVV_S4"},
+          {"label": ["350", "S3", "PLC"], "station_id": "LOVV_S3"},
+          {"label": ["320-340", "S2", "PLC"], "station_id": "LOVV_S2"},
+          {"label": ["310-", "S1", "PLC"], "station_id": "LOVV_S1"},
+          {"label": ["390+", "S7", "PLC"], "station_id": "LOVV_S7"},
+          {"label": ["S1", "LOWG", "CONF"], "station_ids": ["LOVV_S1", "LOWG_APP"]},
+          {"label": []},
+          {"label": []},
+          {"label": ["LOWG", "APP", "PLC"], "station_id": "LOWG_APP"},
+          {"label": ["LOWG", "TWR", "PLC"], "station_id": "LOWG_TWR"}
+        ]
+      }
+    }
+  ]
+}

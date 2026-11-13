@@ -1,3 +1,5 @@
+import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {restartApps} from "../helpers/app-control.ts";
 import {loginAndConnectAs, removeController, resetMockState} from "../helpers/auth.ts";
 import {
@@ -5,7 +7,9 @@ import {
     conferenceKey,
     getClient,
     waitForCallColor,
+    waitForConferenceCallDisplay,
     waitForErroredKey,
+    waitForPendingKey,
 } from "../helpers/browser.ts";
 import {annotate, clearAnnotations} from "../helpers/annotate.ts";
 import {
@@ -16,13 +20,27 @@ import {
     CID_B,
     CID_C,
     DATAFEED_BC_CID,
+    emitEvent,
     INCOMING_ANSWER_KEY,
+    loadTestProfile,
     POSITION_A,
+    stationKey,
     TELEPHONE_BUTTON,
     waitForConnectedCall,
     waitUntilEnabled,
 } from "../helpers/docs.ts";
 import {captureWindow} from "../helpers/screenshot.ts";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+
+// A copy of the dataset's S / LOWG page with a conference key in an empty
+// slot. Its two stations are covered by the other two parties.
+const CONFERENCE_KEY_PROFILE = path.resolve(
+    __dirname,
+    "..",
+    "fixtures",
+    "profile-docs-conference-key.json",
+);
 
 // The other two parties. LOVV_BC_CTR covers S1 through S7, and LOWG APP sits
 // on the same direct access page as the S sectors, so all three parties of
@@ -35,6 +53,8 @@ const S_GROUP = '//button[.//p[@title="S"] and .//p[@title="LOWG"]]';
 const S1_KEY = '//button[.//p[@title="S1"]]';
 const S2_KEY = '//button[.//p[@title="S2"]]';
 const LOWG_APP_KEY = '//button[.//p[@title="LOWG"] and .//p[@title="APP"]]';
+const CONFERENCE_KEY = stationKey(["S1", "LOWG", "CONF"]);
+const S1_STATION_KEY = stationKey(["310-", "S1", "PLC"]);
 /** The call list row labeled CONF, on the telephone page. */
 const CALL_LIST_CONF_ROW =
     '//div[contains(@class, "px-0.5") and contains(@class, "font-semibold")][text()="CONF"]';
@@ -147,6 +167,74 @@ describe("Documentation screenshots: conference calls", function () {
             isLit: async () =>
                 ((await clientA.$(S2_KEY).getAttribute("class")) ?? "").includes("bg-red-500"),
         });
+        await clearAnnotations(clientA);
+    });
+
+    it("captures a call started with a conference key", async () => {
+        const clientA = getClient("clientA");
+        const clientB = getClient("clientB");
+        const clientC = getClient("clientC");
+        await removeController(DATAFEED_BC_CID);
+        await restartApps();
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await loginAndConnectAs(clientB, CID_B, POSITION_BC);
+        await loginAndConnectAs(clientC, CID_C, POSITION_C);
+        // After connecting, so the session's own profile cannot replace it.
+        await loadTestProfile(clientA, CONFERENCE_KEY_PROFILE);
+        // A loaded test profile switches the client into its test mode, which
+        // grays the status indicator and hides the callsign. Re-announcing the
+        // session without a profile change returns it to what a controller
+        // whose FIR publishes the key sees. Frequency empty as at login, where
+        // the datafeed has not filled it in yet; the other images show none.
+        await emitEvent("clientA", "signaling:connected", {
+            client: {
+                id: CID_A,
+                positionId: POSITION_A,
+                displayName: POSITION_A,
+                frequency: "",
+            },
+            profile: {type: "unchanged"},
+            defaultCallSources: ["LOVV_E1"],
+            splitProfileWidth: null,
+            maxConfSize: 8,
+        });
+
+        const group = clientA.$(S_GROUP);
+        await group.waitForDisplayed();
+        await click(clientA, group);
+
+        // One press rings both stations of the key at once. S1 answers and
+        // LOWG APP is left ringing, so the key shows its ringing look rather
+        // than the joined one.
+        const conferenceKeyButton = clientA.$(CONFERENCE_KEY);
+        await waitUntilEnabled(clientA, conferenceKeyButton, "S1 LOWG CONF");
+        await click(clientA, conferenceKeyButton);
+        await clientC.$(INCOMING_ANSWER_KEY).waitForDisplayed();
+        const answerB = clientB.$(INCOMING_ANSWER_KEY);
+        await answerB.waitForDisplayed();
+        await click(clientB, answerB);
+
+        const s1 = clientA.$(S1_STATION_KEY);
+        await waitForCallColor(clientA, s1, {active: true});
+        await waitForConnectedCall(clientA);
+        await waitForConferenceCallDisplay(clientA);
+        await clientA.waitUntil(async () => await conferenceKey(clientA).isEnabled(), {
+            timeoutMsg: "CONF key did not unlock for the established call",
+        });
+        await waitForPendingKey(clientA, clientA.$(LOWG_APP_KEY));
+        await waitForPendingKey(clientA, conferenceKeyButton);
+
+        // The prose walks the conference key first, then the station that
+        // answered, the one still ringing, and the call display.
+        await annotate(clientA, [
+            {target: CONFERENCE_KEY, badge: 1, place: "top-right"},
+            // Below the key: above it, the badge would touch the box around LOWG APP.
+            {target: S1_STATION_KEY, badge: 2, place: "bottom-right"},
+            {target: LOWG_APP_KEY, badge: 3, place: "top-right"},
+            {target: CALL_DISPLAY, badge: 4, place: "left"},
+        ]);
+        await captureWindow(clientA, "using-vacs/conference-key.png");
         await clearAnnotations(clientA);
     });
 });
