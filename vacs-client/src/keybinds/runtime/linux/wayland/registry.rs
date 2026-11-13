@@ -44,10 +44,9 @@ pub async fn connect() -> zbus::Result<zbus::Connection> {
                 log::debug!("Registered with the desktop portal as app id {app_id}");
                 return Ok(connection);
             }
-            Err(zbus::Error::MethodError(name, message, _)) if is_missing_interface(&name) => {
+            Err(err) if is_missing_registry(&err) => {
                 log::info!(
-                    "Desktop portal has no app registry, relying on the launcher's app id: {}",
-                    message.unwrap_or_default()
+                    "Desktop portal has no app registry, relying on the launcher's app id: {err}"
                 );
                 return zbus::Connection::session().await;
             }
@@ -77,10 +76,13 @@ async fn register(connection: &zbus::Connection, app_id: &str) -> zbus::Result<(
     Ok(())
 }
 
-fn is_missing_interface(error_name: &zbus::names::ErrorName<'_>) -> bool {
+fn is_missing_registry(err: &zbus::Error) -> bool {
     matches!(
-        error_name.as_str(),
-        "org.freedesktop.DBus.Error.UnknownMethod" | "org.freedesktop.DBus.Error.UnknownInterface"
+        err,
+        zbus::Error::FDO(err) if matches!(
+            **err,
+            zbus::fdo::Error::UnknownMethod(_) | zbus::fdo::Error::UnknownInterface(_)
+        )
     )
 }
 
@@ -163,13 +165,27 @@ mod tests {
         );
     }
 
+    fn error_reply(name: &str) -> zbus::Error {
+        let call = zbus::Message::method_call(PORTAL_PATH, "Register")
+            .interface(REGISTRY_INTERFACE)
+            .build(&())
+            .unwrap();
+        let reply = zbus::Message::error(&call.header(), name)
+            .build(&("detail",))
+            .unwrap();
+        zbus::Error::from(reply)
+    }
+
     #[test]
     fn only_dbus_lookup_failures_count_as_a_missing_registry() {
-        let missing =
-            zbus::names::ErrorName::try_from("org.freedesktop.DBus.Error.UnknownMethod").unwrap();
-        let rejected =
-            zbus::names::ErrorName::try_from("org.freedesktop.portal.Error.Failed").unwrap();
-        assert!(is_missing_interface(&missing));
-        assert!(!is_missing_interface(&rejected));
+        assert!(is_missing_registry(&error_reply(
+            "org.freedesktop.DBus.Error.UnknownMethod"
+        )));
+        assert!(is_missing_registry(&error_reply(
+            "org.freedesktop.DBus.Error.UnknownInterface"
+        )));
+        assert!(!is_missing_registry(&error_reply(
+            "org.freedesktop.portal.Error.Failed"
+        )));
     }
 }
