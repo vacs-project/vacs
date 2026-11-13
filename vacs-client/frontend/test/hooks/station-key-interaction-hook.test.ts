@@ -10,11 +10,21 @@ const {invoke, listen} = vi.hoisted(() => ({
 vi.mock("../../src/transport", () => ({invoke, listen, isTauri: false, isRemote: () => true}));
 
 import {renderHook, act} from "@testing-library/preact";
-import {useStationKeyInteraction} from "../../src/hooks/station-key-interaction-hook.ts";
+import {
+    conferenceKeyTargets,
+    shouldInvite,
+    useStationKeyInteraction,
+} from "../../src/hooks/station-key-interaction-hook.ts";
 import {useStationsStore} from "../../src/stores/stations-store.ts";
-import {CallDisplay, CallDisplayType, useCallStore} from "../../src/stores/call-store.ts";
+import {
+    CallDisplay,
+    CallDisplayType,
+    ConferenceState,
+    useCallStore,
+} from "../../src/stores/call-store.ts";
 import {useSettingsStore} from "../../src/stores/settings-store.ts";
 import {useBlinkStore} from "../../src/stores/blink-store.ts";
+import {useAuthStore} from "../../src/stores/auth-store.ts";
 import type {CallId, ClientId, PositionId, StationId} from "../../src/types/generic.ts";
 import type {ButtonColor, ButtonHighlightColor} from "../../src/components/ui/Button.tsx";
 import type {StationInfo} from "../../src/types/station.ts";
@@ -26,6 +36,9 @@ const OTHER_OWN_STATION = "LOVV_N2" as StationId;
 const FOREIGN_STATION = "LOWI_APP" as StationId;
 const SECOND_FOREIGN_STATION = "LOWW_APP" as StationId;
 const THIRD_FOREIGN_STATION = "LOWS_APP" as StationId;
+const CONF_A = "LOWI_TWR" as StationId;
+const CONF_B = "LOWI_GND" as StationId;
+const CONF_C = "LOWI_APP" as StationId;
 
 type InteractionResult = ReturnType<typeof useStationKeyInteraction>;
 type ExpectedInteraction = {
@@ -115,7 +128,7 @@ afterEach(() => {
 describe("useStationKeyInteraction", () => {
     describe("basic states", () => {
         it("returns disabled when stationId is undefined", () => {
-            const result = renderHook(() => useStationKeyInteraction(undefined));
+            const result = renderHook(() => useStationKeyInteraction([]));
             expectInteraction(result, {
                 color: "gray",
                 highlight: undefined,
@@ -125,7 +138,7 @@ describe("useStationKeyInteraction", () => {
         });
 
         it("returns disabled when station is not online", () => {
-            const result = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const result = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
             expectInteraction(result, {
                 color: "gray",
                 highlight: undefined,
@@ -136,13 +149,13 @@ describe("useStationKeyInteraction", () => {
 
         it("returns enabled for an online station", () => {
             setStations([{id: FOREIGN_STATION, own: false}]);
-            const result = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const result = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
             expectInteraction(result, {disabled: false, own: false});
         });
 
         it("returns own for own station", () => {
             setOwnStations(OWN_STATION);
-            const result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+            const result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
             expectInteraction(result, {disabled: false, own: true});
         });
     });
@@ -151,7 +164,7 @@ describe("useStationKeyInteraction", () => {
         describe("click behavior", () => {
             it("first click on own station sets temporary source", async () => {
                 setOwnStations(OWN_STATION);
-                const {result} = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const {result} = renderHook(() => useStationKeyInteraction([OWN_STATION]));
 
                 await act(() => result.current.handleClick());
 
@@ -161,7 +174,7 @@ describe("useStationKeyInteraction", () => {
 
             it("second click promotes temporary to default source", async () => {
                 setOwnStations(OWN_STATION);
-                const {result} = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const {result} = renderHook(() => useStationKeyInteraction([OWN_STATION]));
 
                 await act(() => result.current.handleClick());
                 expect(useStationsStore.getState().defaultSource).toBeUndefined();
@@ -174,7 +187,7 @@ describe("useStationKeyInteraction", () => {
 
             it("third click clears default source", async () => {
                 setOwnStations(OWN_STATION);
-                const {result} = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const {result} = renderHook(() => useStationKeyInteraction([OWN_STATION]));
 
                 await act(() => result.current.handleClick());
                 expect(useStationsStore.getState().defaultSource).toBeUndefined();
@@ -195,7 +208,7 @@ describe("useStationKeyInteraction", () => {
                     defaultSource: OTHER_OWN_STATION,
                     temporarySource: OWN_STATION,
                 });
-                const {result} = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const {result} = renderHook(() => useStationKeyInteraction([OWN_STATION]));
 
                 await act(() => result.current.handleClick());
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
@@ -206,7 +219,7 @@ describe("useStationKeyInteraction", () => {
                 setOwnStations(OWN_STATION, OTHER_OWN_STATION);
                 useStationsStore.setState({defaultSource: OTHER_OWN_STATION});
 
-                const {result} = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const {result} = renderHook(() => useStationKeyInteraction([OWN_STATION]));
 
                 await act(() => result.current.handleClick());
                 expect(useStationsStore.getState().temporarySource).toBe(OWN_STATION);
@@ -220,7 +233,7 @@ describe("useStationKeyInteraction", () => {
                     defaultSource: FOREIGN_STATION,
                 });
 
-                const {result} = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const {result} = renderHook(() => useStationKeyInteraction([OWN_STATION]));
 
                 await act(() => result.current.handleClick());
                 expect(useStationsStore.getState().temporarySource).toBe(OWN_STATION);
@@ -233,7 +246,7 @@ describe("useStationKeyInteraction", () => {
                 setOwnStations(OWN_STATION);
                 useStationsStore.setState({defaultSource: OWN_STATION});
 
-                const result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
 
@@ -241,14 +254,14 @@ describe("useStationKeyInteraction", () => {
                 setOwnStations(OWN_STATION);
                 useStationsStore.setState({temporarySource: OWN_STATION});
 
-                const result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "peach", disabled: false, own: true});
             });
 
             it("shows gray for own station that is not a source", () => {
                 setOwnStations(OWN_STATION);
 
-                const result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                const result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
         });
@@ -265,9 +278,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
 
@@ -286,9 +299,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
 
@@ -309,9 +322,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBeUndefined();
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
             });
 
@@ -333,11 +346,11 @@ describe("useStationKeyInteraction", () => {
                 });
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+                result = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: false});
             });
 
@@ -350,9 +363,9 @@ describe("useStationKeyInteraction", () => {
                 });
 
                 expect(useStationsStore.getState().defaultSource).toBe(OTHER_OWN_STATION);
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
 
@@ -363,9 +376,9 @@ describe("useStationKeyInteraction", () => {
                     useStationsStore.getState().setPositionDefaultSources([OWN_STATION]);
                 });
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
 
                 await act(() => {
@@ -376,9 +389,9 @@ describe("useStationKeyInteraction", () => {
                 });
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
-                result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
@@ -397,9 +410,9 @@ describe("useStationKeyInteraction", () => {
                 });
 
                 expect(useStationsStore.getState().defaultSource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
 
                 await act(() => {
@@ -410,9 +423,9 @@ describe("useStationKeyInteraction", () => {
                 });
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
-                result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
@@ -426,9 +439,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
@@ -442,9 +455,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBe(OWN_STATION);
                 expect(useStationsStore.getState().temporarySource).toBe(OTHER_OWN_STATION);
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "peach", disabled: false, own: true});
             });
         });
@@ -463,9 +476,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBeUndefined();
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: false});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
@@ -479,9 +492,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBeUndefined();
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: false});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: true, own: false});
             });
 
@@ -501,9 +514,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBe(OTHER_OWN_STATION);
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: false});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
 
@@ -524,9 +537,9 @@ describe("useStationKeyInteraction", () => {
 
                 expect(useStationsStore.getState().defaultSource).toBe(OTHER_OWN_STATION);
                 expect(useStationsStore.getState().temporarySource).toBeUndefined();
-                let result = renderHook(() => useStationKeyInteraction(OWN_STATION));
+                let result = renderHook(() => useStationKeyInteraction([OWN_STATION]));
                 expectInteraction(result, {color: "gray", disabled: false, own: false});
-                result = renderHook(() => useStationKeyInteraction(OTHER_OWN_STATION));
+                result = renderHook(() => useStationKeyInteraction([OTHER_OWN_STATION]));
                 expectInteraction(result, {color: "honey", disabled: false, own: true});
             });
         });
@@ -548,7 +561,7 @@ describe("useStationKeyInteraction", () => {
                 }),
                 conferenceState: "active",
             });
-            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -578,7 +591,7 @@ describe("useStationKeyInteraction", () => {
                 detail: "Not allowed",
                 isNonCritical: true,
             });
-            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -603,7 +616,7 @@ describe("useStationKeyInteraction", () => {
                 isConferenceLeader: false,
             });
             useCallStore.setState({callDisplay: display});
-            const {result} = renderHook(() => useStationKeyInteraction(SECOND_FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([SECOND_FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -632,7 +645,7 @@ describe("useStationKeyInteraction", () => {
                 isConferenceLeader: true,
             });
             useCallStore.setState({callDisplay: display, conferenceState: "active"});
-            const {result} = renderHook(() => useStationKeyInteraction(SECOND_FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([SECOND_FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -666,7 +679,7 @@ describe("useStationKeyInteraction", () => {
                 }),
                 conferenceState: "active",
             });
-            const {result} = renderHook(() => useStationKeyInteraction(SECOND_FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([SECOND_FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -687,7 +700,7 @@ describe("useStationKeyInteraction", () => {
                     isConferenceLeader: true,
                 }),
             });
-            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -705,7 +718,7 @@ describe("useStationKeyInteraction", () => {
                     ownInvitedTargets: [FOREIGN_STATION],
                 }),
             });
-            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
 
             await act(() => result.current.handleClick());
 
@@ -744,7 +757,7 @@ describe("useStationKeyInteraction", () => {
                     }),
                 ],
             });
-            return renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            return renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
         }
 
         it("ignores the click while the setting is off", async () => {
@@ -804,10 +817,183 @@ describe("useStationKeyInteraction", () => {
                 useBlinkStore.setState({blink: true});
             });
 
-            const {result} = renderHook(() => useStationKeyInteraction(FOREIGN_STATION));
+            const {result} = renderHook(() => useStationKeyInteraction([FOREIGN_STATION]));
 
             expect(result.current.color).toBe("yellow");
             expect(result.current.highlight).toBe("green");
         });
+    });
+});
+
+const CONFERENCE_KEY = [CONF_A, CONF_B, CONF_C];
+
+// Value false = online, covered by someone else; true = own; absent = offline.
+const allOnline = new Map<StationId, boolean>([
+    [CONF_A, false],
+    [CONF_B, false],
+    [CONF_C, false],
+]);
+
+describe("conferenceKeyTargets", () => {
+    it("lists every online station that is not ours when idle", () => {
+        expect(conferenceKeyTargets(CONFERENCE_KEY, undefined, allOnline)).toEqual([
+            target(CONF_A),
+            target(CONF_B),
+            target(CONF_C),
+        ]);
+    });
+
+    it("leaves out offline and own stations", () => {
+        const stations = new Map<StationId, boolean>([
+            [CONF_A, true],
+            [CONF_B, false],
+        ]);
+
+        expect(conferenceKeyTargets(CONFERENCE_KEY, undefined, stations)).toEqual([target(CONF_B)]);
+    });
+
+    it("leaves out stations already joined or ringing in the call", () => {
+        const display = makeCallDisplay({
+            type: "accepted",
+            joinedStations: [CONF_A],
+            invitedTargets: [CONF_B],
+        });
+
+        expect(conferenceKeyTargets(CONFERENCE_KEY, display, allOnline)).toEqual([target(CONF_C)]);
+    });
+});
+
+describe("shouldInvite", () => {
+    const targets = [target(CONF_B), target(CONF_C)];
+
+    it("invites when idle", () => {
+        expect(shouldInvite(targets, undefined, "inactive")).toBe(true);
+    });
+
+    it("does nothing without targets", () => {
+        expect(shouldInvite([], undefined, "inactive")).toBe(false);
+        expect(
+            shouldInvite(
+                [],
+                makeCallDisplay({type: "accepted", joinedStations: [CONF_A]}),
+                "modify",
+            ),
+        ).toBe(false);
+    });
+
+    it.each<ConferenceState>(["active", "inactive"])(
+        "does nothing in a call outside modify mode (%s)",
+        conferenceState => {
+            for (const isConferenceLeader of [true, false, undefined]) {
+                const display = makeCallDisplay({
+                    type: "accepted",
+                    joinedStations: [CONF_A],
+                    isConferenceLeader,
+                });
+                expect(shouldInvite(targets, display, conferenceState)).toBe(false);
+            }
+        },
+    );
+
+    it("invites in modify mode as the leader or in a 1:1 call", () => {
+        for (const isConferenceLeader of [true, undefined]) {
+            const display = makeCallDisplay({
+                type: "accepted",
+                joinedStations: [CONF_A],
+                isConferenceLeader,
+            });
+            expect(shouldInvite(targets, display, "modify")).toBe(true);
+        }
+    });
+
+    it("does nothing in modify mode as a non-leader of a conference", () => {
+        const display = makeCallDisplay({
+            type: "accepted",
+            joinedStations: [CONF_A],
+            isConferenceLeader: false,
+        });
+
+        expect(shouldInvite(targets, display, "modify")).toBe(false);
+    });
+});
+
+describe("useStationKeyInteraction with several stations", () => {
+    function setup(
+        display: CallDisplay | undefined,
+        conferenceState: ConferenceState = "inactive",
+        stations: Map<StationId, boolean> = allOnline,
+    ) {
+        useAuthStore.setState({cid: "1000000" as ClientId});
+        useStationsStore.setState({stations: new Map(stations)});
+        useCallStore.setState({callDisplay: display, conferenceState});
+        return renderHook(() => useStationKeyInteraction(CONFERENCE_KEY));
+    }
+
+    const press = (hook: ReturnType<typeof setup>) =>
+        act(async () => {
+            await hook.result.current.handleClick();
+        });
+
+    it("starts a call to every invitable station when idle", async () => {
+        const hook = setup(undefined);
+
+        await press(hook);
+
+        expect(invoke).toHaveBeenCalledWith("signaling_invite_to_call", {
+            source: {clientId: "1000000", positionId: undefined, stationId: undefined},
+            targets: [target(CONF_A), target(CONF_B), target(CONF_C)],
+            prio: false,
+        });
+    });
+
+    it("invites the remaining stations in modify mode", async () => {
+        const hook = setup(
+            makeCallDisplay({type: "accepted", joinedStations: [CONF_A], isConferenceLeader: true}),
+            "modify",
+        );
+
+        await press(hook);
+
+        expect(invoke).toHaveBeenCalledWith(
+            "signaling_invite_to_call",
+            expect.objectContaining({targets: [target(CONF_B), target(CONF_C)]}),
+        );
+    });
+
+    it("neither invites nor ends the call outside modify mode", async () => {
+        const display = makeCallDisplay({
+            type: "accepted",
+            joinedStations: [CONF_A],
+            isConferenceLeader: true,
+        });
+        const hook = setup(display, "active");
+
+        await press(hook);
+
+        expect(invoke).not.toHaveBeenCalled();
+        expect(useCallStore.getState().callDisplay).toBe(display);
+    });
+
+    it("shows its default color whatever the call state", () => {
+        const idle = setup(undefined).result.current;
+        const inCall = setup(
+            makeCallDisplay({type: "accepted", joinedStations: [CONF_A], invitedTargets: [CONF_B]}),
+        ).result.current;
+
+        expect(inCall.color).toBe(idle.color);
+        expect(inCall.highlight).toBe(idle.highlight);
+    });
+
+    it("is disabled while none of its stations is online", () => {
+        expect(setup(undefined, "inactive", new Map()).result.current.disabled).toBe(true);
+    });
+
+    it("is disabled while its only online stations are ours", () => {
+        const own = new Map<StationId, boolean>([
+            [CONF_A, true],
+            [CONF_B, true],
+        ]);
+
+        expect(setup(undefined, "inactive", own).result.current.disabled).toBe(true);
     });
 });

@@ -1,21 +1,19 @@
 import {clsx} from "clsx";
 import ButtonLabel from "./ButtonLabel.tsx";
-import {useStationKeyInteraction} from "../../hooks/station-key-interaction-hook.ts";
+import {keyStationIds, useStationKeyInteraction} from "../../hooks/station-key-interaction-hook.ts";
 import DirectAccessKeyButton from "./DirectAccessKeyButton.tsx";
 import {DirectAccessKey} from "../../types/profile.ts";
 
-type DirectAccessStationKeyProps = {
+type DirectAccessStationsKeyProps = {
     data: DirectAccessKey;
     className?: string;
 };
 
-function DirectAccessStationKey({
-    data: {stationId, label, color: defaultColor},
-    className,
-}: DirectAccessStationKeyProps) {
+function DirectAccessStationsKey({data, className}: DirectAccessStationsKeyProps) {
+    const stationIds = keyStationIds(data);
     const {color, highlight, disabled, own, handleClick} = useStationKeyInteraction(
-        stationId,
-        defaultColor,
+        stationIds,
+        data.color,
     );
 
     return (
@@ -23,12 +21,12 @@ function DirectAccessStationKey({
             color={color}
             highlight={highlight}
             disabled={disabled}
-            className={clsx((own || stationId === undefined) && "text-gray-500", className)}
+            className={clsx((own || stationIds.length === 0) && "text-gray-500", className)}
             onClick={handleClick}
         >
-            <ButtonLabel label={label} />
+            <ButtonLabel label={data.label} />
         </DirectAccessKeyButton>
     );
 }
 
-export default DirectAccessStationKey;
+export default DirectAccessStationsKey;

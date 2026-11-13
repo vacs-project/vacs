@@ -232,7 +232,7 @@ impl Default for RateLimitersConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            call_invite: Policy::new(10, nonzero!(8u32)),
+            call_invite: Policy::new(10, nonzero!(16u32)),
             call_invite_per_minute: 40,
             failed_auth: Policy::new(60, nonzero!(5u32)).disabled(),
             failed_auth_per_minute: 0, // 60
@@ -403,6 +403,14 @@ mod tests {
         });
 
         assert_matches!(limiters.check_call_invite("client1", 1000), Ok(()));
+    }
+
+    #[test]
+    fn default_limits_admit_two_full_conference_key_presses() {
+        let limiters = RateLimiters::from(RateLimitersConfig::default());
+
+        assert_matches!(limiters.check_call_invite("client1", 7), Ok(()));
+        assert_matches!(limiters.check_call_invite("client1", 7), Ok(()));
     }
 
     #[test]

@@ -99,6 +99,9 @@ jobs:
       - name: Tests
         run: cargo test --locked --workspace --all-targets --all-features
 
+      - name: Protocol 3.0 compatibility tests
+        run: cargo test --locked --manifest-path vacs-protocol/compat-3-0/Cargo.toml
+
       # The joystick service roundtrip drives SDL's event loop with a virtual
       # device and is #[ignore]d to keep regular test runs hermetic; execute it
       # explicitly (no hardware or display required).

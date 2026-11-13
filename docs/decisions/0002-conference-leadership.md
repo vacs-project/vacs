@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-08-24 (leadership on the wire), amended 2026-08-31 (scope, self hang-up
   on non-droppable keys), 2026-09-02 (accept blocked while in a conference),
-  implemented 2026-09-04 (protocol 3.0.0)
+  implemented 2026-09-04 (protocol 3.0.0), rule 7 amended 2026-11-12 by ADR 0005
 - Source: adhoc-conferences review sessions
 
 ## Context
@@ -48,7 +48,9 @@ directions and desynchronized the store after refused drops.
 7. **Scope: conferences grow only from an established call.** Every UI entry point
    invites a single target; a fresh multi-target invite is deliberately unreachable
    from the UI even though the protocol allows it. Incoming calls keep ringing while
-   in a conference but cannot be accepted until the current call ends.
+   in a conference but cannot be accepted until the current call ends. (Amended by
+   [0005](0005-predefined-conferences.md): conference keys send fresh multi-target
+   invites and invite several targets into a running call.)
 
 ## Why (and what we rejected)
 

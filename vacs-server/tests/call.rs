@@ -1,12 +1,15 @@
 use std::collections::HashSet;
 use std::num::NonZeroU32;
+use std::path::PathBuf;
 use std::time::Duration;
 use vacs_protocol::vatsim::ClientId;
 use vacs_protocol::ws::client::ClientMessage;
 use vacs_protocol::ws::server::{self, ServerMessage};
 use vacs_protocol::ws::shared::{CallId, CallTarget};
 use vacs_server::ratelimit::{Policy as RateLimitPolicy, RateLimiters, RateLimitersConfig};
-use vacs_server::test_utils::{TestClient, TestEnv};
+use vacs_server::test_utils::{TestClient, TestEnv, TestEnvBuilder, cid, test_controller};
+use vacs_vatsim::coverage::network::Network;
+use vatsim_api::types::Facility;
 
 #[tokio::test]
 async fn call_offer() -> anyhow::Result<()> {
@@ -3327,5 +3330,288 @@ async fn webrtc_recipient_outside_the_call_is_not_logged() -> anyhow::Result<()>
     client1.recv_until_timeout(Duration::from_millis(200)).await;
 
     vacs_server::logging::guard::assert_clean();
+    Ok(())
+}
+
+fn lo_network() -> Network {
+    let dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scenarios/datasets/full");
+    Network::load_from_dir(&dir).expect("Failed to load LO test dataset")
+}
+
+/// A controller covering several invited stations is rung once, always under
+/// the lowest of them, and the caller learns the others are already covered.
+#[tokio::test]
+async fn stations_covered_by_one_controller_ring_it_once() -> anyhow::Result<()> {
+    let env = TestEnv::builder()
+        .default_users(2)
+        .controllers(vec![
+            test_controller(cid(1), "LOWW_APP", "134.675", Facility::Approach),
+            test_controller(cid(2), "LOVV_CTR", "132.600", Facility::Enroute),
+        ])
+        .network(lo_network())
+        .require_active_connection(true)
+        .build()
+        .await;
+    let mut clients = env.setup_clients(2).await;
+
+    let mut caller = clients.remove(0);
+    let mut callee = clients.remove(0);
+
+    let call_id = CallId::new();
+    invite(
+        &mut caller,
+        call_id,
+        HashSet::from([
+            CallTarget::Station("LOVV_E1".into()),
+            CallTarget::Station("LOVV_B1".into()),
+        ]),
+    )
+    .await?;
+
+    let invitations = callee
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await;
+    assert_eq!(invitations.len(), 1, "the callee should be rung once");
+    let ServerMessage::CallInvitation(invitation) = &invitations[0] else {
+        panic!("Unexpected message: {:?}", invitations[0]);
+    };
+    assert_eq!(invitation.target, CallTarget::Station("LOVV_B1".into()));
+    assert!(invitation.invited_targets.is_empty());
+
+    let errors = caller
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_))
+        })
+        .await;
+    assert_eq!(errors.len(), 1, "unexpected errors: {errors:?}");
+    let ServerMessage::CallError(error) = &errors[0] else {
+        panic!("Unexpected message: {:?}", errors[0]);
+    };
+    assert_eq!(
+        error.reason,
+        vacs_protocol::ws::shared::CallErrorReason::AlreadyParticipant(CallTarget::Station(
+            "LOVV_E1".into()
+        ))
+    );
+
+    Ok(())
+}
+
+async fn three_controller_env(
+    configure: impl FnOnce(TestEnvBuilder) -> TestEnvBuilder,
+) -> (TestEnv, TestClient, TestClient, TestClient) {
+    let builder = TestEnv::builder()
+        .default_users(3)
+        .controllers(vec![
+            test_controller(cid(1), "LOWW_APP", "134.675", Facility::Approach),
+            test_controller(cid(2), "LOVV_CTR", "132.600", Facility::Enroute),
+            test_controller(cid(3), "LOVV_F_CTR", "133.800", Facility::Enroute),
+        ])
+        .network(lo_network())
+        .require_active_connection(true);
+    let env = configure(builder).build().await;
+    let mut clients = env.setup_clients(3).await;
+    let caller = clients.remove(0);
+    let covering = clients.remove(0);
+    let other = clients.remove(0);
+    (env, caller, covering, other)
+}
+
+fn station_target(id: &str) -> CallTarget {
+    CallTarget::Station(id.into())
+}
+
+async fn invitations(client: &mut TestClient) -> Vec<server::CallInvitation> {
+    client
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallInvitation(_))
+        })
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::CallInvitation(invitation) => Some(invitation),
+            _ => None,
+        })
+        .collect()
+}
+
+async fn call_errors(client: &mut TestClient) -> Vec<ServerMessage> {
+    client
+        .recv_until_timeout_with_filter(Duration::from_millis(100), |m| {
+            matches!(m, ServerMessage::CallError(_) | ServerMessage::Error(_))
+        })
+        .await
+}
+
+fn already_participant(call_id: CallId, target: &str) -> ServerMessage {
+    ServerMessage::CallError(vacs_protocol::ws::shared::CallError {
+        call_id,
+        reason: vacs_protocol::ws::shared::CallErrorReason::AlreadyParticipant(station_target(
+            target,
+        )),
+        message: None,
+    })
+}
+
+#[tokio::test]
+async fn a_merged_target_is_absent_from_the_co_callees_roster() -> anyhow::Result<()> {
+    let (_env, mut caller, mut covering, mut other) = three_controller_env(|b| b).await;
+
+    let call_id = CallId::new();
+    invite(
+        &mut caller,
+        call_id,
+        ["LOVV_B1", "LOVV_E1", "LOVV_N1"]
+            .into_iter()
+            .map(station_target)
+            .collect(),
+    )
+    .await?;
+
+    let covering_invitations = invitations(&mut covering).await;
+    assert_eq!(covering_invitations.len(), 1);
+    assert_eq!(covering_invitations[0].target, station_target("LOVV_B1"));
+    assert_eq!(
+        covering_invitations[0].invited_targets,
+        HashSet::from([station_target("LOVV_N1")])
+    );
+
+    let other_invitations = invitations(&mut other).await;
+    assert_eq!(other_invitations.len(), 1);
+    assert_eq!(other_invitations[0].target, station_target("LOVV_N1"));
+    assert_eq!(
+        other_invitations[0].invited_targets,
+        HashSet::from([station_target("LOVV_B1")])
+    );
+
+    assert_eq!(
+        call_errors(&mut caller).await,
+        vec![already_participant(call_id, "LOVV_E1")]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn stations_covered_by_one_controller_are_charged_one_invite_token() -> anyhow::Result<()> {
+    let (_env, mut caller, mut covering, _other) =
+        three_controller_env(|b| b.rate_limiters(invite_rate_limiters(1))).await;
+
+    let call_id = CallId::new();
+    invite(
+        &mut caller,
+        call_id,
+        HashSet::from([station_target("LOVV_B1"), station_target("LOVV_E1")]),
+    )
+    .await?;
+
+    assert_eq!(invitations(&mut covering).await.len(), 1);
+    assert_eq!(
+        call_errors(&mut caller).await,
+        vec![already_participant(call_id, "LOVV_E1")]
+    );
+
+    Ok(())
+}
+
+/// A station whose controller is already joined counts neither against the
+/// conference size nor as a second ring (ADR 0005 point 3).
+#[tokio::test]
+async fn a_station_of_a_joined_controller_does_not_count_against_the_conference_size()
+-> anyhow::Result<()> {
+    let (_env, mut caller, mut covering, mut other) =
+        three_controller_env(|b| b.max_conf_size(3)).await;
+
+    let call_id = join_covering_controller(&mut caller, &mut covering).await?;
+
+    invite(
+        &mut caller,
+        call_id,
+        HashSet::from([station_target("LOVV_E1"), station_target("LOVV_N1")]),
+    )
+    .await?;
+
+    let other_invitations = invitations(&mut other).await;
+    assert_eq!(other_invitations.len(), 1);
+    assert_eq!(other_invitations[0].target, station_target("LOVV_N1"));
+    assert!(invitations(&mut covering).await.is_empty());
+    assert_eq!(
+        call_errors(&mut caller).await,
+        vec![already_participant(call_id, "LOVV_E1")]
+    );
+
+    Ok(())
+}
+
+async fn join_covering_controller(
+    caller: &mut TestClient,
+    covering: &mut TestClient,
+) -> anyhow::Result<CallId> {
+    let call_id = CallId::new();
+    invite(caller, call_id, HashSet::from([station_target("LOVV_B1")])).await?;
+    assert_eq!(invitations(covering).await.len(), 1);
+    covering
+        .send(ClientMessage::CallAccept(
+            vacs_protocol::ws::client::CallAccept {
+                call_id,
+                accepting_client_id: covering.id().clone(),
+            },
+        ))
+        .await?;
+    caller.recv_until_timeout(Duration::from_millis(100)).await;
+    Ok(call_id)
+}
+
+#[tokio::test]
+async fn a_lone_station_of_a_joined_controller_is_answered_already_participant()
+-> anyhow::Result<()> {
+    let (_env, mut caller, mut covering, _other) = three_controller_env(|b| b).await;
+    let call_id = join_covering_controller(&mut caller, &mut covering).await?;
+
+    invite(
+        &mut caller,
+        call_id,
+        HashSet::from([station_target("LOVV_E1")]),
+    )
+    .await?;
+
+    assert!(invitations(&mut covering).await.is_empty());
+    assert_eq!(
+        call_errors(&mut caller).await,
+        vec![already_participant(call_id, "LOVV_E1")]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_covered_station_does_not_swallow_the_unreachable_ones() -> anyhow::Result<()> {
+    let (_env, mut caller, mut covering, _other) = three_controller_env(|b| b).await;
+    let call_id = join_covering_controller(&mut caller, &mut covering).await?;
+
+    invite(
+        &mut caller,
+        call_id,
+        HashSet::from([station_target("LOVV_E1"), station_target("XXXX_TWR")]),
+    )
+    .await?;
+
+    assert_eq!(
+        call_errors(&mut caller).await,
+        vec![
+            already_participant(call_id, "LOVV_E1"),
+            ServerMessage::CallError(vacs_protocol::ws::shared::CallError {
+                call_id,
+                reason: vacs_protocol::ws::shared::CallErrorReason::TargetsNotFound(HashSet::from(
+                    [station_target("XXXX_TWR")]
+                )),
+                message: None,
+            }),
+        ]
+    );
+
     Ok(())
 }

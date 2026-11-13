@@ -25,6 +25,7 @@ export function setupSignalingListeners() {
         updateCall,
         removeCall,
         rejectTargets,
+        dropCoveredTarget,
         acceptIncomingCall,
         reset: resetCallStore,
     } = useCallStore.getState().actions;
@@ -95,6 +96,9 @@ export function setupSignalingListeners() {
             }),
             listen<CallId>("signaling:accept-incoming-call", event => {
                 acceptIncomingCall(event.payload);
+            }),
+            listen<{callId: CallId; target: CallTarget}>("signaling:call-target-covered", event => {
+                dropCoveredTarget(event.payload.callId, event.payload.target);
             }),
             listen<CallUpdate>("signaling:call-update", event => {
                 updateCall(event.payload);

@@ -13,6 +13,10 @@ export type ServerMessage = {
     [key: string]: unknown;
 };
 
+export type CallTarget = {client?: string; position?: string; station?: string};
+
+type InviteOptions = {prio?: boolean; source?: {positionId?: string; stationId?: string}};
+
 /**
  * A lightweight signaling client speaking the vacs WebSocket protocol
  * directly. Used as additional call participants beyond the two real app
@@ -135,19 +139,34 @@ export class SignalingTestClient {
      * and returns the call id. `source` fills in the station and position the
      * call claims to come from, which is what the callee's keys highlight.
      */
-    inviteTarget(
-        target: {client?: string; position?: string; station?: string},
-        options: {prio?: boolean; source?: {positionId?: string; stationId?: string}} = {},
-    ): string {
+    inviteTarget(target: CallTarget, options: InviteOptions = {}): string {
+        return this.inviteTargets([target], options);
+    }
+
+    /**
+     * Sends a single call invite naming several targets, which rings all of
+     * them on one fresh call, and returns the call id. Every invitation lists
+     * the other targets as still being invited.
+     */
+    inviteTargets(targets: CallTarget[], options: InviteOptions = {}): string {
         const callId = crypto.randomUUID();
         this.send({
             type: "callInvite",
             callId,
             source: {clientId: this.cid, ...options.source},
-            targets: [target],
+            targets,
             prio: options.prio ?? false,
         });
         return callId;
+    }
+
+    /**
+     * Removes one target from a call without ending it: cancels a ringing
+     * target this client invited, or drops a joined participant as the
+     * conference leader.
+     */
+    dropTarget(callId: string, target: CallTarget): void {
+        this.send({type: "callDropTarget", callId, target, reason: "requested"});
     }
 
     accept(callId: string): void {
