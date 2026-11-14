@@ -29,7 +29,6 @@
 //! with `uaccess`, so logind grants the active seat user an ACL on the evdev nodes. This works
 //! identically under Wayland and X11.
 
-use crate::keybinds::runtime;
 use crate::keybinds::{JoystickButton, JoystickDevice, KeyEvent, KeybindsError};
 use keyboard_types::KeyState;
 use sdl3::event::Event;
@@ -39,9 +38,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long callers wait for SDL to initialize. Generous because joystick
+/// enumeration has been observed to take 10s+ on some Windows setups.
+#[cfg(not(test))]
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const STARTUP_TIMEOUT: Duration = Duration::from_millis(200);
 const EVENT_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub type JoystickServiceHandle = Arc<JoystickService>;
@@ -67,31 +71,42 @@ type DeviceRegistry = Arc<parking_lot::Mutex<HashMap<JoystickId, JoystickDevice>
 #[derive(Debug, Default)]
 pub struct JoystickService {
     poller: tokio::sync::Mutex<Option<RunningPoller>>,
+    // Owned by the service rather than the poller so registrations and device
+    // queries stay valid when the poller thread has to be respawned.
+    senders: SenderRegistry,
+    devices: DeviceRegistry,
 }
 
 #[derive(Debug)]
 struct RunningPoller {
-    senders: SenderRegistry,
-    devices: DeviceRegistry,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    startup: watch::Receiver<Startup>,
 }
+
+/// `None` while SDL is initializing, then the init outcome.
+type Startup = Option<Result<(), String>>;
 
 impl JoystickService {
     pub fn new() -> JoystickServiceHandle {
         Arc::new(Self::default())
     }
 
-    /// Register a channel to receive joystick button events, lazily starting
+    /// Register a channel to receive joystick button events, lazily spawning
     /// the SDL poller thread on first use.
+    ///
+    /// Does not wait for SDL to finish initializing: the sender registry does
+    /// not depend on it, and events start flowing as soon as SDL comes up. SDL
+    /// joystick enumeration can take 10s or more on some Windows setups, and
+    /// blocking here would stall the keybind engine start.
     ///
     /// The sender stays registered until its receiver is dropped, after which
     /// it is pruned on the next joystick event.
     pub async fn register(&self, tx: UnboundedSender<KeyEvent>) -> Result<(), KeybindsError> {
         let mut poller = self.poller.lock().await;
-        let running = Self::ensure_started(&mut poller).await?;
+        self.ensure_spawned(&mut poller)?;
 
-        let mut senders = running.senders.lock();
+        let mut senders = self.senders.lock();
         // Eagerly drop senders whose receivers are gone (e.g. from a
         // stopped engine) instead of waiting for the next event.
         senders.retain(|sender| !sender.is_closed());
@@ -101,9 +116,12 @@ impl JoystickService {
 
     /// Register a dedicated channel and return its receiver, for consumers
     /// without an existing channel (e.g. the binding-capture command).
+    ///
+    /// Waits for SDL to be ready, so that a failure to initialize is reported.
     pub async fn subscribe(&self) -> Result<UnboundedReceiver<KeyEvent>, KeybindsError> {
         let (tx, rx) = unbounded_channel();
         self.register(tx).await?;
+        self.wait_ready().await?;
         Ok(rx)
     }
 
@@ -113,28 +131,73 @@ impl JoystickService {
     /// Devices hash by GUID, so physically identical devices collapse into a
     /// single entry.
     pub async fn connected_devices(&self) -> Result<HashSet<JoystickDevice>, KeybindsError> {
-        let mut poller = self.poller.lock().await;
-        let running = Self::ensure_started(&mut poller).await?;
+        self.wait_ready().await?;
 
-        let devices = running.devices.lock();
+        let devices = self.devices.lock();
         Ok(devices.values().cloned().collect())
     }
 
-    /// Start the SDL poller thread if it is not already running.
-    async fn ensure_started(
-        poller: &mut Option<RunningPoller>,
-    ) -> Result<&RunningPoller, KeybindsError> {
+    /// Wait until the poller has finished initializing SDL.
+    ///
+    /// A timeout leaves the poller running: SDL cannot be initialized a second
+    /// time while the first (slow) initialization still holds it, so the thread
+    /// must never be abandoned. A later call simply waits again.
+    async fn wait_ready(&self) -> Result<(), KeybindsError> {
+        let mut startup = {
+            let mut poller = self.poller.lock().await;
+            self.ensure_spawned(&mut poller)?.startup.clone()
+        };
+
+        match tokio::time::timeout(STARTUP_TIMEOUT, startup.wait_for(Option::is_some)).await {
+            Ok(Ok(state)) => state
+                .clone()
+                .expect("waited for Some")
+                .map_err(KeybindsError::Listener),
+            Ok(Err(_)) => Err(KeybindsError::Listener(
+                "SDL joystick poller exited during startup".to_string(),
+            )),
+            Err(_) => {
+                log::warn!("SDL joystick poller is still initializing after {STARTUP_TIMEOUT:?}");
+                Err(KeybindsError::Listener(
+                    "Joystick support is still initializing, please try again in a moment"
+                        .to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Spawn the SDL poller thread if it is not running.
+    ///
+    /// A poller whose SDL init failed is not respawned: the failure is cached
+    /// and returned, since retrying would only repeat it (and the sdl3 crate
+    /// does not reset its main-thread guard after a failed init, so later
+    /// attempts would fail with a misleading error).
+    fn ensure_spawned<'a>(
+        &self,
+        poller: &'a mut Option<RunningPoller>,
+    ) -> Result<&'a RunningPoller, KeybindsError> {
+        if let Some(running) = poller.as_ref() {
+            if let Some(Err(err)) = running.startup.borrow().as_ref() {
+                return Err(KeybindsError::Listener(err.clone()));
+            }
+            if running.thread.as_ref().is_none_or(|t| t.is_finished())
+                && let Some(thread) = poller.take().and_then(|mut running| running.thread.take())
+            {
+                log::warn!("SDL joystick poller exited unexpectedly, restarting");
+                let _ = thread.join();
+                self.devices.lock().clear();
+            }
+        }
+
         if poller.is_none() {
             log::debug!("Starting SDL joystick poller");
 
-            let senders: SenderRegistry = Arc::default();
-            let devices: DeviceRegistry = Arc::default();
-            let (startup_tx, startup_rx) = oneshot::channel();
+            let (startup_tx, startup_rx) = watch::channel(None);
             let stop = Arc::new(AtomicBool::new(false));
 
             let thread = {
-                let senders = senders.clone();
-                let devices = devices.clone();
+                let senders = self.senders.clone();
+                let devices = self.devices.clone();
                 let stop = stop.clone();
                 std::thread::Builder::new()
                     .name("VACS_SDL_Joystick".to_string())
@@ -144,24 +207,14 @@ impl JoystickService {
                     })?
             };
 
-            match runtime::await_startup(startup_rx, STARTUP_TIMEOUT, "SDL joystick poller").await {
-                Ok(()) => {
-                    *poller = Some(RunningPoller {
-                        senders,
-                        devices,
-                        stop,
-                        thread: Some(thread),
-                    });
-                }
-                Err(err) => {
-                    // Harmless if the thread already exited on a startup failure
-                    stop.store(true, Ordering::Relaxed);
-                    return Err(err);
-                }
-            }
+            *poller = Some(RunningPoller {
+                stop,
+                thread: Some(thread),
+                startup: startup_rx,
+            });
         }
 
-        Ok(poller.as_ref().expect("poller started above"))
+        Ok(poller.as_ref().expect("poller spawned above"))
     }
 
     /// Stop the poller thread (if running) and wait for it to exit.
@@ -170,6 +223,12 @@ impl JoystickService {
         if let Some(mut running) = running {
             log::debug!("Stopping SDL joystick poller");
             running.stop.store(true, Ordering::Relaxed);
+            if running.startup.borrow().is_none() {
+                // Still inside SDL init, which cannot be interrupted and may
+                // take 10s+; don't stall shutdown on it. The thread exits on
+                // its own as soon as it observes the stop flag.
+                return;
+            }
             if let Some(thread) = running.thread.take() {
                 // The poller notices the stop flag within its event-wait timeout
                 // (up to 250ms); join off the async runtime to avoid stalling a
@@ -196,7 +255,7 @@ fn run_poller(
     senders: SenderRegistry,
     devices: DeviceRegistry,
     stop: Arc<AtomicBool>,
-    startup_tx: oneshot::Sender<Result<(), KeybindsError>>,
+    startup_tx: watch::Sender<Startup>,
 ) {
     let send = |event: KeyEvent| {
         senders
@@ -215,6 +274,12 @@ fn run_poller(
 
     let init = || -> Result<(sdl3::JoystickSubsystem, sdl3::EventPump), String> {
         let sdl = sdl3::init().map_err(|err| format!("SDL init failed: {err}"))?;
+        // Slow enumeration happens while the `Sdl` handle is held, which is what
+        // makes a second concurrent init fail the sdl3 main-thread guard.
+        #[cfg(test)]
+        std::thread::sleep(Duration::from_millis(
+            tests::INIT_DELAY_MS.load(Ordering::Relaxed),
+        ));
         let joystick = sdl
             .joystick()
             .map_err(|err| format!("SDL joystick subsystem init failed: {err}"))?;
@@ -227,7 +292,8 @@ fn run_poller(
     let (joystick, mut pump) = match init() {
         Ok(res) => res,
         Err(err) => {
-            let _ = startup_tx.send(Err(KeybindsError::Listener(err)));
+            log::error!("SDL joystick poller startup failed: {err}");
+            let _ = startup_tx.send(Some(Err(err)));
             return;
         }
     };
@@ -240,7 +306,8 @@ fn run_poller(
         handle_event(&joystick, &devices, &mut open, &send, event);
     }
 
-    let _ = startup_tx.send(Ok(()));
+    log::debug!("SDL joystick poller started successfully");
+    let _ = startup_tx.send(Some(Ok(())));
 
     while !stop.load(Ordering::Relaxed) {
         let Some(event) = pump.wait_event_timeout(EVENT_WAIT_TIMEOUT) else {
@@ -489,6 +556,66 @@ mod tests {
             let connected = service.connected_devices().await.unwrap();
             assert!(connected.iter().all(|listed| listed.device != guid));
 
+            service.shutdown().await;
+        });
+    }
+
+    /// Delay injected into the poller after SDL init, simulating the slow
+    /// Windows joystick enumeration seen in the field.
+    pub(super) static INIT_DELAY_MS: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
+    /// Regression test: a slow SDL init must not make the service give up and
+    /// spawn a second SDL thread ("Cannot initialize `Sdl` from a thread other
+    /// than the main thread"). Run with `--ignored --test-threads=1`.
+    #[test]
+    #[ignore = "initializes SDL and drives its event loop"]
+    fn slow_init_does_not_break_retries() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        rt.block_on(async {
+            INIT_DELAY_MS.store(1000, Ordering::Relaxed);
+            let service = JoystickService::new();
+
+            // engine-style registration must not block on SDL
+            let (tx, mut early_rx) = unbounded_channel();
+            let started = std::time::Instant::now();
+            service.register(tx).await.unwrap();
+            assert!(started.elapsed() < Duration::from_millis(100));
+
+            // first capture times out (200ms test timeout < 1s delay) ...
+            let err = service.subscribe().await.unwrap_err();
+            assert!(err.to_string().contains("still initializing"), "{err}");
+            // ... and an immediate retry must not spawn a second SDL thread
+            let err = service.subscribe().await.unwrap_err();
+            assert!(!err.to_string().contains("main thread"), "{err}");
+
+            let mut rx = loop {
+                match service.subscribe().await {
+                    Ok(rx) => break rx,
+                    Err(err) => {
+                        assert!(err.to_string().contains("still initializing"), "{err}");
+                        assert!(started.elapsed() < Duration::from_secs(15));
+                    }
+                }
+            };
+
+            let name = std::ffi::CString::new(VIRTUAL_NAME).unwrap();
+            let device = VirtualJoystick::attach(&name, 1);
+            device.set_button(0, true);
+            let (_, state) = next_virtual_event(&mut rx).await;
+            assert_eq!(state, KeyState::Down);
+            // the early (pre-ready) registration receives events too
+            let (_, state) = next_virtual_event(&mut early_rx).await;
+            assert_eq!(state, KeyState::Down);
+            device.detach();
+
+            service.shutdown().await;
+            INIT_DELAY_MS.store(0, Ordering::Relaxed);
+            service.subscribe().await.expect("restart after shutdown");
             service.shutdown().await;
         });
     }
