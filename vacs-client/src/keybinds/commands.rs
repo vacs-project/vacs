@@ -210,8 +210,21 @@ pub async fn keybinds_capture_joystick_button(
     let mut rx = joystick.subscribe().await?;
     let timeout = timeout_ms.map_or(DEFAULT_CAPTURE_TIMEOUT, Duration::from_millis);
 
+    // Presses from ignored devices are dropped silently, which looks like a
+    // broken capture to the user; remember them to explain a timeout in the log.
+    let mut ignored_presses: HashSet<String> = HashSet::new();
     let next_button = async {
         while let Some(event) = rx.recv().await {
+            if let Trigger::Input(InputCode::Button(button)) = &event.trigger
+                && event.state == KeyState::Down
+                && ignored.contains(&button.device)
+            {
+                ignored_presses.insert(format!(
+                    "{} ({})",
+                    button.name.as_deref().unwrap_or("unknown"),
+                    button.device
+                ));
+            }
             if let Some(button) = capturable_button(event, &ignored) {
                 return Some(button);
             }
@@ -225,6 +238,15 @@ pub async fn keybinds_capture_joystick_button(
         button = next_button => button,
         _ = tokio::time::sleep(timeout) => None,
     };
+
+    if captured.is_none() && !ignored_presses.is_empty() {
+        log::warn!(
+            "Joystick capture ended without a binding, but button presses were received from \
+             ignored devices: {}. Remove them from the ignored joystick devices in the settings \
+             to bind them.",
+            ignored_presses.into_iter().collect::<Vec<_>>().join(", ")
+        );
+    }
 
     Ok(captured)
 }
@@ -332,6 +354,19 @@ pub async fn keybinds_set_ignored_joysticks(
     if !capabilities.joystick {
         return Err(Error::CapabilityNotAvailable("Joystick".to_string()));
     }
+
+    log::info!(
+        "Setting ignored joystick devices: [{}]",
+        devices
+            .iter()
+            .map(|device| format!(
+                "{} ({})",
+                device.name.as_deref().unwrap_or("unknown"),
+                device.device
+            ))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     let persisted_client_config: PersistedClientConfig = {
         let mut state = app_state.lock().await;
