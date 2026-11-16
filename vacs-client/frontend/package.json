@@ -38,7 +38,7 @@
     "@wdio/tauri-plugin": "1.5.1",
     "jsdom": "^30.1.3",
     "oxlint": "^1.90.0",
-    "oxlint-tsgolint": "^7.0.2005",
+    "oxlint-tsgolint": "^7.0.2006",
     "tailwindcss": "^4.3.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.6",
