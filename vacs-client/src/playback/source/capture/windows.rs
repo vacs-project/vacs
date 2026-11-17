@@ -112,7 +112,7 @@ fn run_main_loop(
     process_id: u32,
     init_tx: std::sync::mpsc::SyncSender<Result<Arc<AtomicBool>, String>>,
 ) {
-    let wave_format = WaveFormat::new(32, 32, &SampleType::Float, SAMPLE_RATE, CHANNELS, None);
+    let wave_format = WaveFormat::new(32, 32, SampleType::Float, SAMPLE_RATE, CHANNELS, None);
     let blockalign = wave_format.get_blockalign();
 
     let mut audio_client = match AudioClient::new_application_loopback_client(process_id, true) {
@@ -127,11 +127,12 @@ fn run_main_loop(
 
     if let Err(err) = audio_client.initialize_client(
         &wave_format,
-        &Direction::Capture,
-        &StreamMode::EventsShared {
+        Direction::Capture,
+        StreamMode::EventsShared {
             autoconvert: true,
             buffer_duration_hns: 0,
         },
+        None,
     ) {
         let _ = init_tx.send(Err(format!(
             "WASAPI audio_client.initialize_client failed: {err}"
