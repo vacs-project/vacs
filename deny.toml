@@ -18,6 +18,7 @@ ignore = [
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5 via tauri-plugin-single-instance, ashpd is on zbus 6" },
     { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5 via webrtc 0.17 dtls, fixed only by the webrtc 0.21 migration" },
     { id = "RUSTSEC-2026-0441", reason = "pin-utils via hyper and nix 0.26, no fixed release" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, via oauth2, octocrab and vatsim-api, no fixed release" },
 ]
 
 [licenses]
