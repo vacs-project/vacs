@@ -39,6 +39,28 @@ updates:
         exclude-patterns:
           - "tauri-plugin-wdio*"
 
+  # Standalone lockfile outside the workspace; keeps serde, serde_json and uuid in step with the
+  # root requirements so its --locked CI step does not break on a root bump.
+  - package-ecosystem: "cargo"
+    directory: "/vacs-protocol/compat-3-0"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00" # UTC
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    versioning-strategy: auto
+    labels: ["dependencies", "rust"]
+    ignore:
+      # Pinned to the vacs-client-v3.0.0 tag on purpose: it is the released parser under test.
+      - dependency-name: "vacs-protocol"
+    groups:
+      compat-3-0:
+        patterns:
+          - "*"
+
   - package-ecosystem: "npm"
     directory: "/vacs-client"
     schedule:

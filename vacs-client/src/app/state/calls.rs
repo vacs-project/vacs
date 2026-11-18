@@ -23,6 +23,7 @@ pub struct Call {
     call_id: CallId,
     webrtc: WebrtcCall,
     invited_targets: HashSet<CallTarget>,
+    conference_invited_targets: HashSet<CallTarget>,
     joined_participants: CallParticipants,
     conference_leader: Option<ClientId>,
 }
@@ -33,6 +34,7 @@ impl Call {
             call_id: invite.call_id,
             webrtc: WebrtcCall::new(invite.call_id, shutdown_token),
             invited_targets: invite.targets.clone(),
+            conference_invited_targets: conference_invited_targets(&invite.targets),
             joined_participants: HashMap::new(),
             conference_leader: None,
         }
@@ -46,6 +48,7 @@ impl Call {
             call_id: invitation.call_id,
             webrtc: WebrtcCall::new(invitation.call_id, shutdown_token),
             invited_targets: invitation.invited_targets.clone(),
+            conference_invited_targets: HashSet::new(),
             joined_participants: invitation.joined_participants.clone(),
             conference_leader: invitation.conference_leader.clone(),
         }
@@ -67,7 +70,13 @@ impl Call {
     }
 
     pub fn add_invited_targets(&mut self, targets: HashSet<CallTarget>) {
+        self.conference_invited_targets
+            .extend(conference_invited_targets(&targets));
         self.invited_targets.extend(targets);
+    }
+
+    pub fn is_conference_invited_target(&self, target: &CallTarget) -> bool {
+        self.conference_invited_targets.contains(target)
     }
 
     pub fn remove_invited_targets(&mut self, targets: &HashSet<CallTarget>) {
@@ -132,6 +141,14 @@ impl Call {
 
     pub fn into_webrtc(self) -> WebrtcCall {
         self.webrtc
+    }
+}
+
+fn conference_invited_targets(targets: &HashSet<CallTarget>) -> HashSet<CallTarget> {
+    if targets.len() > 1 {
+        targets.clone()
+    } else {
+        HashSet::new()
     }
 }
 
@@ -237,6 +254,24 @@ mod tests {
             prio: false,
         };
         Call::from_invitation(&invitation, &CancellationToken::new())
+    }
+
+    #[test]
+    fn targets_invited_together_are_conference_invited_targets() {
+        let mut call = call("a", &["b", "c"]);
+        call.add_invited_targets(HashSet::from([target("d")]));
+        call.add_invited_targets(HashSet::from([target("e"), target("f")]));
+
+        for id in ["b", "c", "e", "f"] {
+            assert!(call.is_conference_invited_target(&target(id)), "{id}");
+        }
+        assert!(!call.is_conference_invited_target(&target("d")));
+    }
+
+    #[test]
+    fn a_single_target_invite_has_no_conference_invited_target() {
+        let call = call("a", &["b"]);
+        assert!(!call.is_conference_invited_target(&target("b")));
     }
 
     #[test]

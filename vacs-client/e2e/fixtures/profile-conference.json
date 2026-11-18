@@ -1,0 +1,22 @@
+{
+  "id": "E2E_CONFERENCE",
+  "type": "Tabbed",
+  "tabs": [
+    {
+      "label": ["E2E", "CONF"],
+      "page": {
+        "rows": 2,
+        "keys": [
+          {
+            "label": ["CONF", "NSE"],
+            "station_ids": ["LOVV_FMP", "LOVV_N1", "LOVV_S1", "LOVV_E1"]
+          },
+          {"label": ["CONF", "S12"], "station_ids": ["LOVV_S1", "LOVV_S2"]},
+          {"label": ["CONF", "EW"], "station_ids": ["LOVV_E1", "LOVV_W1"]},
+          {"label": ["STN", "N1"], "station_id": "LOVV_N1"},
+          {"label": ["STN", "S2"], "station_id": "LOVV_S2"}
+        ]
+      }
+    }
+  ]
+}

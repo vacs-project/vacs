@@ -38,6 +38,13 @@ const WS_LOGIN_TIMEOUT: Duration = Duration::from_secs(10);
 // silent, peer-less state until manually ended.
 const CALL_ESTABLISHMENT_TIMEOUT: Duration = Duration::from_secs(15);
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CallTargetCovered {
+    call_id: CallId,
+    target: CallTarget,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionState {
@@ -1189,6 +1196,9 @@ impl AppStateInner {
                             return;
                         };
 
+                        let covered = matches!(reason, CallErrorReason::AlreadyParticipant(_))
+                            && current_call.is_conference_invited_target(target);
+
                         let targets = HashSet::from([target.clone()]);
                         current_call.remove_invited_targets(&targets);
                         if current_call.is_empty() {
@@ -1198,7 +1208,22 @@ impl AppStateInner {
                         state.cancel_unanswered_call_timers_for_targets(targets.iter());
                         state.stop_ringback_if_no_invited_targets(call_id);
 
-                        state.emit_call_error(app, call_id, false, targets.into(), reason);
+                        if !covered {
+                            state.emit_call_error(app, call_id, false, targets.into(), reason);
+                        } else if state.current_call(call_id).is_some() {
+                            // No locally built call-update: it carries no leader and would
+                            // clear the caller's optimistic leadership of a fresh conference.
+                            app.emit(
+                                "signaling:call-target-covered",
+                                CallTargetCovered {
+                                    call_id,
+                                    target: target.clone(),
+                                },
+                            )
+                            .ok();
+                        } else {
+                            app.emit("signaling:force-call-end", call_id).ok();
+                        }
                     }
                     CallErrorReason::PeerConnectionFailed(peer_id) => {
                         // Eviction: the link to this peer is dead on both ends

@@ -116,15 +116,24 @@ pub struct DirectAccessKey {
 
     /// The optional station ID associated with this key.
     ///
-    /// If [`DirectAccessKey::station_id`] and [`DirectAccessKey::page`] are `None`, the DA key will be displayed on the UI but will be non-functional.
-    /// This field is mutually exclusive with [`DirectAccessKey::page`].
+    /// If [`DirectAccessKey::station_id`], [`DirectAccessKey::station_ids`] and [`DirectAccessKey::page`] are `None`, the DA key will be displayed on the UI but will be non-functional.
+    /// This field is mutually exclusive with [`DirectAccessKey::station_ids`] and [`DirectAccessKey::page`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_id: Option<StationId>,
 
+    /// The optional stations of a conference key, called together in one call.
+    ///
+    /// Unlike [`DirectAccessKey::station_id`], which starts a 1:1 call with one station, this rings all listed
+    /// stations at once. Holds 2 to 7 distinct station IDs. This field is mutually exclusive with
+    /// [`DirectAccessKey::station_id`] and [`DirectAccessKey::page`]. Clients that predate it show the key without a
+    /// function.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_ids: Option<Vec<StationId>>,
+
     /// The optional subpage associated with this key.
     ///
-    /// If [`DirectAccessKey::station_id`] and [`DirectAccessKey::page`] are `None`, the DA key will be displayed on the UI but will be non-functional.
-    /// This field is mutually exclusive with [`DirectAccessKey::station_id`].
+    /// If [`DirectAccessKey::station_id`], [`DirectAccessKey::station_ids`] and [`DirectAccessKey::page`] are `None`, the DA key will be displayed on the UI but will be non-functional.
+    /// This field is mutually exclusive with [`DirectAccessKey::station_id`] and [`DirectAccessKey::station_ids`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<DirectAccessPage>,
 }
@@ -353,5 +362,59 @@ mod tests {
             let parsed: Profile = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed.view, view);
         }
+    }
+
+    fn key(station_id: Option<&str>, station_ids: Option<&[&str]>) -> DirectAccessKey {
+        DirectAccessKey {
+            label: vec!["APP".to_string()],
+            color: None,
+            station_id: station_id.map(StationId::from),
+            station_ids: station_ids.map(|ids| ids.iter().copied().map(StationId::from).collect()),
+            page: None,
+        }
+    }
+
+    #[test]
+    fn direct_access_key_without_station_ids_keeps_the_old_shape() {
+        let wire = r#"{"label":["APP"],"stationId":"LOVV_APP"}"#;
+        let parsed: DirectAccessKey = serde_json::from_str(wire).unwrap();
+        assert_eq!(parsed, key(Some("LOVV_APP"), None));
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), wire);
+    }
+
+    #[test]
+    fn direct_access_key_serializes_station_ids_in_camel_case() {
+        let conference = key(None, Some(&["LOVV_APP", "LOWW_TWR"]));
+        let json = serde_json::to_string(&conference).unwrap();
+        assert_eq!(
+            json,
+            r#"{"label":["APP"],"stationIds":["LOVV_APP","LOWW_TWR"]}"#
+        );
+        let parsed: DirectAccessKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, conference);
+    }
+
+    #[test]
+    fn geo_page_button_serializes_station_ids_in_camel_case() {
+        let wire = r#"{"label":["APP"],"size":5.0,"stationId":"LOVV_APP"}"#;
+        let parsed: geo::GeoPageButton = serde_json::from_str(wire).unwrap();
+        assert_eq!(parsed.station_ids, None);
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), wire);
+
+        let conference = geo::GeoPageButton {
+            station_id: None,
+            station_ids: Some(vec![
+                StationId::from("LOVV_APP"),
+                StationId::from("LOWW_TWR"),
+            ]),
+            ..parsed
+        };
+        let json = serde_json::to_string(&conference).unwrap();
+        assert_eq!(
+            json,
+            r#"{"label":["APP"],"size":5.0,"stationIds":["LOVV_APP","LOWW_TWR"]}"#
+        );
+        let parsed: geo::GeoPageButton = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, conference);
     }
 }

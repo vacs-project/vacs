@@ -28,8 +28,15 @@ pub struct CallInvite {
     /// The identity the sender places the call as. Its `client_id` must be
     /// the sender's own.
     pub source: CallSource,
-    /// The targets to invite. Must not be empty; targets already ringing or
-    /// joined in the call are rejected.
+    /// The targets to invite. Must not be empty.
+    ///
+    /// Each client is rung at most once per call. A target whose clients are all
+    /// already ringing or joined in the call, or all rung for another target of
+    /// this invite, is answered with [`CallErrorReason::AlreadyParticipant`] while
+    /// the rest of the invite goes ahead. Among targets sharing clients, the first
+    /// in [`CallTarget`] order is the one rung.
+    ///
+    /// [`CallErrorReason::AlreadyParticipant`]: crate::ws::shared::CallErrorReason::AlreadyParticipant
     pub targets: HashSet<CallTarget>,
     /// Marks this invite's targets as priority: their invitations ring as
     /// priority calls. The server keeps no per-call priority, so inviting

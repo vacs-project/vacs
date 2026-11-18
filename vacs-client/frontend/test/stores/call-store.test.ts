@@ -49,6 +49,60 @@ afterEach(() => {
 });
 
 describe("call store", () => {
+    describe("dropCoveredTarget", () => {
+        it("takes the covered target out of the ringing targets", () => {
+            useCallStore.setState({
+                callDisplay: outgoingDisplay([STATION_1, STATION_2], [STATION_1, STATION_2]),
+            });
+
+            useCallStore.getState().actions.dropCoveredTarget(CALL_ID, STATION_2);
+
+            const display = useCallStore.getState().callDisplay;
+            expect(display?.call.invitedTargets).toEqual([STATION_1]);
+            expect(display?.call.ownInvitedTargets).toEqual([STATION_1]);
+            expect(display?.prioTargets).toEqual([STATION_1]);
+        });
+
+        it("moves the display to a remaining target when the covered one is shown", () => {
+            const display = outgoingDisplay([STATION_1, STATION_2]);
+            useCallStore.setState({
+                callDisplay: {...display, call: {...display.call, target: STATION_2}},
+            });
+
+            useCallStore.getState().actions.dropCoveredTarget(CALL_ID, STATION_2);
+
+            expect(useCallStore.getState().callDisplay?.call.target).toEqual(STATION_1);
+        });
+
+        it("keeps an optimistic conference leadership", () => {
+            const display = outgoingDisplay([STATION_1, STATION_2]);
+            useCallStore.setState({
+                callDisplay: {...display, call: {...display.call, isConferenceLeader: true}},
+            });
+
+            useCallStore.getState().actions.dropCoveredTarget(CALL_ID, STATION_2);
+
+            expect(useCallStore.getState().callDisplay?.call.isConferenceLeader).toBe(true);
+        });
+
+        it("ignores a rejected display", () => {
+            const display = makeTestCallDisplay("rejected", {invitedTargets: [STATION_2]});
+            useCallStore.setState({callDisplay: display});
+
+            useCallStore.getState().actions.dropCoveredTarget(CALL_ID, STATION_2);
+
+            expect(useCallStore.getState().callDisplay).toBe(display);
+        });
+
+        it("ignores another call", () => {
+            useCallStore.setState({callDisplay: outgoingDisplay([STATION_1])});
+
+            useCallStore.getState().actions.dropCoveredTarget(OTHER_CALL_ID, STATION_1);
+
+            expect(useCallStore.getState().callDisplay?.call.invitedTargets).toEqual([STATION_1]);
+        });
+    });
+
     describe("cancelInvitedTarget", () => {
         it("removes only the cancelled target from invitedTargets", () => {
             useCallStore.setState({

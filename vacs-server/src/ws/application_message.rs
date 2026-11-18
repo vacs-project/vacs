@@ -215,10 +215,21 @@ async fn handle_call_invite(
         resolved_targets.push((target.clone(), target_clients));
     }
 
+    let merged_targets =
+        merge_shared_coverage(&mut resolved_targets, state.calls.clients_in_call(call_id));
+
     if resolved_targets.is_empty() {
-        let reason = CallErrorReason::TargetsNotFound(not_found_targets);
-        invite_rejected(reason.as_metric_label());
-        send_call_error(client, call_id, reason, None).await;
+        let report_not_found = merged_targets.is_empty() || !not_found_targets.is_empty();
+        for target in merged_targets {
+            let reason = CallErrorReason::AlreadyParticipant(target);
+            invite_rejected(reason.as_metric_label());
+            send_call_error(client, call_id, reason, None).await;
+        }
+        if report_not_found {
+            let reason = CallErrorReason::TargetsNotFound(not_found_targets);
+            invite_rejected(reason.as_metric_label());
+            send_call_error(client, call_id, reason, None).await;
+        }
         return;
     }
 
@@ -330,6 +341,20 @@ async fn handle_call_invite(
                 continue;
             }
         }
+    }
+
+    for target in merged_targets {
+        tracing::debug!(
+            call_target = target.as_metric_label(),
+            "Call target is covered by another target's clients, skipping target"
+        );
+        send_call_error(
+            client,
+            call_id,
+            CallErrorReason::AlreadyParticipant(target),
+            None,
+        )
+        .await;
     }
 
     if !not_found_targets.is_empty() {
@@ -1267,6 +1292,32 @@ async fn send_call_update(
     }
 }
 
+/// Removes and returns the targets already covered: by any client in the call, or by the
+/// clients of a target earlier in `CallTarget` order.
+fn merge_shared_coverage(
+    resolved_targets: &mut Vec<(CallTarget, HashSet<ClientId>)>,
+    in_call: HashSet<ClientId>,
+) -> Vec<CallTarget> {
+    resolved_targets.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    let mut claimed = HashSet::new();
+    let mut merged = Vec::new();
+    resolved_targets.retain_mut(|(target, clients)| {
+        if !clients.is_disjoint(&in_call) {
+            merged.push(target.clone());
+            return false;
+        }
+        clients.retain(|client_id| !claimed.contains(client_id));
+        if clients.is_empty() {
+            merged.push(target.clone());
+            return false;
+        }
+        claimed.extend(clients.iter().cloned());
+        true
+    });
+    merged
+}
+
 async fn send_call_error(
     client: &ClientSession,
     call_id: &CallId,
@@ -1541,5 +1592,65 @@ mod tests {
         )
         .await;
         assert_eq!(control_flow, ControlFlow::Continue(()));
+    }
+
+    fn station(id: &str) -> CallTarget {
+        CallTarget::Station(vacs_protocol::vatsim::StationId::from(id))
+    }
+
+    fn clients(ids: &[&str]) -> HashSet<ClientId> {
+        ids.iter().map(|id| ClientId::from(*id)).collect()
+    }
+
+    #[test]
+    fn merge_shared_coverage_rings_a_shared_client_under_the_first_target_only() {
+        let mut resolved = vec![
+            (station("EDMM_S_CTR"), clients(&["1"])),
+            (station("EDMM_N_CTR"), clients(&["1"])),
+            (station("EDDM_APP"), clients(&["2"])),
+        ];
+
+        let merged = merge_shared_coverage(&mut resolved, HashSet::new());
+
+        assert_eq!(merged, vec![station("EDMM_S_CTR")]);
+        assert_eq!(
+            resolved,
+            vec![
+                (station("EDDM_APP"), clients(&["2"])),
+                (station("EDMM_N_CTR"), clients(&["1"])),
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_shared_coverage_leaves_out_targets_with_a_client_in_the_call() {
+        let mut resolved = vec![
+            (station("EDDM_APP"), clients(&["1", "3"])),
+            (station("EDMM_N_CTR"), clients(&["2"])),
+        ];
+
+        let merged = merge_shared_coverage(&mut resolved, clients(&["1"]));
+
+        assert_eq!(merged, vec![station("EDDM_APP")]);
+        assert_eq!(resolved, vec![(station("EDMM_N_CTR"), clients(&["2"]))]);
+    }
+
+    #[test]
+    fn merge_shared_coverage_keeps_the_unshared_clients_of_a_target() {
+        let mut resolved = vec![
+            (station("EDDM_APP"), clients(&["1"])),
+            (station("EDDM_TWR"), clients(&["1", "2"])),
+        ];
+
+        let merged = merge_shared_coverage(&mut resolved, HashSet::new());
+
+        assert!(merged.is_empty());
+        assert_eq!(
+            resolved,
+            vec![
+                (station("EDDM_APP"), clients(&["1"])),
+                (station("EDDM_TWR"), clients(&["2"])),
+            ]
+        );
     }
 }
