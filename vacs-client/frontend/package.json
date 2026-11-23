@@ -36,7 +36,7 @@
     "@testing-library/preact": "^3.2.6",
     "@vitest/coverage-v8": "^5.1.0",
     "@wdio/tauri-plugin": "1.5.1",
-    "jsdom": "^31.0.0",
+    "jsdom": "^31.0.1",
     "oxlint": "^1.92.0",
     "oxlint-tsgolint": "^7.0.2007",
     "tailwindcss": "^4.3.0",
