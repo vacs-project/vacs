@@ -3,6 +3,7 @@ import {type ChildProcess, spawn, spawnSync, execFileSync} from "child_process";
 import {createConnection} from "net";
 import {fileURLToPath} from "url";
 import {
+    clearAppLogs,
     clearPersistedAppState,
     configureInstances,
     ensureApps,
@@ -112,6 +113,7 @@ export const config: WebdriverIO.MultiremoteConfig = {
         // boot them already authenticated.
         reapRecordedApps();
         clearPersistedAppState();
+        clearAppLogs();
 
         // wdio only logs a failing hook and runs the specs anyway, against
         // whatever binary or store is left over from the last run.

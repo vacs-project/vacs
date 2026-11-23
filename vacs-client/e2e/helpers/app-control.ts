@@ -233,14 +233,11 @@ const APP_LOG_DIR =
 const LOG_TIMESTAMP = /^\[(\d{4})-(\d{2})-(\d{2})\]\[(\d{2}):(\d{2}):(\d{2})\]/;
 
 /**
- * Removes the archived log files of the E2E bundle identifier. Every instance
- * logs into that one directory under one file name, and tauri-plugin-log's
- * KeepSome rotation deletes the surplus archives at plugin init: with a full
- * archive set, instances booting in parallel enumerate the same files and the
- * loser of a `remove_file` race takes an ENOENT, which fails plugin
- * initialization and panics the app before it ever serves WebDriver. Starting
- * a run with an empty archive set keeps that path from running at all.
- * Launcher-side, from onPrepare, before the service spawns anything.
+ * Removes the log directory of the E2E bundle identifier. Every instance logs
+ * into one file there, and e2e builds never rotate it (rotation at plugin init
+ * races between instances booting in parallel), so without this it would grow
+ * across runs. Launcher-side, from onPrepare, before the service spawns
+ * anything.
  */
 export function clearAppLogs(): void {
     rmSync(APP_LOG_DIR, {force: true, recursive: true});

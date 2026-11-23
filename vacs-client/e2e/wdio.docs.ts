@@ -1,7 +1,7 @@
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {config as baseConfig} from "./wdio.conf.ts";
-import {clearAppLogs, configureInstances} from "./helpers/app-control.ts";
+import {configureInstances} from "./helpers/app-control.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -57,17 +57,4 @@ export const config: WebdriverIO.MultiremoteConfig = {
     // A retry would re-capture and overwrite; a failed capture should be
     // looked at rather than silently repeated.
     specFileRetries: 0,
-
-    async onPrepare(...args) {
-        // Three instances boot in parallel per test, which makes the shared
-        // log directory's rotation race (see clearAppLogs) likely enough to
-        // hit within a single run.
-        clearAppLogs();
-
-        // Build and cleanup, from the base config.
-        const baseHooks = baseConfig.onPrepare;
-        for (const hook of Array.isArray(baseHooks) ? baseHooks : baseHooks ? [baseHooks] : []) {
-            await hook.apply(this, args);
-        }
-    },
 };

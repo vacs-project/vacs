@@ -1,5 +1,5 @@
 import {config as baseConfig} from "./wdio.conf.ts";
-import {clearAppLogs, configureInstances} from "./helpers/app-control.ts";
+import {configureInstances} from "./helpers/app-control.ts";
 
 // Embedded WebDriver ports, continuing the main config's scheme (the service
 // assigns base + i per multiremote instance, so the third instance lands on
@@ -47,17 +47,4 @@ export const config: WebdriverIO.MultiremoteConfig = {
         clientB: appCapability(),
         clientC: appCapability(),
     } as WebdriverIO.MultiremoteConfig["capabilities"],
-
-    onPrepare(...args) {
-        // Three instances boot in parallel per test, which makes the shared
-        // log directory's rotation race (see clearAppLogs) likely enough to
-        // hit within a single run.
-        clearAppLogs();
-
-        // Build and cleanup, from the base config.
-        const baseHooks = baseConfig.onPrepare;
-        for (const hook of Array.isArray(baseHooks) ? baseHooks : baseHooks ? [baseHooks] : []) {
-            hook.apply(this, args);
-        }
-    },
 };
