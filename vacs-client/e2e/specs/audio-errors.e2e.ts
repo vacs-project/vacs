@@ -29,9 +29,11 @@ describe("Audio Errors", () => {
         const clientA = getClient("clientA");
         await openSettings(clientA);
 
-        // The speaker device starts out unset.
+        // The speaker device starts out unset. The select renders a "Loading..."
+        // placeholder until the device list arrives, so wait it out first.
         const speakerSelect = await clientA.$('select[name="Speaker"]');
         await speakerSelect.waitForDisplayed();
+        await speakerSelect.$("option=Loading...").waitForExist({reverse: true});
         const initialDevice = await speakerSelect.getValue();
 
         await mockCommand("clientA", "audio_set_device", {reject: AUDIO_ERROR});
@@ -45,17 +47,16 @@ describe("Audio Errors", () => {
         await click(clientA, await errorTitle());
         await errorTitle().waitForDisplayed({reverse: true});
 
-        if ((await speakerSelect.getValue()) !== initialDevice) {
-            throw new Error("Failed device switch was not rolled back");
-        }
+        await clientA.waitUntil(async () => (await speakerSelect.getValue()) === initialDevice, {
+            timeoutMsg: "Failed device switch was not rolled back",
+        });
 
         // Once the backend recovers, switching works again.
         await unmockCommand("clientA", "audio_set_device");
         await selectOption(clientA, 'select[name="Speaker"]', "Mock Speaker");
-        await clientA.pause(500);
-        if ((await speakerSelect.getValue()) !== "Mock Speaker") {
-            throw new Error("Device switch after recovery was not applied");
-        }
+        await clientA.waitUntil(async () => (await speakerSelect.getValue()) === "Mock Speaker", {
+            timeoutMsg: "Device switch after recovery was not applied",
+        });
     });
 
     it("should surface a failing device enumeration", async () => {

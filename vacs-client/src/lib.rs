@@ -36,11 +36,20 @@ use tauri::{App, Manager, RunEvent, WindowEvent};
 use tokio::sync::Mutex as TokioMutex;
 
 pub fn run() {
+    #[cfg(not(feature = "e2e"))]
+    let (log_max_file_size, log_rotation) =
+        (1_000_000, tauri_plugin_log::RotationStrategy::KeepSome(5));
+    // All e2e instances share one log file, and rotating it at plugin init
+    // races between parallel boots: the loser gets ENOENT and panics.
+    #[cfg(feature = "e2e")]
+    let (log_max_file_size, log_rotation) =
+        (u128::MAX, tauri_plugin_log::RotationStrategy::KeepAll);
+
     let mut builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
-                .max_file_size(1_000_000)
-                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5))
+                .max_file_size(log_max_file_size)
+                .rotation_strategy(log_rotation)
                 .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                 .level(log::LevelFilter::Warn)
                 .level_for("vacs_client_lib", log::LevelFilter::Trace)
