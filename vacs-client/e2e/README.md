@@ -40,6 +40,13 @@ This runs three WebdriverIO configs in sequence:
   (`VACS-CALL-MAX_CONF_SIZE`), so a refused fourth invite is reachable with
   a raw signaling client instead of a fourth app instance.
 
+On a Linux desktop, `npm run -w e2e test:hidden` runs the same suite inside a
+private Xvfb display, so the app windows do not appear on your screen or take
+focus. It forces the X11 platform (the same one CI uses), so the Wayland paths
+(GlobalShortcuts portal, no always-on-top, window size restore) are not
+exercised; run plain `npm test` on a Wayland desktop when a change touches
+those. Needs `xvfb-run` (`xorg-x11-server-Xvfb` on Fedora, `xvfb` on Ubuntu).
+
 Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 (optionally `--mochaOpts.grep "<test name>"`).
 
