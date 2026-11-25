@@ -8,7 +8,8 @@
   "scripts": {
     "test": "wdio run wdio.conf.ts && wdio run wdio.remote.conf.ts && wdio run wdio.conference.conf.ts",
     "test:hidden": "env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 xvfb-run -a -s '-screen 0 1920x1080x24' npm test",
-    "screenshots": "wdio run wdio.docs.ts"
+    "screenshots": "wdio run wdio.docs.ts",
+    "screenshots:hidden": "env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 GDK_BACKEND=x11 xvfb-run -a -s '-screen 0 1920x1080x24' npm run screenshots --"
   },
   "devDependencies": {
     "@types/pngjs": "^6.0.5",

@@ -363,7 +363,7 @@ describe("Documentation screenshots: interface", function () {
         await applyTrackAudioMocks(
             "clientA",
             "VoiceConnected",
-            Array.from({length: 14}, (_, i) =>
+            Array.from({length: 24}, (_, i) =>
                 radioStation(`LOVV_S${i + 1}`, 134_000_000 + i * 25_000, {rx: i % 3 === 0}),
             ),
         );
@@ -375,8 +375,8 @@ describe("Documentation screenshots: interface", function () {
         await pageTab(clientA, "Radio").waitForDisplayed();
         await splitResizeHandle(clientA).waitForExist();
         await clientA.waitUntil(
-            async () => (await frequencyObjects(clientA).getElements()).length === 14,
-            {timeoutMsg: "The radio pane did not show the fourteen mocked stations"},
+            async () => (await frequencyObjects(clientA).getElements()).length === 24,
+            {timeoutMsg: "The radio pane did not show the 24 mocked stations"},
         );
 
         await captureWindow(clientA, "interface/hidden_content.png");
