@@ -5,13 +5,19 @@ import {useProfileStore} from "../stores/profile-store.ts";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 
-const DEFAULT_WIDTH = "calc(5.5rem * 4 + 0.375rem * 5 + 3px)";
+const DEFAULT_COLUMNS = 4;
+
+const defaultWidth = (columns: number) =>
+    `calc(5.5rem * ${columns} + 0.375rem * ${columns + 1} + 3px)`;
 
 function SplitPage() {
     const draggingRef = useRef(false);
     const phoneContainerRightBorderRef = useRef<number | undefined>(undefined);
     const splitProfileWidth = useProfileStore(state => state.splitProfileWidth);
     const setSplitProfileWidth = useProfileStore(state => state.setSplitProfileWidth);
+    const columns = useProfileStore(
+        state => state.profile?.mixedViewPhoneColumns ?? DEFAULT_COLUMNS,
+    );
 
     const phoneContainerRef = (dom: HTMLDivElement | null) => {
         const bounds = dom?.getClientRects()[0];
@@ -71,7 +77,8 @@ function SplitPage() {
         void invokeSafe("app_set_split_profile_width", {profileId, width: undefined});
     };
 
-    const width = splitProfileWidth !== undefined ? `${splitProfileWidth}px` : DEFAULT_WIDTH;
+    const width =
+        splitProfileWidth !== undefined ? `${splitProfileWidth}px` : defaultWidth(columns);
 
     return (
         <>

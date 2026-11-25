@@ -15,6 +15,7 @@ export type ActiveProfile = {
 export type Profile = {
     id: ProfileId;
     view: "page" | "split" | "cycle";
+    mixedViewPhoneColumns?: number; // > 0
     geo?: GeoPageContainer;
     tabbed?: Tab[];
 };
