@@ -15,6 +15,13 @@ beforeAll(() => {
     });
 });
 
+// jsdom doesn't implement ResizeObserver either
+globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+};
+
 // Set up Tauri IPC mock before each test.
 // Individual tests can call mockIPC() again to override command responses.
 beforeEach(() => {

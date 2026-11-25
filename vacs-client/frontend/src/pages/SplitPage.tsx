@@ -5,7 +5,7 @@ import {useProfileStore} from "../stores/profile-store.ts";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 
-const DEFAULT_WIDTH = "calc(5.5rem * 4 + 2rem + 3px)";
+const DEFAULT_WIDTH = "calc(5.5rem * 4 + 0.375rem * 3 + 1rem + 3px)";
 
 function SplitPage() {
     const draggingRef = useRef(false);

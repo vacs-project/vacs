@@ -7,6 +7,7 @@ import AddRadioStation from "../components/radio/AddRadioStation.tsx";
 import {sortCallsigns} from "../types/client.ts";
 import {useRadioStore} from "../stores/radio-store.ts";
 import {useSettingsStore} from "../stores/settings-store.ts";
+import ScrollArea from "../components/ui/ScrollArea.tsx";
 
 function RadioPage() {
     const radioState = useRadioStore(state => state.radioState);
@@ -102,7 +103,7 @@ function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
     }, []);
 
     return (
-        <div className="w-full h-full p-1.5 pr-0 flex flex-wrap-reverse content-start gap-2 overflow-y-auto">
+        <ScrollArea className="p-1.5 pr-0 flex flex-wrap-reverse content-start gap-2" reversed>
             {Array.from(stations.entries())
                 .sort(sortRadioStations)
                 .map(([freq, station]) => (
@@ -117,7 +118,7 @@ function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
                     />
                 ))}
             <AddRadioStation />
-        </div>
+        </ScrollArea>
     );
 }
 
