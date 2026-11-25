@@ -26,6 +26,15 @@ pub struct Profile {
     #[serde(default)]
     pub view: ProfileView,
 
+    /// How many direct access key columns the phone page is sized for by default when it is
+    /// shown next to the radio page in the [`ProfileView::Split`] and [`ProfileView::Cycle`]
+    /// views (> 0).
+    ///
+    /// The user can still resize the phone page; this only sets the initial width. Absent
+    /// means the client's default of 4 columns. Only [`ProfileType::Tabbed`] profiles set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mixed_view_phone_columns: Option<u8>,
+
     /// The type of profile and its associated configuration.
     #[serde(flatten)]
     pub profile_type: ProfileType,
@@ -325,6 +334,7 @@ mod tests {
         Profile {
             id: ProfileId::from("EDGG_T"),
             view,
+            mixed_view_phone_columns: None,
             profile_type: ProfileType::Tabbed(vec![]),
         }
     }
@@ -353,5 +363,27 @@ mod tests {
             let parsed: Profile = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed.view, view);
         }
+    }
+
+    #[test]
+    fn profile_serializes_mixed_view_phone_columns_in_camel_case() {
+        let profile = Profile {
+            mixed_view_phone_columns: Some(5),
+            ..tabbed(ProfileView::Split)
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(
+            json,
+            r#"{"id":"EDGG_T","view":"split","mixedViewPhoneColumns":5,"tabbed":[]}"#
+        );
+        assert_eq!(serde_json::from_str::<Profile>(&json).unwrap(), profile);
+    }
+
+    #[test]
+    fn profile_without_mixed_view_phone_columns_omits_and_defaults_it() {
+        let json = serde_json::to_string(&tabbed(ProfileView::Split)).unwrap();
+        assert!(!json.contains("mixedViewPhoneColumns"), "{json}");
+        let profile: Profile = serde_json::from_str(r#"{"id":"EDGG_T","tabbed":[]}"#).unwrap();
+        assert_eq!(profile.mixed_view_phone_columns, None);
     }
 }
