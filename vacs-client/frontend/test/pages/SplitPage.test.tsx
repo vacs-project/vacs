@@ -175,4 +175,28 @@ describe("SplitPage", () => {
 
         expect(getPhoneContainer(container).style.width).toBe("calc(3px + 29.75rem)");
     });
+
+    it("gives the phone pane the width the profile's radio columns leave", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewRadioColumns: 2}, undefined);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(100% - (3px + 21.25rem))");
+    });
+
+    it("prefers the user's stored width over the profile's radio columns", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewRadioColumns: 2}, 400);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("400px");
+    });
+
+    it("returns to the profile's radio columns on double click", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewRadioColumns: 2}, 400);
+        mockPhoneContainerBounds({x: 100, width: 200});
+        const {container} = render(<SplitPage />);
+
+        fireEvent.dblClick(getHandle(container));
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(100% - (3px + 21.25rem))");
+    });
 });

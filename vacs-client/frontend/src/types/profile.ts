@@ -16,6 +16,7 @@ export type Profile = {
     id: ProfileId;
     view: "page" | "split" | "cycle";
     mixedViewPhoneColumns?: number; // > 0
+    mixedViewRadioColumns?: number; // > 0, never together with mixedViewPhoneColumns
     geo?: GeoPageContainer;
     tabbed?: Tab[];
 };

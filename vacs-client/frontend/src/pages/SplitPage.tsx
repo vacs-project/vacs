@@ -5,19 +5,23 @@ import {useProfileStore} from "../stores/profile-store.ts";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 
-const DEFAULT_COLUMNS = 4;
+const DEFAULT_PHONE_COLUMNS = 4;
 
-const defaultWidth = (columns: number) =>
+const phoneWidth = (columns: number) =>
     `calc(5.5rem * ${columns} + 0.375rem * ${columns + 1} + 3px)`;
+
+// The radio grid has a 0.375rem left padding and none on the right; the same space is kept on
+// the right so the last column does not touch the border.
+const phoneWidthBesideRadio = (columns: number) =>
+    `calc(100% - (10rem * ${columns} + 0.5rem * ${columns - 1} + 0.75rem + 3px))`;
 
 function SplitPage() {
     const draggingRef = useRef(false);
     const phoneContainerRightBorderRef = useRef<number | undefined>(undefined);
     const splitProfileWidth = useProfileStore(state => state.splitProfileWidth);
     const setSplitProfileWidth = useProfileStore(state => state.setSplitProfileWidth);
-    const columns = useProfileStore(
-        state => state.profile?.mixedViewPhoneColumns ?? DEFAULT_COLUMNS,
-    );
+    const phoneColumns = useProfileStore(state => state.profile?.mixedViewPhoneColumns);
+    const radioColumns = useProfileStore(state => state.profile?.mixedViewRadioColumns);
 
     const phoneContainerRef = (dom: HTMLDivElement | null) => {
         const bounds = dom?.getClientRects()[0];
@@ -78,7 +82,11 @@ function SplitPage() {
     };
 
     const width =
-        splitProfileWidth !== undefined ? `${splitProfileWidth}px` : defaultWidth(columns);
+        splitProfileWidth !== undefined
+            ? `${splitProfileWidth}px`
+            : radioColumns !== undefined && phoneColumns === undefined
+              ? phoneWidthBesideRadio(radioColumns)
+              : phoneWidth(phoneColumns ?? DEFAULT_PHONE_COLUMNS);
 
     return (
         <>
