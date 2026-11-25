@@ -22,7 +22,7 @@ function DirectAccessPage({data}: DirectAccessPageProps) {
     };
 
     return (
-        <div className="w-full h-full overflow-auto scrollbar-none">
+        <div className="w-full h-full overflow-auto">
             <div className="w-min min-h-full py-3 px-2 grid grid-flow-col" style={style}>
                 {data.keys !== undefined ? (
                     data.keys.map((key, index) =>
