@@ -1,7 +1,8 @@
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import type {ChainablePromiseElement} from "webdriverio";
 import {restartApps} from "../helpers/app-control.ts";
-import {authenticate, loginAndConnect, loginAndConnectAs, resetMockState} from "../helpers/auth.ts";
+import {authenticate, loginAndConnectAs, resetMockState} from "../helpers/auth.ts";
 import {
     click,
     frequencyObjects,
@@ -23,11 +24,12 @@ import {
     CID_B,
     CID_C,
     CID_D,
-    CID_PROFILE,
     CLOCK_CELL,
     closeRawClients,
     connectRaw,
+    connectWithTestProfile,
     emitEvent,
+    infoCell,
     KEY_E1,
     KEY_N1,
     KEY_PRA_LW,
@@ -37,7 +39,6 @@ import {
     NEXT_VERSION,
     POSITION_A,
     radioStation,
-    restoreConnectedHeader,
     setupTabbed,
     stationKey,
     STATUS_INDICATOR,
@@ -60,11 +61,6 @@ const MIXED_COLUMNS_PROFILE = path.resolve(
     "profile-mixed-view-columns.json",
 );
 
-/** A cell of the header's info grid, matched by the text it shows in full in its title. */
-function infoCell(title: string): string {
-    return `//div[contains(@class, "info-grid-cell")][@title="${title}"]`;
-}
-
 const UPDATE_CELL = infoCell(`UPDATE AVAILABLE (v${NEXT_VERSION})`);
 /** The grid of direct access keys of the selected tab. */
 const DIRECT_ACCESS_GRID = '(//div[contains(@class, "grid-flow-col")])[1]';
@@ -74,10 +70,13 @@ const TAB_ROW = `${tabButton("EC")}/../..`;
 const TAB_SET_BUTTON = '//button[.//img[@alt="<->"]]';
 
 /** Fails when a session update replaced the loaded profile or header before the capture. */
-async function assertStillShown(browser: WebdriverIO.Browser, profileElement: string) {
-    for (const selector of [profileElement, infoCell(POSITION_A)]) {
-        if (!(await browser.$(selector).isDisplayed())) {
-            throw new Error(`${selector} was gone after the capture`);
+async function assertStillShown(
+    browser: WebdriverIO.Browser,
+    profileElement: ChainablePromiseElement,
+) {
+    for (const element of [profileElement, browser.$(infoCell(POSITION_A))]) {
+        if (!(await element.isDisplayed())) {
+            throw new Error(`${String(element.selector)} was gone after the capture`);
         }
     }
 }
@@ -292,32 +291,31 @@ describe("Documentation screenshots: interface", function () {
         await connectRaw(CID_B, POSITION_A);
         await connectRaw(CID_C, "LOWW_D_APP");
         await connectRaw(CID_D, "LOWW_I_APP");
-        await loginAndConnect(clientA, CID_PROFILE);
-        await applyFixtures(clientA, "clientA");
-        await loadTestProfile(clientA, SIX_TABS_PROFILE);
+        await connectWithTestProfile(clientA, "clientA", SIX_TABS_PROFILE);
 
         const selector = clientA.$(TAB_SET_BUTTON);
         await selector.waitForDisplayed();
         await clientA.$(KEY_E1).waitForDisplayed();
         await annotate(clientA, [{target: TAB_SET_BUTTON}]);
         await captureRect(clientA, "interface/dasel.png", await bottomStrip(clientA, 442));
+        await assertStillShown(clientA, selector);
         await clearAnnotations(clientA);
 
         await click(clientA, selector);
         await clientA.$(tabButton("DA 5")).waitForDisplayed();
         await captureRect(clientA, "interface/da56.png", await bottomStrip(clientA, 384));
+        await assertStillShown(clientA, clientA.$(tabButton("DA 5")));
     });
 
     it("captures the mixed page of a split view profile", async () => {
         const clientA = getClient("clientA");
-        await loginAndConnect(clientA, CID_PROFILE);
-        await applyFixtures(clientA, "clientA");
-        await applyTrackAudioMocks("clientA", "VoiceConnected", [
-            radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
-            radioStation("LOWW_APP", 134_675_000, {rx: true}),
-            radioStation("LOWW_TWR", 119_400_000),
-        ]);
-        await loadTestProfile(clientA, SPLIT_PROFILE);
+        await connectWithTestProfile(clientA, "clientA", SPLIT_PROFILE, () =>
+            applyTrackAudioMocks("clientA", "VoiceConnected", [
+                radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
+                radioStation("LOWW_APP", 134_675_000, {rx: true}),
+                radioStation("LOWW_TWR", 119_400_000),
+            ]),
+        );
 
         await pageTab(clientA, "Radio").waitForDisplayed();
         await splitResizeHandle(clientA).waitForExist();
@@ -333,14 +331,14 @@ describe("Documentation screenshots: interface", function () {
             el.style.opacity = "0.3";
         }, handle);
         await captureWindow(clientA, "interface/split_view_mixed.png");
+        await assertStillShown(clientA, pageTab(clientA, "Radio"));
     });
 
     it("captures the Page button of a cycle view profile", async () => {
         const clientA = getClient("clientA");
-        await loginAndConnect(clientA, CID_PROFILE);
-        await applyFixtures(clientA, "clientA");
-        await applyTrackAudioMocks("clientA", "Disconnected");
-        await loadTestProfile(clientA, CYCLE_PROFILE);
+        await connectWithTestProfile(clientA, "clientA", CYCLE_PROFILE, () =>
+            applyTrackAudioMocks("clientA", "Disconnected"),
+        );
 
         const cycleButton = pageCycleButton(clientA);
         await cycleButton.waitForDisplayed();
@@ -353,24 +351,21 @@ describe("Documentation screenshots: interface", function () {
         );
 
         await captureElement(clientA, cycleButton, "interface/page_cycle_button.png", {padding: 8});
+        await assertStillShown(clientA, cycleButton);
     });
 
     it("captures the cues for hidden content in the mixed view", async () => {
         const clientA = getClient("clientA");
-        await loginAndConnectAs(clientA, CID_A, POSITION_A);
-        await applyFixtures(clientA, "clientA");
-        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
-        await applyTrackAudioMocks(
-            "clientA",
-            "VoiceConnected",
-            Array.from({length: 24}, (_, i) =>
-                radioStation(`LOVV_S${i + 1}`, 134_000_000 + i * 25_000, {rx: i % 3 === 0}),
+        await connectWithTestProfile(clientA, "clientA", OVERFLOW_PROFILE, () =>
+            applyTrackAudioMocks(
+                "clientA",
+                "VoiceConnected",
+                Array.from({length: 24}, (_, i) =>
+                    radioStation(`LOVV_S${i + 1}`, 134_000_000 + i * 25_000, {rx: i % 3 === 0}),
+                ),
             ),
         );
-        await loadTestProfile(clientA, OVERFLOW_PROFILE);
-        await restoreConnectedHeader("clientA", CID_A, POSITION_A);
 
-        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
         await clientA.$(tabButton("WIDE")).waitForDisplayed();
         await pageTab(clientA, "Radio").waitForDisplayed();
         await splitResizeHandle(clientA).waitForExist();
@@ -380,23 +375,19 @@ describe("Documentation screenshots: interface", function () {
         );
 
         await captureWindow(clientA, "interface/hidden_content.png");
-        await assertStillShown(clientA, tabButton("WIDE"));
+        await assertStillShown(clientA, clientA.$(tabButton("WIDE")));
     });
 
     it("captures the mixed view of a profile that sets its key columns", async () => {
         const clientA = getClient("clientA");
-        await loginAndConnectAs(clientA, CID_A, POSITION_A);
-        await applyFixtures(clientA, "clientA");
-        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
-        await applyTrackAudioMocks("clientA", "VoiceConnected", [
-            radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
-            radioStation("LOWW_APP", 134_675_000, {rx: true}),
-            radioStation("LOWW_TWR", 119_400_000),
-        ]);
-        await loadTestProfile(clientA, MIXED_COLUMNS_PROFILE);
-        await restoreConnectedHeader("clientA", CID_A, POSITION_A);
+        await connectWithTestProfile(clientA, "clientA", MIXED_COLUMNS_PROFILE, () =>
+            applyTrackAudioMocks("clientA", "VoiceConnected", [
+                radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
+                radioStation("LOWW_APP", 134_675_000, {rx: true}),
+                radioStation("LOWW_TWR", 119_400_000),
+            ]),
+        );
 
-        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
         await pageTab(clientA, "Radio").waitForDisplayed();
         await splitResizeHandle(clientA).waitForExist();
         await click(clientA, clientA.$(tabButton("5")));
@@ -406,6 +397,6 @@ describe("Documentation screenshots: interface", function () {
         );
 
         await captureWindow(clientA, "interface/split_view_columns.png");
-        await assertStillShown(clientA, tabButton("5"));
+        await assertStillShown(clientA, clientA.$(tabButton("5")));
     });
 });
