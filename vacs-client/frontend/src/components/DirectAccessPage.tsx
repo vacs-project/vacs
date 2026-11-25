@@ -9,6 +9,7 @@ import {CustomButtonColor} from "../types/custom-button-colors.ts";
 import {useSplitView} from "../hooks/page-hook.ts";
 import DirectAccessKeyButton from "./ui/DirectAccessKeyButton.tsx";
 import ScrollArea from "./ui/ScrollArea.tsx";
+import {scrollHorizontallyOnWheel} from "../utils/wheel.ts";
 
 type DirectAccessPageProps = {
     data: DirectAccessPageModel;
@@ -23,7 +24,7 @@ function DirectAccessPage({data}: DirectAccessPageProps) {
     };
 
     return (
-        <ScrollArea>
+        <ScrollArea onWheel={e => scrollHorizontallyOnWheel(e.currentTarget, e)}>
             <div className="w-min min-h-full py-3 px-2 grid grid-flow-col" style={style}>
                 {data.keys !== undefined ? (
                     data.keys.map((key, index) =>

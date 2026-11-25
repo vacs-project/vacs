@@ -7,6 +7,8 @@ import DirectAccessPage from "../components/DirectAccessPage.tsx";
 import GeoPage from "./GeoPage.tsx";
 import {useSettingsStore} from "../stores/settings-store.ts";
 import ClientPage from "../components/ClientPage.tsx";
+import ScrollArea from "../components/ui/ScrollArea.tsx";
+import {scrollHorizontallyOnWheel} from "../utils/wheel.ts";
 
 function PhonePage() {
     const connected = useConnectionStore(state => state.connectionState === "connected");
@@ -45,11 +47,11 @@ function FallbackProfile() {
     const config = useSettingsStore(state => state.selectedClientPageConfig);
 
     return (
-        <div className="w-full h-full overflow-auto">
+        <ScrollArea onWheel={e => scrollHorizontallyOnWheel(e.currentTarget, e)}>
             <div className="w-min min-h-full py-3 px-2 grid grid-flow-col grid-rows-6 gap-2">
                 <ClientPage config={config} />
             </div>
-        </div>
+        </ScrollArea>
     );
 }
 
