@@ -37,6 +37,7 @@ import {
     NEXT_VERSION,
     POSITION_A,
     radioStation,
+    restoreConnectedHeader,
     setupTabbed,
     stationKey,
     STATUS_INDICATOR,
@@ -51,6 +52,13 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const SPLIT_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-docs-split.json");
 const CYCLE_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-cycle.json");
 const SIX_TABS_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-docs-six-tabs.json");
+const OVERFLOW_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-overflow.json");
+const MIXED_COLUMNS_PROFILE = path.resolve(
+    __dirname,
+    "..",
+    "fixtures",
+    "profile-mixed-view-columns.json",
+);
 
 /** A cell of the header's info grid, matched by the text it shows in full in its title. */
 function infoCell(title: string): string {
@@ -64,6 +72,15 @@ const DIRECT_ACCESS_GRID = '(//div[contains(@class, "grid-flow-col")])[1]';
 const TAB_ROW = `${tabButton("EC")}/../..`;
 /** The button cycling through tab sets when a profile has more than four tabs. */
 const TAB_SET_BUTTON = '//button[.//img[@alt="<->"]]';
+
+/** Fails when a session update replaced the loaded profile or header before the capture. */
+async function assertStillShown(browser: WebdriverIO.Browser, profileElement: string) {
+    for (const selector of [profileElement, infoCell(POSITION_A)]) {
+        if (!(await browser.$(selector).isDisplayed())) {
+            throw new Error(`${selector} was gone after the capture`);
+        }
+    }
+}
 
 /** The strip of the window below the header, which the connect page image shows. */
 async function belowHeader(browser: WebdriverIO.Browser) {
@@ -336,5 +353,59 @@ describe("Documentation screenshots: interface", function () {
         );
 
         await captureElement(clientA, cycleButton, "interface/page_cycle_button.png", {padding: 8});
+    });
+
+    it("captures the cues for hidden content in the mixed view", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
+        await applyTrackAudioMocks(
+            "clientA",
+            "VoiceConnected",
+            Array.from({length: 14}, (_, i) =>
+                radioStation(`LOVV_S${i + 1}`, 134_000_000 + i * 25_000, {rx: i % 3 === 0}),
+            ),
+        );
+        await loadTestProfile(clientA, OVERFLOW_PROFILE);
+        await restoreConnectedHeader("clientA", CID_A, POSITION_A);
+
+        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
+        await clientA.$(tabButton("WIDE")).waitForDisplayed();
+        await pageTab(clientA, "Radio").waitForDisplayed();
+        await splitResizeHandle(clientA).waitForExist();
+        await clientA.waitUntil(
+            async () => (await frequencyObjects(clientA).getElements()).length === 14,
+            {timeoutMsg: "The radio pane did not show the fourteen mocked stations"},
+        );
+
+        await captureWindow(clientA, "interface/hidden_content.png");
+        await assertStillShown(clientA, tabButton("WIDE"));
+    });
+
+    it("captures the mixed view of a profile that sets its key columns", async () => {
+        const clientA = getClient("clientA");
+        await loginAndConnectAs(clientA, CID_A, POSITION_A);
+        await applyFixtures(clientA, "clientA");
+        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
+        await applyTrackAudioMocks("clientA", "VoiceConnected", [
+            radioStation("LOVV_CTR", 134_350_000, {rx: true, tx: true}),
+            radioStation("LOWW_APP", 134_675_000, {rx: true}),
+            radioStation("LOWW_TWR", 119_400_000),
+        ]);
+        await loadTestProfile(clientA, MIXED_COLUMNS_PROFILE);
+        await restoreConnectedHeader("clientA", CID_A, POSITION_A);
+
+        await clientA.$(infoCell(POSITION_A)).waitForDisplayed();
+        await pageTab(clientA, "Radio").waitForDisplayed();
+        await splitResizeHandle(clientA).waitForExist();
+        await click(clientA, clientA.$(tabButton("5")));
+        await clientA.waitUntil(
+            async () => (await frequencyObjects(clientA).getElements()).length === 3,
+            {timeoutMsg: "The radio pane did not show the three mocked stations"},
+        );
+
+        await captureWindow(clientA, "interface/split_view_columns.png");
+        await assertStillShown(clientA, tabButton("5"));
     });
 });

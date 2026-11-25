@@ -301,6 +301,22 @@ export async function loadTestProfile(browser: WebdriverIO.Browser, file: string
     if (!result.ok) throw new Error(`app_load_test_profile failed for ${file}: ${result.error}`);
 }
 
+/**
+ * Restores the header's position and connection status, which loadTestProfile blanks, with the
+ * session update a server sends when the position changes but the profile does not.
+ */
+export async function restoreConnectedHeader(
+    instanceName: string,
+    cid: string,
+    positionId: string,
+): Promise<void> {
+    await emitEvent(instanceName, "signaling:connected", {
+        client: {id: cid, positionId, displayName: positionId, frequency: ""},
+        profile: {type: "unchanged"},
+        defaultCallSources: [],
+    });
+}
+
 /** Re-runs the capability fetch, which otherwise only happens on mount. */
 export async function refetchCapabilities(instanceName: string): Promise<void> {
     await tauriApi(instanceName).execute(() => {
