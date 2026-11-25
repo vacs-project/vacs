@@ -19,6 +19,7 @@ pub struct Profile {
     pub id: ProfileId,
     pub view: ProfileView,
     pub mixed_view_phone_columns: Option<u8>,
+    pub mixed_view_radio_columns: Option<u8>,
     pub profile_type: ProfileType,
     pub relevant_station_ids: HashSet<StationId>,
 }
@@ -30,6 +31,8 @@ pub(super) struct ProfileRaw {
     pub view: ProfileView,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mixed_view_phone_columns: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mixed_view_radio_columns: Option<u8>,
     #[serde(flatten)]
     pub profile_type: ProfileTypeRaw,
 }
@@ -214,6 +217,7 @@ impl FromRaw<ProfileRaw> for Profile {
             id: profile_raw.id,
             view: profile_raw.view,
             mixed_view_phone_columns: profile_raw.mixed_view_phone_columns,
+            mixed_view_radio_columns: profile_raw.mixed_view_radio_columns,
             profile_type,
             relevant_station_ids,
         })
@@ -226,6 +230,7 @@ impl From<&Profile> for ProtocolProfile {
             id: profile.id.clone(),
             view: profile.view,
             mixed_view_phone_columns: profile.mixed_view_phone_columns,
+            mixed_view_radio_columns: profile.mixed_view_radio_columns,
             profile_type: profile.profile_type.clone(),
         }
     }
@@ -547,18 +552,41 @@ impl Validator for ProfileRaw {
             .into());
         }
 
-        if let Some(columns) = self.mixed_view_phone_columns {
+        if let (Some(_), Some(columns)) =
+            (self.mixed_view_phone_columns, self.mixed_view_radio_columns)
+        {
+            return Err(ValidationError::InvalidValue {
+                field: "mixed_view_radio_columns".to_string(),
+                value: columns.to_string(),
+                reason: "cannot be combined with `mixed_view_phone_columns`".to_string(),
+            }
+            .into());
+        }
+
+        for (field, value) in [
+            ("mixed_view_phone_columns", self.mixed_view_phone_columns),
+            ("mixed_view_radio_columns", self.mixed_view_radio_columns),
+        ] {
+            let Some(columns) = value else { continue };
             if matches!(self.profile_type, ProfileTypeRaw::Geo(..)) {
                 return Err(ValidationError::InvalidValue {
-                    field: "mixed_view_phone_columns".to_string(),
+                    field: field.to_string(),
                     value: columns.to_string(),
                     reason: "geo profiles do not have a mixed view".to_string(),
                 }
                 .into());
             }
+            if self.view == ProfileView::Page {
+                return Err(ValidationError::InvalidValue {
+                    field: field.to_string(),
+                    value: columns.to_string(),
+                    reason: "only applies to the split and cycle views".to_string(),
+                }
+                .into());
+            }
             if columns == 0 {
                 return Err(ValidationError::OutOfRange {
-                    field: "mixed_view_phone_columns".to_string(),
+                    field: field.to_string(),
                     value: columns.to_string(),
                     min: 1.to_string(),
                     max: None,
@@ -932,6 +960,7 @@ mod tests {
             id: ProfileId::from("geo"),
             view: ProfileView::Page,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -959,6 +988,7 @@ mod tests {
             id: ProfileId::from(""),
             view: ProfileView::Page,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: valid_geo.profile_type.clone(),
         };
         assert_matches!(
@@ -971,6 +1001,7 @@ mod tests {
                 id: ProfileId::from("geo"),
                 view,
                 mixed_view_phone_columns: None,
+                mixed_view_radio_columns: None,
                 profile_type: valid_geo.profile_type.clone(),
             };
             assert_matches!(
@@ -983,6 +1014,7 @@ mod tests {
             id: ProfileId::from("tabbed"),
             view: ProfileView::Split,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileTypeRaw::Tabbed {
                 tabs: vec![TabRaw {
                     label: vec!["tab1".to_string()],
@@ -1010,13 +1042,79 @@ mod tests {
             Err(CoverageError::Validation(ValidationError::OutOfRange { field, .. })) if field == "mixed_view_phone_columns"
         );
 
+        let tabbed_with_radio_columns = ProfileRaw {
+            mixed_view_radio_columns: Some(2),
+            ..tabbed_with_split_view.clone()
+        };
+        assert!(tabbed_with_radio_columns.validate().is_ok());
+
+        let tabbed_with_zero_radio_columns = ProfileRaw {
+            mixed_view_radio_columns: Some(0),
+            ..tabbed_with_split_view.clone()
+        };
+        assert_matches!(
+            tabbed_with_zero_radio_columns.validate(),
+            Err(CoverageError::Validation(ValidationError::OutOfRange { field, .. })) if field == "mixed_view_radio_columns"
+        );
+
+        let tabbed_with_both_columns = ProfileRaw {
+            mixed_view_phone_columns: Some(5),
+            mixed_view_radio_columns: Some(2),
+            ..tabbed_with_split_view.clone()
+        };
+        assert_matches!(
+            tabbed_with_both_columns.validate(),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. })) if field == "mixed_view_radio_columns"
+        );
+
+        for view in [ProfileView::Split, ProfileView::Cycle] {
+            for (phone, radio) in [(Some(5), None), (None, Some(2))] {
+                let tabbed_mixed_view_with_columns = ProfileRaw {
+                    view,
+                    mixed_view_phone_columns: phone,
+                    mixed_view_radio_columns: radio,
+                    ..tabbed_with_split_view.clone()
+                };
+                assert!(tabbed_mixed_view_with_columns.validate().is_ok());
+            }
+        }
+
+        let tabbed_page_with_phone_columns = ProfileRaw {
+            view: ProfileView::Page,
+            mixed_view_phone_columns: Some(5),
+            ..tabbed_with_split_view.clone()
+        };
+        assert_matches!(
+            tabbed_page_with_phone_columns.validate(),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. })) if field == "mixed_view_phone_columns"
+        );
+
+        let tabbed_page_with_radio_columns = ProfileRaw {
+            view: ProfileView::Page,
+            mixed_view_radio_columns: Some(2),
+            ..tabbed_with_split_view.clone()
+        };
+        assert_matches!(
+            tabbed_page_with_radio_columns.validate(),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. })) if field == "mixed_view_radio_columns"
+        );
+
+        let geo_with_radio_columns = ProfileRaw {
+            mixed_view_radio_columns: Some(2),
+            ..valid_geo.clone()
+        };
+        assert_matches!(
+            geo_with_radio_columns.validate(),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, reason, .. })) if field == "mixed_view_radio_columns" && reason.contains("geo profiles")
+        );
+
         let geo_with_columns = ProfileRaw {
             mixed_view_phone_columns: Some(5),
             ..valid_geo.clone()
         };
         assert_matches!(
             geo_with_columns.validate(),
-            Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. })) if field == "mixed_view_phone_columns"
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, reason, .. })) if field == "mixed_view_phone_columns" && reason.contains("geo profiles")
         );
     }
 
@@ -1081,6 +1179,28 @@ page.keys = [{ label = "CTR", station_id = "ESOS_CTR" }]
             ProtocolProfile::from(&Profile::from_raw(raw).unwrap()).mixed_view_phone_columns,
             Some(5)
         );
+    }
+
+    #[test]
+    fn profile_raw_mixed_view_radio_columns_parses_from_toml() {
+        let raw: ProfileRaw = toml::from_str(
+            r#"
+id = "ESSA"
+type = "Tabbed"
+view = "cycle"
+mixed_view_radio_columns = 2
+
+[[tabs]]
+label = "Main"
+page.rows = 1
+page.keys = [{ label = "CTR", station_id = "ESOS_CTR" }]
+"#,
+        )
+        .unwrap();
+        assert_eq!(raw.mixed_view_radio_columns, Some(2));
+        let profile = ProtocolProfile::from(&Profile::from_raw(raw).unwrap());
+        assert_eq!(profile.mixed_view_radio_columns, Some(2));
+        assert_eq!(profile.mixed_view_phone_columns, None);
     }
 
     #[test]
@@ -1331,6 +1451,7 @@ page.keys = [{ label = "CTR", station_id = "ESOS_CTR" }]
             id: ProfileId::from("test"),
             view: ProfileView::Page,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -1411,6 +1532,7 @@ page.keys = [{ label = "CTR", station_id = "ESOS_CTR" }]
             id: ProfileId::from("test"),
             view: ProfileView::Page,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -1449,6 +1571,7 @@ page.keys = [{ label = "CTR", station_id = "ESOS_CTR" }]
             id: ProfileId::from("test3"),
             view: ProfileView::Page,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
@@ -1491,6 +1614,7 @@ page.keys = [{ label = "CTR", station_id = "ESOS_CTR" }]
             id: ProfileId::from("test4"),
             view: ProfileView::Page,
             mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileTypeRaw::Geo(GeoPageContainerRaw {
                 height: None,
                 width: None,
