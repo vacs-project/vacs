@@ -13,7 +13,7 @@ import DirectAccessPage from "../components/DirectAccessPage.tsx";
 import {clsx} from "clsx";
 import ButtonLabel from "../components/ui/ButtonLabel.tsx";
 import {useCallState} from "../hooks/call-state-hook.ts";
-import {useStationKeyInteraction} from "../hooks/station-key-interaction-hook.ts";
+import {keyStationIds, useStationKeyInteraction} from "../hooks/station-key-interaction-hook.ts";
 
 type GeoPageProps = {
     page: GeoPageContainerModel;
@@ -93,7 +93,8 @@ function GeoPageContainer({
 }
 
 function GeoPageButton({button}: {button: GeoPageButtonModel}) {
-    const hasStationId = button.stationId !== undefined;
+    const stationIds = keyStationIds(button);
+    const hasStationId = stationIds.length > 0;
 
     const {
         color: stationColor,
@@ -101,7 +102,7 @@ function GeoPageButton({button}: {button: GeoPageButtonModel}) {
         disabled,
         own,
         handleClick,
-    } = useStationKeyInteraction(button.stationId, button.color);
+    } = useStationKeyInteraction(stationIds, button.color);
 
     const {color: groupColor, highlight: groupHighlight} = useCallState(button.page, button.color);
     const setSelectedPage = useProfileStore(state => state.setPage);

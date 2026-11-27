@@ -91,6 +91,9 @@ impl Eq for UnknownReason {}
 #[serde(rename_all = "camelCase")]
 pub enum CallErrorReason {
     TargetsNotFound(HashSet<CallTarget>),
+    /// Every client the target resolves to is already ringing or joined in the
+    /// call, or rung for another target of the same invite. Only this target is
+    /// left out; the call goes on.
     AlreadyParticipant(CallTarget),
     CallNotFound,
     CallActive,

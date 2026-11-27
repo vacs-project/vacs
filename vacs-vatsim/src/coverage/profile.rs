@@ -14,6 +14,9 @@ use vacs_protocol::profile::{
 };
 use vacs_protocol::vatsim::StationId;
 
+// Up to 7: the default server `max_conf_size` of 8 includes the caller.
+const CONFERENCE_KEY_STATIONS: std::ops::RangeInclusive<usize> = 2..=7;
+
 #[derive(Clone)]
 pub struct Profile {
     pub id: ProfileId,
@@ -90,6 +93,8 @@ pub(super) struct GeoPageButtonRaw {
     pub page: Option<DirectAccessPageRaw>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_id: Option<StationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_ids: Option<Vec<StationId>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -122,6 +127,8 @@ pub(super) struct DirectAccessKeyRaw {
     pub color: Option<CustomButtonColor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub station_id: Option<StationId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_ids: Option<Vec<StationId>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<DirectAccessPageRaw>,
 }
@@ -310,7 +317,7 @@ impl ReferenceValidator<StationId> for GeoPageButton {
             }
             .into());
         }
-        Ok(())
+        validate_conference_references(self.station_ids.as_deref(), stations)
     }
 }
 
@@ -321,6 +328,9 @@ impl StationIdCollector for GeoPageButton {
         }
         if let Some(station_id) = &self.station_id {
             ids.insert(station_id.clone());
+        }
+        if let Some(station_ids) = &self.station_ids {
+            ids.extend(station_ids.iter().cloned());
         }
     }
 }
@@ -359,6 +369,9 @@ impl StationIdCollector for DirectAccessPageContent {
                     if let Some(station_id) = &key.station_id {
                         ids.insert(station_id.clone());
                     }
+                    if let Some(station_ids) = &key.station_ids {
+                        ids.extend(station_ids.iter().cloned());
+                    }
                     if let Some(page) = &key.page {
                         page.collect_station_ids(ids);
                     }
@@ -380,7 +393,7 @@ impl ReferenceValidator<StationId> for DirectAccessKey {
             }
             .into());
         }
-        Ok(())
+        validate_conference_references(self.station_ids.as_deref(), stations)
     }
 }
 
@@ -470,6 +483,7 @@ impl FromRaw<GeoPageButtonRaw> for GeoPageButton {
             color: raw.color,
             page: raw.page.map(DirectAccessPage::from_raw).transpose()?,
             station_id: raw.station_id,
+            station_ids: raw.station_ids,
         })
     }
 }
@@ -519,6 +533,7 @@ impl TryFrom<DirectAccessKeyRaw> for DirectAccessKey {
             label: raw.label,
             color: raw.color,
             station_id: raw.station_id,
+            station_ids: raw.station_ids,
             page: raw.page.map(DirectAccessPage::from_raw).transpose()?,
         })
     }
@@ -706,15 +721,11 @@ impl Validator for GeoPageButtonRaw {
             .into());
         }
 
-        if self.station_id.is_some() && self.page.is_some() {
-            return Err(ValidationError::MutuallyExclusive {
-                fields: ["station_id", "page"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect(),
-            }
-            .into());
-        }
+        validate_key_target(
+            self.station_id.as_ref(),
+            self.station_ids.as_deref(),
+            self.page.is_some(),
+        )?;
 
         if let Some(page) = &self.page {
             page.validate()?;
@@ -784,15 +795,11 @@ impl Validator for DirectAccessKeyRaw {
             .into());
         }
 
-        if self.station_id.is_some() && self.page.is_some() {
-            return Err(ValidationError::MutuallyExclusive {
-                fields: ["station_id", "page"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect(),
-            }
-            .into());
-        }
+        validate_key_target(
+            self.station_id.as_ref(),
+            self.station_ids.as_deref(),
+            self.page.is_some(),
+        )?;
 
         if let Some(page) = &self.page {
             page.validate()?;
@@ -800,6 +807,77 @@ impl Validator for DirectAccessKeyRaw {
 
         Ok(())
     }
+}
+
+fn validate_key_target(
+    station_id: Option<&StationId>,
+    station_ids: Option<&[StationId]>,
+    has_page: bool,
+) -> Result<(), CoverageError> {
+    let set_fields: Vec<String> = [
+        ("station_id", station_id.is_some()),
+        ("station_ids", station_ids.is_some()),
+        ("page", has_page),
+    ]
+    .into_iter()
+    .filter(|(_, set)| *set)
+    .map(|(field, _)| field.to_string())
+    .collect();
+    if set_fields.len() > 1 {
+        return Err(ValidationError::MutuallyExclusive { fields: set_fields }.into());
+    }
+
+    let Some(station_ids) = station_ids else {
+        return Ok(());
+    };
+    if !CONFERENCE_KEY_STATIONS.contains(&station_ids.len()) {
+        return Err(ValidationError::InvalidValue {
+            field: "station_ids".to_string(),
+            value: format_station_ids(station_ids),
+            reason: format!(
+                "a conference key must list {} to {} stations",
+                CONFERENCE_KEY_STATIONS.start(),
+                CONFERENCE_KEY_STATIONS.end()
+            ),
+        }
+        .into());
+    }
+    let mut seen = HashSet::new();
+    if let Some(duplicate) = station_ids.iter().find(|id| !seen.insert(*id)) {
+        return Err(ValidationError::InvalidValue {
+            field: "station_ids".to_string(),
+            value: format_station_ids(station_ids),
+            reason: format!("station `{duplicate}` is listed more than once"),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+fn validate_conference_references(
+    station_ids: Option<&[StationId]>,
+    stations: &HashSet<&StationId>,
+) -> Result<(), CoverageError> {
+    if let Some(missing) = station_ids
+        .unwrap_or_default()
+        .iter()
+        .find(|id| !stations.contains(id))
+    {
+        return Err(ValidationError::MissingReference {
+            field: "station_ids".to_string(),
+            ref_id: missing.to_string(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+fn format_station_ids(station_ids: &[StationId]) -> String {
+    station_ids
+        .iter()
+        .map(StationId::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl Validator for ClientPageConfig {
@@ -872,6 +950,8 @@ impl std::fmt::Debug for GeoPageButtonRaw {
             .field("label", &self.label.len())
             .field("size", &self.size)
             .field("page", &self.page)
+            .field("station_id", &self.station_id)
+            .field("station_ids", &self.station_ids)
             .finish()
     }
 }
@@ -890,6 +970,7 @@ impl std::fmt::Debug for DirectAccessKeyRaw {
         f.debug_struct("DirectAccessKeyRaw")
             .field("label", &self.label.len())
             .field("station_id", &self.station_id)
+            .field("station_ids", &self.station_ids)
             .finish()
     }
 }
@@ -924,6 +1005,7 @@ mod tests {
                     size: 1.0,
                     page: None,
                     station_id: None,
+                    station_ids: None,
                 })],
             }),
         };
@@ -1089,6 +1171,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
             station_id: None,
+            station_ids: None,
         };
         assert!(valid.validate().is_ok());
 
@@ -1101,6 +1184,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
             station_id: None,
+            station_ids: None,
         };
         assert_matches!(
             empty_label.validate(),
@@ -1121,6 +1205,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
             station_id: None,
+            station_ids: None,
         };
         assert_matches!(
             long_label.validate(),
@@ -1136,6 +1221,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
             station_id: None,
+            station_ids: None,
         };
         assert_matches!(
             negative_size.validate(),
@@ -1151,6 +1237,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
             }),
             station_id: Some(StationId::from("S1")),
+            station_ids: None,
         };
         assert_matches!(
             mutually_exclusive.validate(),
@@ -1164,6 +1251,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
             size: 10.0f64,
             page: None,
             station_id: Some(StationId::from("S1")),
+            station_ids: None,
         };
         assert!(station_id_only.validate().is_ok());
     }
@@ -1192,6 +1280,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
             label: vec!["L".to_string()],
             color: None,
             station_id: Some(StationId::from("S1")),
+            station_ids: None,
             page: None,
         };
         assert!(valid.validate().is_ok());
@@ -1200,6 +1289,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
             label: vec!["L".to_string()],
             color: None,
             station_id: None,
+            station_ids: None,
             page: Some(DirectAccessPageRaw {
                 rows: 1,
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
@@ -1211,6 +1301,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
             label: vec!["L".to_string()],
             color: None,
             station_id: None,
+            station_ids: None,
             page: Some(DirectAccessPageRaw {
                 rows: 1,
                 content: DirectAccessPageContentRaw::ClientPage {
@@ -1224,6 +1315,7 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
             label: vec!["L".to_string()],
             color: None,
             station_id: Some(StationId::from("S1")),
+            station_ids: None,
             page: Some(DirectAccessPageRaw {
                 rows: 1,
                 content: DirectAccessPageContentRaw::Keys { keys: vec![] },
@@ -1265,11 +1357,13 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                                     label: vec!["K1".to_string()],
                                     color: None,
                                     station_id: Some(StationId::from("S1")),
+                                    station_ids: None,
                                     page: None,
                                 }],
                             },
                         }),
                         station_id: None,
+                        station_ids: None,
                     }),
                     GeoNodeRaw::Button(GeoPageButtonRaw {
                         label: vec!["B2".to_string()],
@@ -1283,24 +1377,28 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                                         label: vec!["K2".to_string()],
                                         color: None,
                                         station_id: Some(StationId::from("S2")),
+                                        station_ids: None,
                                         page: None,
                                     },
                                     DirectAccessKeyRaw {
                                         label: vec!["K3".to_string()],
                                         color: None,
                                         station_id: Some(StationId::from("S1")), // Duplicate
+                                        station_ids: None,
                                         page: None,
                                     },
                                     DirectAccessKeyRaw {
                                         label: vec!["K4".to_string()],
                                         color: None,
                                         station_id: None,
+                                        station_ids: None,
                                         page: None,
                                     },
                                 ],
                             },
                         }),
                         station_id: None,
+                        station_ids: None,
                     }),
                 ],
             }),
@@ -1343,11 +1441,13 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                                 label: vec!["K1".to_string()],
                                 color: None,
                                 station_id: Some(station_id.clone()),
+                                station_ids: None,
                                 page: None,
                             }],
                         },
                     }),
                     station_id: None,
+                    station_ids: None,
                 })],
             }),
         };
@@ -1380,11 +1480,13 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                                 label: vec!["K3".to_string()],
                                 color: None,
                                 station_id: Some(StationId::from("MISSING")),
+                                station_ids: None,
                                 page: None,
                             }],
                         },
                     }),
                     station_id: None,
+                    station_ids: None,
                 })],
             }),
         };
@@ -1421,11 +1523,13 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
                                 label: vec!["K4".to_string()],
                                 color: None,
                                 station_id: None,
+                                station_ids: None,
                                 page: None,
                             }],
                         },
                     }),
                     station_id: None,
+                    station_ids: None,
                 })],
             }),
         };
@@ -1622,6 +1726,222 @@ page.keys = [{ label = "CTR", station_id = "LOVV_CTR" }]
         assert_matches!(
             button.validate(),
             Err(CoverageError::Validation(ValidationError::Empty { field })) if field == "label"
+        );
+    }
+
+    fn tabbed_with_keys(keys: &str) -> Result<Profile, CoverageError> {
+        let raw: ProfileRaw = toml::from_str(&format!(
+            r#"
+id = "LOVV"
+type = "Tabbed"
+
+[[tabs]]
+label = "Main"
+page.rows = 1
+page.keys = {keys}
+"#
+        ))
+        .unwrap();
+        Profile::from_raw(raw)
+    }
+
+    fn geo_with_button(button: &str) -> Result<Profile, CoverageError> {
+        let raw: ProfileRaw = toml::from_str(&format!(
+            r#"
+id = "LOVV_GEO"
+type = "Geo"
+direction = "row"
+children = [{button}]
+"#
+        ))
+        .unwrap();
+        Profile::from_raw(raw)
+    }
+
+    fn first_key(profile: &Profile) -> &DirectAccessKey {
+        let ProfileType::Tabbed(tabs) = &profile.profile_type else {
+            panic!("expected a tabbed profile");
+        };
+        let DirectAccessPageContent::Keys { keys } = &tabs[0].page.content else {
+            panic!("expected a keys page");
+        };
+        &keys[0]
+    }
+
+    fn first_button(profile: &Profile) -> &GeoPageButton {
+        let ProfileType::Geo(container) = &profile.profile_type else {
+            panic!("expected a geo profile");
+        };
+        let GeoNode::Button(button) = &container.children[0] else {
+            panic!("expected a button");
+        };
+        button
+    }
+
+    fn station_list(count: usize) -> String {
+        let ids = (1..=count)
+            .map(|i| format!(r#""S{i}""#))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{ids}]")
+    }
+
+    #[test]
+    fn direct_access_key_parses_station_ids() {
+        let profile =
+            tabbed_with_keys(r#"[{ label = "CONF", station_ids = ["S1", "S2", "S3"] }]"#).unwrap();
+        let key = first_key(&profile);
+        assert_eq!(
+            key.station_ids,
+            Some(vec![
+                StationId::from("S1"),
+                StationId::from("S2"),
+                StationId::from("S3")
+            ])
+        );
+        assert_eq!(key.station_id, None);
+    }
+
+    #[test]
+    fn direct_access_key_without_station_ids_parses_as_none() {
+        let profile = tabbed_with_keys(r#"[{ label = "CTR", station_id = "S1" }]"#).unwrap();
+        assert_eq!(first_key(&profile).station_ids, None);
+    }
+
+    #[test]
+    fn geo_page_button_parses_station_ids() {
+        let profile =
+            geo_with_button(r#"{ label = "CONF", size = 1.0, station_ids = ["S1", "S2"] }"#)
+                .unwrap();
+        assert_eq!(
+            first_button(&profile).station_ids,
+            Some(vec![StationId::from("S1"), StationId::from("S2")])
+        );
+
+        let profile =
+            geo_with_button(r#"{ label = "CTR", size = 1.0, station_id = "S1" }"#).unwrap();
+        assert_eq!(first_button(&profile).station_ids, None);
+    }
+
+    #[test]
+    fn station_ids_are_mutually_exclusive_with_station_id_and_page() {
+        let cases = [
+            (
+                r#"{ label = "K", station_id = "S1", station_ids = ["S2", "S3"] }"#,
+                vec!["station_id", "station_ids"],
+            ),
+            (
+                r#"{ label = "K", station_ids = ["S2", "S3"], page = { rows = 1, keys = [] } }"#,
+                vec!["station_ids", "page"],
+            ),
+            (
+                r#"{ label = "K", station_id = "S1", station_ids = ["S2", "S3"], page = { rows = 1, keys = [] } }"#,
+                vec!["station_id", "station_ids", "page"],
+            ),
+        ];
+        for (key, expected) in cases {
+            assert_matches!(
+                tabbed_with_keys(&format!("[{key}]")),
+                Err(CoverageError::Validation(ValidationError::MutuallyExclusive { fields }))
+                    if fields == expected
+            );
+            let button = key.replacen("label = \"K\"", "label = \"K\", size = 1.0", 1);
+            assert_matches!(
+                geo_with_button(&button),
+                Err(CoverageError::Validation(ValidationError::MutuallyExclusive { fields }))
+                    if fields == expected
+            );
+        }
+    }
+
+    #[test]
+    fn station_ids_list_two_to_seven_stations() {
+        assert!(
+            tabbed_with_keys(&format!(
+                r#"[{{ label = "K", station_ids = {} }}]"#,
+                station_list(7)
+            ))
+            .is_ok()
+        );
+        for ids in [
+            r#"[]"#.to_string(),
+            r#"["S1"]"#.to_string(),
+            station_list(8),
+        ] {
+            assert_matches!(
+                tabbed_with_keys(&format!(r#"[{{ label = "K", station_ids = {ids} }}]"#)),
+                Err(CoverageError::Validation(ValidationError::InvalidValue { field, reason, .. }))
+                    if field == "station_ids" && reason.contains("2 to 7")
+            );
+            assert_matches!(
+                geo_with_button(&format!(
+                    r#"{{ label = "K", size = 1.0, station_ids = {ids} }}"#
+                )),
+                Err(CoverageError::Validation(ValidationError::InvalidValue { field, .. }))
+                    if field == "station_ids"
+            );
+        }
+    }
+
+    #[test]
+    fn station_ids_reject_duplicates() {
+        assert_matches!(
+            tabbed_with_keys(r#"[{ label = "K", station_ids = ["S1", "S2", "S1"] }]"#),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, reason, .. }))
+                if field == "station_ids" && reason.contains("`S1`")
+        );
+        assert_matches!(
+            geo_with_button(r#"{ label = "K", size = 1.0, station_ids = ["S1", "S1"] }"#),
+            Err(CoverageError::Validation(ValidationError::InvalidValue { field, reason, .. }))
+                if field == "station_ids" && reason.contains("`S1`")
+        );
+    }
+
+    #[test]
+    fn station_ids_count_as_relevant_stations() {
+        let profile = tabbed_with_keys(
+            r#"[{ label = "CTR", station_id = "S1" }, { label = "CONF", station_ids = ["S2", "S3"] }]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            profile.relevant_station_ids,
+            HashSet::from(["S1", "S2", "S3"].map(StationId::from))
+        );
+
+        let profile =
+            geo_with_button(r#"{ label = "CONF", size = 1.0, station_ids = ["S4", "S5"] }"#)
+                .unwrap();
+        assert_eq!(
+            profile.relevant_station_ids,
+            HashSet::from(["S4", "S5"].map(StationId::from))
+        );
+    }
+
+    #[test]
+    fn station_ids_must_reference_existing_stations() {
+        let s1 = StationId::from("S1");
+        let s2 = StationId::from("S2");
+        let stations = HashSet::from([&s1, &s2]);
+
+        let profile =
+            tabbed_with_keys(r#"[{ label = "CONF", station_ids = ["S1", "S2"] }]"#).unwrap();
+        assert!(profile.validate_references(&stations).is_ok());
+
+        let profile =
+            tabbed_with_keys(r#"[{ label = "CONF", station_ids = ["S1", "MISSING"] }]"#).unwrap();
+        assert_matches!(
+            profile.validate_references(&stations),
+            Err(CoverageError::Validation(ValidationError::MissingReference { field, ref_id }))
+                if field == "station_ids" && ref_id == "MISSING"
+        );
+
+        let profile =
+            geo_with_button(r#"{ label = "CONF", size = 1.0, station_ids = ["MISSING", "S2"] }"#)
+                .unwrap();
+        assert_matches!(
+            profile.validate_references(&stations),
+            Err(CoverageError::Validation(ValidationError::MissingReference { field, ref_id }))
+                if field == "station_ids" && ref_id == "MISSING"
         );
     }
 }

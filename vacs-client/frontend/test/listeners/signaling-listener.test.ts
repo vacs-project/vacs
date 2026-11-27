@@ -146,6 +146,17 @@ describe("signaling listeners", () => {
         expect(display?.call.invitedTargets).toEqual([STATION_1]);
     });
 
+    it("drops a covered target from the displayed call", () => {
+        useCallStore.setState({
+            callDisplay: makeTestCallDisplay("outgoing", {invitedTargets: [STATION_1, STATION_2]}),
+        });
+
+        emit("signaling:call-target-covered", {callId: CALL_ID, target: STATION_2});
+
+        const display = useCallStore.getState().callDisplay;
+        expect(display?.call.invitedTargets).toEqual([STATION_1]);
+    });
+
     it("adds an invitation to the incoming calls", () => {
         emit("signaling:call-invitation", makeTestCall("incoming", {callId: CALL_ID}));
 

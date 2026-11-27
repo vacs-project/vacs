@@ -68,6 +68,24 @@ afterEach(() => {
 });
 
 describe("useCallState", () => {
+    it("ignores the stations of a conference key", () => {
+        const page: DirectAccessPage = {
+            rows: 1,
+            keys: [{label: ["CONF"], stationIds: [PAGE_STATION, NESTED_STATION]}],
+        };
+        useCallStore.setState({
+            callDisplay: makeTestCallDisplay("outgoing", {invitedTargets: [PAGE_TARGET]}),
+            incomingCalls: [
+                incomingCall({source: {clientId: "client9" as ClientId, stationId: PAGE_STATION}}),
+            ],
+        });
+
+        const result = renderHook(() => useCallState(page)).result.current;
+
+        expect(result.beingCalled).toBe(false);
+        expect(result.isCalling).toBe(false);
+    });
+
     describe("isCalling", () => {
         it("matches an incoming call whose source is on the page", () => {
             useCallStore.setState({

@@ -45,6 +45,7 @@ export type GeoPageButton = {
     color?: CustomButtonColor;
     page?: DirectAccessPage;
     stationId?: StationId;
+    stationIds?: StationId[];
 };
 
 export type GeoPageDivider = {
@@ -64,6 +65,7 @@ export type DirectAccessKey = {
     label: string[];
     color?: CustomButtonColor;
     stationId?: StationId;
+    stationIds?: StationId[];
     page?: DirectAccessPage;
 };
 

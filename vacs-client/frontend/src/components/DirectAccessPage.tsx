@@ -1,6 +1,6 @@
 import {DirectAccessPage as DirectAccessPageModel} from "../types/profile.ts";
 import {CSSProperties} from "preact";
-import DirectAccessStationKey from "./ui/DirectAccessStationKey.tsx";
+import DirectAccessStationsKey from "./ui/DirectAccessStationsKey.tsx";
 import ButtonLabel from "./ui/ButtonLabel.tsx";
 import {useProfileStore} from "../stores/profile-store.ts";
 import {useCallState} from "../hooks/call-state-hook.ts";
@@ -35,7 +35,7 @@ function DirectAccessPage({data}: DirectAccessPageProps) {
                                 parent={data}
                             />
                         ) : (
-                            <DirectAccessStationKey
+                            <DirectAccessStationsKey
                                 key={index}
                                 data={key}
                                 className={
