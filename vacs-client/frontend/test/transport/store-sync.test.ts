@@ -30,6 +30,7 @@ vi.mock("../../src/transport", () => ({
 import {useSettingsStore} from "../../src/stores/settings-store.ts";
 import {type CallListItem, useCallListStore} from "../../src/stores/call-list-store.ts";
 import {useCallStore} from "../../src/stores/call-store.ts";
+import {stopPlayback, usePlaybackStore} from "../../src/stores/playback-store.ts";
 import {useStationsStore} from "../../src/stores/stations-store.ts";
 import {hydrateStores, SessionStateSnapshot} from "../../src/transport/hydrate.ts";
 import {setupStoreSync} from "../../src/transport/store-sync.ts";
@@ -91,6 +92,7 @@ const CALL_LIST_ITEM: CallListItem = {
 describe("store sync", () => {
     afterEach(() => {
         useSettingsStore.setState({playbackEnabled: false});
+        usePlaybackStore.setState({status: undefined});
         vi.clearAllMocks();
         useCallStore.getState().actions.reset();
         useCallStore.getState().actions.setPrio(false);
@@ -360,6 +362,26 @@ describe("store sync", () => {
                 incomingCalls: null,
                 conferenceState: "inactive",
             },
+            sourceId: expect.any(String),
+        });
+
+        teardown();
+    });
+
+    it("syncs a stopped say again clip from a remote to the other instances", async () => {
+        const teardown = setupStoreSync();
+        await flushMicrotasks();
+        usePlaybackStore.setState({
+            status: {id: 1, status: "playing", continuously: false, sayAgain: true, progress: 0},
+        });
+        invoke.mockClear();
+
+        await stopPlayback();
+
+        expect(invoke).toHaveBeenCalledWith("playback_stop", undefined);
+        expect(invoke).toHaveBeenCalledWith("remote_broadcast_store_sync", {
+            store: "playback",
+            state: expect.objectContaining({status: undefined}),
             sourceId: expect.any(String),
         });
 
