@@ -514,7 +514,71 @@ export function splitResizeHandle(browser: WebdriverIO.Browser): ChainablePromis
  * explicit width, keyed off the minimum width that clamps the drag.
  */
 export function splitPhonePane(browser: WebdriverIO.Browser): ChainablePromiseElement {
-    return browser.$('//div[contains(@class, "min-w-[calc(5.5rem+0.875rem+3px)]")]');
+    return browser.$('//div[contains(@class, "min-w-[calc(5.5rem+0.75rem+3px)]")]');
+}
+
+/**
+ * Returns the radio pane of the mixed page: the page container right before
+ * the drag handle, which takes whatever width the phone pane leaves.
+ */
+export function splitRadioPane(browser: WebdriverIO.Browser): ChainablePromiseElement {
+    return browser.$('//div[contains(@class, "cursor-ew-resize")]/preceding-sibling::div[1]');
+}
+
+export type OverflowEdge = "top" | "bottom" | "left" | "right";
+
+/**
+ * Returns the scroll container of the ScrollArea inside a pane: the element
+ * whose scroll extents decide which overflow tabs show.
+ */
+export function scrollAreaIn(pane: ChainablePromiseElement): ChainablePromiseElement {
+    return pane.$('.//div[contains(@class, "overflow-auto")][contains(@class, "scrollbar-none")]');
+}
+
+/** Returns the tab on one edge of the ScrollArea inside a pane. */
+export function overflowTab(
+    pane: ChainablePromiseElement,
+    edge: OverflowEdge,
+): ChainablePromiseElement {
+    return pane.$(`.//button[@data-overflow-edge="${edge}"]`);
+}
+
+/**
+ * Waits until the tab on an edge shows or hides. A hidden tab stays in the DOM
+ * as a disabled button. Takes a getter so the pane is queried afresh on every
+ * poll.
+ */
+export async function waitForOverflowTab(
+    browser: WebdriverIO.Browser,
+    pane: () => ChainablePromiseElement,
+    edge: OverflowEdge,
+    shown: boolean,
+    timeoutMsg: string,
+): Promise<void> {
+    await browser.waitUntil(async () => (await overflowTab(pane(), edge).isEnabled()) === shown, {
+        timeoutMsg,
+    });
+}
+
+/**
+ * Asserts that the tab on an edge stays in the given state for the whole
+ * window. A tab starts out hidden and is only set from a measurement after
+ * layout, so a single read cannot tell "fits" from "not measured yet".
+ */
+export async function expectOverflowTabStays(
+    pane: () => ChainablePromiseElement,
+    edge: OverflowEdge,
+    shown: boolean,
+    windowMs: number,
+    what: string,
+): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < windowMs) {
+        if ((await overflowTab(pane(), edge).isEnabled()) !== shown) {
+            throw new Error(`The ${edge} tab ${shown ? "disappeared" : "appeared"} ${what}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
 }
 
 /**
