@@ -10,15 +10,20 @@ import {
     click,
     doubleClick,
     dragHorizontally,
+    expectOverflowTabStays,
+    frequencyObjects,
     getClient,
     pageButton,
     pageCycleButton,
     pageCycleCell,
     pageTab,
+    scrollAreaIn,
     selectOption,
     splitPhonePane,
     splitResizeHandle,
+    waitForOverflowTab,
 } from "../helpers/browser.ts";
+import {applyTrackAudioMocks, radioStation} from "../helpers/docs.ts";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -32,10 +37,27 @@ const CID_A = "10000004";
 const SPLIT_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-split.json");
 const CYCLE_PROFILE = path.resolve(__dirname, "..", "fixtures", "profile-cycle.json");
 const SPLIT_PROFILE_ID = "E2E_SPLIT";
+const PHONE_COLUMNS_PROFILE = path.resolve(
+    __dirname,
+    "..",
+    "fixtures",
+    "profile-mixed-view-columns.json",
+);
+const RADIO_COLUMNS_PROFILE = path.resolve(
+    __dirname,
+    "..",
+    "fixtures",
+    "profile-mixed-view-radio-columns.json",
+);
 
 // A direct access key of each fixture, which marks the phone pane as rendered.
 const SPLIT_KEY = '//button[.//p[@title="SPLIT"] and .//p[@title="A1"]]';
 const CYCLE_KEY = '//button[.//p[@title="CYCLE"] and .//p[@title="A1"]]';
+
+/** The last key of a tab of the column fixtures, which is in its rightmost column. */
+function lastColumnKey(columns: number): string {
+    return `//button[.//p[@title="${columns} COL"] and .//p[@title="R6"] and .//p[@title="C${columns}"]]`;
+}
 
 // The radio pane without a TrackAudio connection. Which of the two messages it
 // shows depends on how far the connection attempt got: the client reports
@@ -97,6 +119,22 @@ async function loadTestProfile(browser: WebdriverIO.Browser, file: string): Prom
     if (!result.ok) {
         throw new Error(`app_load_test_profile failed for ${file}: ${result.error}`);
     }
+}
+
+async function changeZoom(
+    browser: WebdriverIO.Browser,
+    change: "increase" | "decrease" | "reset",
+): Promise<void> {
+    const result = await browser.execute(async (zoomChange: string) => {
+        try {
+            await window.__TAURI_INTERNALS__.invoke("app_change_zoom_level", {change: zoomChange});
+            return {ok: true as const};
+        } catch (e) {
+            return {ok: false as const, error: String(e)};
+        }
+    }, change);
+
+    if (!result.ok) throw new Error(`app_change_zoom_level ${change} failed: ${result.error}`);
 }
 
 /** The width the client persisted for the split fixture, if any. */
@@ -328,5 +366,105 @@ describe("Split view profiles", function () {
         await clientA.waitUntil(async () => persistedSplitWidth() === undefined, {
             timeoutMsg: "The persisted width was not cleared by the double click",
         });
+    });
+
+    it("should fit the profile's key columns in the phone pane", async () => {
+        const clientA = getClient("clientA");
+        await setRadioIntegration(clientA, "TrackAudio");
+        await loadTestProfile(clientA, PHONE_COLUMNS_PROFILE);
+        await splitResizeHandle(clientA).waitForExist();
+
+        const phone = () => splitPhonePane(clientA);
+        const selectTab = async (columns: number) => {
+            await click(clientA, pageTab(clientA, String(columns)));
+            await clientA.$(lastColumnKey(columns)).waitForExist();
+        };
+
+        // The wider tab goes first, so the narrower one has to clear a tab
+        // that a measurement set rather than keep the unmeasured default.
+        const expectFiveColumnsFit = async (when: string) => {
+            await selectTab(6);
+            await waitForOverflowTab(
+                clientA,
+                phone,
+                "right",
+                true,
+                `The 6 column tab did not mark keys hidden on the right ${when}`,
+            );
+            await selectTab(5);
+            await waitForOverflowTab(
+                clientA,
+                phone,
+                "right",
+                false,
+                `The 5 column tab still marked keys hidden on the right ${when}`,
+            );
+            await expectOverflowTabStays(phone, "right", false, 500, `on the 5 column tab ${when}`);
+        };
+
+        await expectFiveColumnsFit("at the default zoom");
+        const extents = await clientA.execute(
+            (el: HTMLElement) => ({scrollWidth: el.scrollWidth, clientWidth: el.clientWidth}),
+            await scrollAreaIn(phone()),
+        );
+        if (extents.scrollWidth > extents.clientWidth) {
+            throw new Error(
+                `The 5 column tab is ${extents.scrollWidth}px wide in a ${extents.clientWidth}px pane`,
+            );
+        }
+
+        const viewportWidth = () => clientA.execute(() => window.innerWidth);
+        const unzoomedWidth = await viewportWidth();
+        await changeZoom(clientA, "increase");
+        await clientA.waitUntil(async () => (await viewportWidth()) < unzoomedWidth, {
+            timeoutMsg: "The zoom step did not shrink the viewport",
+        });
+        await expectFiveColumnsFit("one zoom step in");
+    });
+
+    it("should size the radio pane to the profile's radio columns", async () => {
+        const clientA = getClient("clientA");
+        await applyTrackAudioMocks("clientA", "VoiceConnected", [
+            radioStation("LOVV_CTR", 134_350_000),
+            radioStation("LOWW_APP", 134_675_000),
+            radioStation("LOWW_TWR", 119_400_000),
+        ]);
+        await loadTestProfile(clientA, RADIO_COLUMNS_PROFILE);
+        await splitResizeHandle(clientA).waitForExist();
+        await clientA.waitUntil(
+            async () => (await frequencyObjects(clientA).getElements()).length === 3,
+            {timeoutMsg: "The radio pane did not show the three mocked stations"},
+        );
+
+        const rect = (element: WebdriverIO.Element) =>
+            clientA.execute((el: HTMLElement) => {
+                const {x, y, width, height} = el.getBoundingClientRect();
+                return {x, y, width, height};
+            }, element);
+        const objects = await frequencyObjects(clientA).getElements();
+        const first = await rect(objects[0]);
+        const second = await rect(objects[1]);
+        const third = await rect(objects[2]);
+
+        // The radio page wraps bottom up, so the third object opens a row above.
+        if (Math.abs(first.y - second.y) > 1 || third.y >= first.y - first.height / 2) {
+            throw new Error(
+                `Frequency objects did not form rows of two: ${JSON.stringify([first, second, third])}`,
+            );
+        }
+        if (Math.abs(third.x - first.x) > 1) {
+            throw new Error(
+                `The third frequency object did not start a row: x ${third.x}, first ${first.x}`,
+            );
+        }
+
+        const handle = await rect(await splitResizeHandle(clientA).getElement());
+        const phone = await rect(await splitPhonePane(clientA).getElement());
+        const handleCenter = handle.x + handle.width / 2;
+        if (Math.abs(handleCenter - phone.x) > 3) {
+            throw new Error(
+                `The resize handle is centered at ${handleCenter}, the phone pane starts at ${phone.x}`,
+            );
+        }
     });
 });
