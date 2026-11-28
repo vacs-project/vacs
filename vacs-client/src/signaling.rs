@@ -53,6 +53,8 @@ mod tests {
         Profile {
             id: ProfileId::from(id),
             view: ProfileView::Split,
+            mixed_view_phone_columns: None,
+            mixed_view_radio_columns: None,
             profile_type: ProfileType::Tabbed(vec![]),
         }
     }

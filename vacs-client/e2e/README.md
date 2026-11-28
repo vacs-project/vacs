@@ -46,6 +46,8 @@ focus. It forces the X11 platform (the same one CI uses), so the Wayland paths
 (GlobalShortcuts portal, no always-on-top, window size restore) are not
 exercised; run plain `npm test` on a Wayland desktop when a change touches
 those. Needs `xvfb-run` (`xorg-x11-server-Xvfb` on Fedora, `xvfb` on Ubuntu).
+`npm run -w e2e screenshots:hidden` does the same for the documentation
+capture (see below), passing any extra arguments on to `wdio run wdio.docs.ts`.
 
 Individual runs: `npx wdio run wdio.conf.ts --spec ./specs/call.e2e.ts`
 (optionally `--mochaOpts.grep "<test name>"`).

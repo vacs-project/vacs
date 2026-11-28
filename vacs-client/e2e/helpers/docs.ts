@@ -46,6 +46,20 @@ export const NEXT_VERSION = (() => {
 // using another CID, so the header shows the same CID throughout the manual.
 export const CID_A = "10000001";
 export const POSITION_A = "LOVV_E_CTR";
+/** POSITION_A's `default_call_sources` in the dataset. */
+const POSITION_A_DEFAULT_CALL_SOURCES = [
+    "LOVV_E1",
+    "LOVV_E2",
+    "LOVV_E3",
+    "LOVV_N1",
+    "LOVV_N2",
+    "LOVV_N3",
+    "LOVV_S1",
+    "LOVV_S2",
+    "LOVV_S3",
+];
+/** The server's default `call.max_conf_size`, which the docs run does not override. */
+const MAX_CONF_SIZE = 8;
 export const TABBED_POSITION = "LOWW_APP";
 export const TABBED_FREQUENCY = "134.675";
 
@@ -57,10 +71,7 @@ export const TABBED_FREQUENCY = "134.675";
 export const CID_B = "10000005";
 export const CID_C = "10000006";
 export const CID_D = "10000007";
-/**
- * A positionless user for the profile images: a resolved position would have
- * the server push its own profile over a profile loaded from a file.
- */
+/** A further user without a datafeed controller, for a second raw caller. */
 export const CID_PROFILE = "10000004";
 
 /** The datafeed's BC controller, which masks the S stations while it is not on vacs. */
@@ -299,6 +310,53 @@ export async function loadTestProfile(browser: WebdriverIO.Browser, file: string
     }, file);
 
     if (!result.ok) throw new Error(`app_load_test_profile failed for ${file}: ${result.error}`);
+}
+
+/**
+ * Restores the header's position and connection status, which loadTestProfile blanks, with the
+ * session update a server sends when the position changes but the profile does not.
+ */
+export async function restoreConnectedHeader(
+    instanceName: string,
+    cid: string,
+    positionId: string,
+    defaultCallSources: string[],
+): Promise<void> {
+    // Matches a login without an active VATSIM connection, as the harness server is configured.
+    await emitEvent(instanceName, "signaling:connected", {
+        client: {id: cid, positionId, displayName: cid, frequency: ""},
+        profile: {type: "unchanged"},
+        defaultCallSources,
+        splitProfileWidth: undefined,
+        maxConfSize: MAX_CONF_SIZE,
+    });
+}
+
+/** A cell of the header's info grid, matched by the text it shows in full in its title. */
+export function infoCell(title: string): string {
+    return `//div[contains(@class, "info-grid-cell")][@title="${title}"]`;
+}
+
+/**
+ * Connects CID_A on POSITION_A and shows a profile loaded from a file in place of the position's
+ * own, with the header still on the connected position. `beforeLoad` runs once connected, before
+ * the profile loads.
+ */
+export async function connectWithTestProfile(
+    browser: WebdriverIO.Browser,
+    instanceName: string,
+    file: string,
+    beforeLoad?: () => Promise<void>,
+): Promise<void> {
+    await loginAndConnectAs(browser, CID_A, POSITION_A);
+    await applyFixtures(browser, instanceName);
+    // The server pushes the position's own profile with the position; loading before that
+    // arrives would have it replace the test profile.
+    await browser.$(infoCell(POSITION_A)).waitForDisplayed();
+    await beforeLoad?.();
+    await loadTestProfile(browser, file);
+    await restoreConnectedHeader(instanceName, CID_A, POSITION_A, POSITION_A_DEFAULT_CALL_SOURCES);
+    await browser.$(infoCell(POSITION_A)).waitForDisplayed();
 }
 
 /** Re-runs the capability fetch, which otherwise only happens on mount. */

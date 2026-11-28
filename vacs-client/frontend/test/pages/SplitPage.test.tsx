@@ -29,6 +29,12 @@ function mockPhoneContainerBounds(bounds: {x: number; width: number}) {
     ] as unknown as DOMRectList);
 }
 
+function getPhoneContainer(container: Element) {
+    const phone = container.querySelector<HTMLElement>(".shrink-0[style*='width']");
+    if (phone === null) throw new Error("phone container not found");
+    return phone;
+}
+
 function getHandle(container: Element) {
     const handle = container.querySelector<HTMLElement>(".cursor-ew-resize");
     if (handle === null) throw new Error("split handle not found");
@@ -137,5 +143,60 @@ describe("SplitPage", () => {
             width: undefined,
         });
         expect(useProfileStore.getState().splitProfileWidth).toBeUndefined();
+    });
+
+    it("sizes the phone pane for four columns when the profile sets none", () => {
+        useProfileStore.getState().setProfile(PROFILE, undefined);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(3px + 23.875rem)");
+    });
+
+    it("sizes the phone pane for the profile's mixed view columns", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewPhoneColumns: 6}, undefined);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(3px + 35.625rem)");
+    });
+
+    it("prefers the user's stored width over the profile's columns", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewPhoneColumns: 6}, 400);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("400px");
+    });
+
+    it("returns to the profile's columns on double click", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewPhoneColumns: 5}, 400);
+        mockPhoneContainerBounds({x: 100, width: 200});
+        const {container} = render(<SplitPage />);
+
+        fireEvent.dblClick(getHandle(container));
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(3px + 29.75rem)");
+    });
+
+    it("gives the phone pane the width the profile's radio columns leave", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewRadioColumns: 2}, undefined);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(100% - (3px + 21.25rem))");
+    });
+
+    it("prefers the user's stored width over the profile's radio columns", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewRadioColumns: 2}, 400);
+        const {container} = render(<SplitPage />);
+
+        expect(getPhoneContainer(container).style.width).toBe("400px");
+    });
+
+    it("returns to the profile's radio columns on double click", () => {
+        useProfileStore.getState().setProfile({...PROFILE, mixedViewRadioColumns: 2}, 400);
+        mockPhoneContainerBounds({x: 100, width: 200});
+        const {container} = render(<SplitPage />);
+
+        fireEvent.dblClick(getHandle(container));
+
+        expect(getPhoneContainer(container).style.width).toBe("calc(100% - (3px + 21.25rem))");
     });
 });
