@@ -6,6 +6,7 @@ import ScrollArea from "../../../src/components/ui/ScrollArea.tsx";
 afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
 });
 
 type Metrics = Partial<
@@ -17,7 +18,8 @@ type Metrics = Partial<
         | "clientHeight"
         | "clientWidth"
         | "offsetLeft"
-        | "offsetWidth",
+        | "offsetWidth"
+        | "offsetHeight",
         number
     >
 >;
@@ -27,6 +29,12 @@ function setMetrics(element: Element, metrics: Metrics) {
         Object.defineProperty(element, key, {value, configurable: true});
     }
 }
+
+const {invoke} = vi.hoisted(() => ({
+    invoke: vi.fn<(cmd: string) => Promise<unknown>>(() => Promise.resolve(undefined)),
+}));
+
+vi.mock("../../../src/transport", () => ({invoke, isTauri: true, isRemote: () => false}));
 
 const SIZE: Metrics = {scrollHeight: 300, clientHeight: 300, scrollWidth: 400, clientWidth: 400};
 
@@ -77,9 +85,7 @@ function renderArea(reversed = false) {
     const tab = (edge: string) =>
         container.querySelector(`[data-overflow-edge="${edge}"]`) as HTMLElement;
     const visibleEdges = () =>
-        ["top", "bottom", "left", "right"].filter(edge =>
-            tab(edge).classList.contains("opacity-100"),
-        );
+        ["top", "bottom", "left", "right"].filter(edge => tab(edge).matches(":enabled"));
     return {scroller, scrollTo, tab, visibleEdges, rerender};
 }
 
@@ -99,12 +105,14 @@ describe("ScrollArea", () => {
         expect(visibleEdges()).toEqual([]);
     });
 
-    it("ignores an overflow of a single pixel", () => {
+    it("ignores an overflow within the rounding of the scroll offsets", () => {
         const {scrollTo, visibleEdges} = renderArea();
 
-        scrollTo({scrollHeight: 301, scrollWidth: 401});
-
+        scrollTo({scrollHeight: 304, scrollWidth: 404});
         expect(visibleEdges()).toEqual([]);
+
+        scrollTo({scrollHeight: 305, scrollWidth: 405});
+        expect(visibleEdges()).toEqual(["bottom", "right"]);
     });
 
     it("marks the edges with hidden content while scrolling down", () => {
@@ -145,7 +153,7 @@ describe("ScrollArea", () => {
 
     it("centers the top and bottom tabs on the content", () => {
         const {scroller, scrollTo, tab} = renderArea();
-        const [first, second] = Array.from(scroller.children);
+        const [first, second] = Array.from(scroller.firstElementChild!.children);
         setMetrics(first, {offsetLeft: 6, offsetWidth: 160});
         setMetrics(second, {offsetLeft: 174, offsetWidth: 160});
 
@@ -157,7 +165,10 @@ describe("ScrollArea", () => {
 
     it("centers the top and bottom tabs on the area while it scrolls sideways", () => {
         const {scroller, scrollTo, tab} = renderArea();
-        setMetrics(scroller.children[0], {offsetLeft: 0, offsetWidth: 800});
+        setMetrics(scroller.firstElementChild!.firstElementChild!, {
+            offsetLeft: 0,
+            offsetWidth: 800,
+        });
 
         scrollTo({scrollHeight: 600, scrollWidth: 800, scrollLeft: 100});
 
@@ -189,9 +200,138 @@ describe("ScrollArea", () => {
         setMetrics(scroller, {...SIZE, scrollWidth: 800});
 
         rerender(area(false, 2, 400));
-        resize(scroller.children[0]);
+        resize(scroller.firstElementChild!.firstElementChild!);
 
         expect(visibleEdges()).toEqual(["right"]);
+    });
+
+    // Three columns of four 80x100px items, 8px apart, behind 8px of padding.
+    function renderGrid(reversed = false, scrollWidth = 272, itemHeight = 100) {
+        const {container} = render(
+            <ScrollArea reversed={reversed} style={{rowGap: "8px", columnGap: "8px"}}>
+                {Array.from({length: 12}, (_, i) => (
+                    <div key={i} />
+                ))}
+            </ScrollArea>,
+        );
+        const scroller = container.firstElementChild!.firstElementChild as HTMLElement;
+        const scrollTo = vi.fn<(options: ScrollToOptions) => void>();
+        Object.defineProperty(scroller, "scrollTo", {value: scrollTo});
+        const item = scroller.firstElementChild!.firstElementChild as HTMLElement;
+        item.style.width = "80px";
+        item.style.height = `${itemHeight}px`;
+
+        const click = (edge: string, scrollTop: number, scrollLeft = 0) => {
+            setMetrics(scroller, {
+                scrollTop,
+                scrollLeft,
+                scrollHeight: 440,
+                clientHeight: 200,
+                scrollWidth,
+                clientWidth: 150,
+            });
+            fireEvent.scroll(scroller);
+            scrollTo.mockClear();
+            fireEvent.click(container.querySelector(`[data-overflow-edge="${edge}"]`)!);
+            return scrollTo.mock.lastCall?.[0];
+        };
+        const tab = (edge: string) => container.querySelector(`[data-overflow-edge="${edge}"]`)!;
+        const clickAgain = (edge: string) => {
+            fireEvent.click(tab(edge));
+            return scrollTo.mock.lastCall?.[0];
+        };
+        return {click, clickAgain, scroller};
+    }
+
+    it.each([
+        ["from the start to the second row", "bottom", 0, 108],
+        ["from between two rows to the next one", "bottom", 150, 216],
+        ["past the last row to the end", "bottom", 216, 240],
+        ["from the end back onto a row", "top", 240, 216],
+        ["from between two rows to the previous one", "top", 150, 108],
+        ["from the second row to the start", "top", 108, 0],
+    ])("scrolls %s on a tab click", (_, edge, from, to) => {
+        const {click} = renderGrid();
+
+        expect(click(edge, from)).toEqual({top: to, behavior: "smooth"});
+        expect(invoke).toHaveBeenCalledWith("audio_play_ui_click", undefined);
+    });
+
+    it.each([
+        ["top", 0, -108],
+        ["top", -150, -216],
+        ["bottom", -240, -216],
+        ["bottom", -108, -0],
+    ])("lines rows up from the bottom of a reversed area (%s from %i)", (edge, from, to) => {
+        const {click} = renderGrid(true);
+
+        expect(click(edge, from)).toEqual({top: to, behavior: "smooth"});
+    });
+
+    it.each([
+        ["right", 0, 88],
+        ["right", 88, 122],
+        ["left", 122, 88],
+        ["left", 88, 0],
+    ])("scrolls one column at a time (%s from %i)", (edge, from, to) => {
+        const {click} = renderGrid();
+
+        expect(click(edge, 0, from)).toEqual({left: to, behavior: "smooth"});
+    });
+
+    it.each([
+        ["right", 0, 93],
+        ["left", 93, 0],
+    ])("skips a column just short of the end (%s from %i)", (edge, from, to) => {
+        const {click} = renderGrid(false, 243);
+
+        expect(click(edge, 0, from)).toEqual({left: to, behavior: "smooth"});
+    });
+
+    it.each([
+        ["bottom", 106, 216],
+        ["bottom", 105, 216],
+        ["top", 110, 0],
+    ])("takes a rounded offset as its row (%s from %i)", (edge, from, to) => {
+        const {click} = renderGrid();
+
+        expect(click(edge, from)).toEqual({top: to, behavior: "smooth"});
+    });
+
+    it("keeps the fraction of an item size", () => {
+        const {click} = renderGrid(false, 272, 100.4);
+
+        expect(click("bottom", 108)).toEqual({top: expect.closeTo(216.8), behavior: "smooth"});
+    });
+
+    it("steps on from the target of a click that is still scrolling", () => {
+        const {click, clickAgain} = renderGrid();
+
+        click("bottom", 0);
+
+        expect(clickAgain("bottom")).toEqual({top: 216, behavior: "smooth"});
+    });
+
+    it.each(["wheel", "pointerDown"] as const)(
+        "counts from the current position again after a %s",
+        input => {
+            const {click, clickAgain, scroller} = renderGrid();
+            click("bottom", 0);
+
+            fireEvent[input](scroller);
+
+            expect(clickAgain("bottom")).toEqual({top: 108, behavior: "smooth"});
+        },
+    );
+
+    it("counts from the current position once the target is reached", () => {
+        const {click, clickAgain, scroller} = renderGrid();
+        click("bottom", 0);
+        setMetrics(scroller, {scrollTop: 108});
+        fireEvent.scroll(scroller);
+        setMetrics(scroller, {scrollTop: 0});
+
+        expect(clickAgain("bottom")).toEqual({top: 108, behavior: "smooth"});
     });
 
     it("hands wheel events of the scrolling element to onWheel", () => {

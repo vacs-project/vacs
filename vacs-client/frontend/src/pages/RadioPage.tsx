@@ -103,7 +103,7 @@ function RadioPageInner({radioState}: {radioState: RadioState | undefined}) {
     }, []);
 
     return (
-        <ScrollArea className="p-1.5 pr-0 flex flex-wrap-reverse content-start gap-2" reversed>
+        <ScrollArea className="shrink-0 p-1.5 pr-0 pb-2 flex flex-wrap-reverse gap-2" reversed>
             {Array.from(stations.entries())
                 .sort(sortRadioStations)
                 .map(([freq, station]) => (

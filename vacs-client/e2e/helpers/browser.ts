@@ -514,7 +514,7 @@ export function splitResizeHandle(browser: WebdriverIO.Browser): ChainablePromis
  * explicit width, keyed off the minimum width that clamps the drag.
  */
 export function splitPhonePane(browser: WebdriverIO.Browser): ChainablePromiseElement {
-    return browser.$('//div[contains(@class, "min-w-[calc(5.5rem+0.875rem+3px)]")]');
+    return browser.$('//div[contains(@class, "min-w-[calc(5.5rem+0.75rem+3px)]")]');
 }
 
 /**

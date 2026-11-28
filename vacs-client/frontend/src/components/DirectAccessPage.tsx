@@ -18,42 +18,46 @@ type DirectAccessPageProps = {
 function DirectAccessPage({data}: DirectAccessPageProps) {
     const splitView = useSplitView();
 
+    const gap = splitView ? "0.375rem" : "0.5rem";
     const style: CSSProperties = {
         gridTemplateRows: `repeat(${data.rows}, 1fr)`,
-        gap: splitView ? "0.375rem" : "0.5rem",
+        gap,
+        padding: gap,
     };
 
     return (
-        <ScrollArea onWheel={e => scrollHorizontallyOnWheel(e.currentTarget, e)}>
-            <div className="w-min min-h-full py-3 px-2 grid grid-flow-col" style={style}>
-                {data.keys !== undefined ? (
-                    data.keys.map((key, index) =>
-                        key.page !== undefined ? (
-                            <DirectAccessSubpageKey
-                                key={index}
-                                label={key.label}
-                                page={key.page}
-                                color={key.color}
-                                parent={data}
-                            />
-                        ) : (
-                            <DirectAccessStationKey
-                                key={index}
-                                data={key}
-                                className={
-                                    data.rows !== undefined && data.rows > 6
-                                        ? "leading-4!"
-                                        : "leading-4.5!"
-                                }
-                            />
-                        ),
-                    )
-                ) : data.clientPage !== undefined ? (
-                    <ClientPage config={data.clientPage} />
-                ) : (
-                    <></>
-                )}
-            </div>
+        <ScrollArea
+            className="w-min min-h-full grid grid-flow-col"
+            style={style}
+            onWheel={e => scrollHorizontallyOnWheel(e.currentTarget, e)}
+        >
+            {data.keys !== undefined ? (
+                data.keys.map((key, index) =>
+                    key.page !== undefined ? (
+                        <DirectAccessSubpageKey
+                            key={index}
+                            label={key.label}
+                            page={key.page}
+                            color={key.color}
+                            parent={data}
+                        />
+                    ) : (
+                        <DirectAccessStationKey
+                            key={index}
+                            data={key}
+                            className={
+                                data.rows !== undefined && data.rows > 6
+                                    ? "leading-4!"
+                                    : "leading-4.5!"
+                            }
+                        />
+                    ),
+                )
+            ) : data.clientPage !== undefined ? (
+                <ClientPage config={data.clientPage} />
+            ) : (
+                <></>
+            )}
         </ScrollArea>
     );
 }

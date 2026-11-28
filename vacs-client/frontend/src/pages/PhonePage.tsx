@@ -47,10 +47,11 @@ function FallbackProfile() {
     const config = useSettingsStore(state => state.selectedClientPageConfig);
 
     return (
-        <ScrollArea onWheel={e => scrollHorizontallyOnWheel(e.currentTarget, e)}>
-            <div className="w-min min-h-full py-3 px-2 grid grid-flow-col grid-rows-6 gap-2">
-                <ClientPage config={config} />
-            </div>
+        <ScrollArea
+            className="w-min min-h-full p-2 grid grid-flow-col grid-rows-6 gap-2"
+            onWheel={e => scrollHorizontallyOnWheel(e.currentTarget, e)}
+        >
+            <ClientPage config={config} />
         </ScrollArea>
     );
 }

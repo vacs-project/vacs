@@ -5,7 +5,7 @@ import {useProfileStore} from "../stores/profile-store.ts";
 import PhonePage from "./PhonePage.tsx";
 import RadioPage from "./RadioPage.tsx";
 
-const DEFAULT_WIDTH = "calc(5.5rem * 4 + 0.375rem * 3 + 1rem + 3px)";
+const DEFAULT_WIDTH = "calc(5.5rem * 4 + 0.375rem * 5 + 3px)";
 
 function SplitPage() {
     const draggingRef = useRef(false);
@@ -86,13 +86,13 @@ function SplitPage() {
                 onPointerCancel={handleOnDragEnd}
                 onDblClick={handleOnDblClick}
                 style={{
-                    right: `clamp(calc(5.5rem + 0.875rem - 3px), calc(${width} - 6px), calc(100% - 11.125rem - 5px))`,
+                    right: `clamp(calc(5.5rem + 0.75rem - 3px), calc(${width} - 6px), calc(100% - 11.125rem - 5px))`,
                 }}
             />
             <MainPageContainer
                 ref={phoneContainerRef}
                 width={width}
-                className="min-w-[calc(5.5rem+0.875rem+3px)] max-w-[calc(100%-11.125rem+1px)]"
+                className="min-w-[calc(5.5rem+0.75rem+3px)] max-w-[calc(100%-11.125rem+1px)]"
             >
                 <PhonePage />
             </MainPageContainer>

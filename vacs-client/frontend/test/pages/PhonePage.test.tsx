@@ -42,11 +42,9 @@ describe("PhonePage", () => {
         fireEvent.scroll(scroller);
         fireEvent.wheel(scroller, {deltaY: 100});
 
-        expect(
-            container
-                .querySelector('[data-overflow-edge="right"]')
-                ?.classList.contains("opacity-100"),
-        ).toBe(true);
+        expect(container.querySelector('[data-overflow-edge="right"]')?.matches(":enabled")).toBe(
+            true,
+        );
         expect(scrollBy).toHaveBeenCalledExactlyOnceWith({left: 100, behavior: "smooth"});
     });
 });
